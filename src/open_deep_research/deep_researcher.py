@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Optional
 
 from langchain_core.messages import (
     AIMessage,
@@ -16,6 +16,7 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
+from pydantic import BaseModel, Field
 
 from open_deep_research.claude_agent_chat import configurable_claude_model
 from open_deep_research.configuration import (
@@ -53,6 +54,7 @@ from open_deep_research.storage import (
     get_subject_by_slug,
     get_subject_names,
     log_research_run,
+    preallocate_run as preallocate_run_storage,
     save_run_and_upsert_subject,
     slugify,
 )
@@ -1018,6 +1020,125 @@ async def persist_research(state: AgentState, config: RunnableConfig):
         return {}
 
 
+###################
+# Fact-base extraction (structured output models + helpers)
+###################
+class FactRecord(BaseModel):
+    """A single extracted country digital-identity fact."""
+
+    property: str
+    instance_name: str
+    value: str
+    unit: Optional[str] = None
+    as_of: Optional[str] = None
+    qualifiers: dict = Field(default_factory=dict)
+    evidence_span: str
+
+
+class ExtractionResult(BaseModel):
+    """List of facts extracted from a single source."""
+
+    facts: list[FactRecord] = Field(default_factory=list)
+
+
+def _make_fact_model_call(configurable, config):
+    """Build an async model_call(source_text, prof) -> list[dict] for the extractor.
+
+    Mirrors the structured-output invocation pattern used elsewhere in this graph
+    (singleton ``configurable_model`` -> ``with_structured_output`` -> ``with_config``
+    -> ``ainvoke``). Best-effort: returns [] on any error so extraction never fails
+    a completed run.
+    """
+    async def model_call(source_text, prof):
+        try:
+            prop_names = [pd.name for pd in prof.properties]
+            prompt = (
+                "Extract Digital-Identity facts about a COUNTRY from the source text below. "
+                f"Only use these property names: {prop_names}. "
+                "Emit a qualifier ONLY if the source explicitly states it; otherwise omit it (do not guess). "
+                "evidence_span MUST be a verbatim substring of the source text supporting the value. "
+                "If nothing is stated, return an empty list.\n\nSOURCE:\n" + (source_text or "")[:8000]
+            )
+            model = (
+                configurable_model
+                .with_structured_output(ExtractionResult)
+                .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+                .with_config({
+                    "model": configurable.research_model,
+                    "max_tokens": configurable.research_model_max_tokens,
+                    "api_key": get_api_key_for_model(configurable.research_model, config),
+                    "tags": ["langsmith:nostream"],
+                })
+            )
+            result = await model.ainvoke([HumanMessage(content=prompt)])
+            return [f.model_dump() for f in (result.facts or [])]
+        except Exception as e:
+            logger.warning("fact model_call failed (non-fatal): %s", e)
+            return []
+    return model_call
+
+
+async def preallocate_run(state: AgentState, config: RunnableConfig) -> dict:
+    """Create the research_runs row early so the tool layer/extract_facts share a run id."""
+    configurable = Configuration.from_runnable_config(config)
+    if not configurable.persist_results:
+        return {}
+    thread_id = (config.get("configurable") or {}).get("thread_id")
+    try:
+        run_id = await preallocate_run_storage(get_db_path(config), str(thread_id))
+        return {"prealloc_run_id": run_id}
+    except Exception as e:
+        logger.warning("preallocate_run failed (non-fatal): %s", e)
+        return {}
+
+
+async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
+    """Per-source fact extraction over the run's captured run_source rows (research path)."""
+    configurable = Configuration.from_runnable_config(config)
+    if not configurable.persist_results:
+        return {}
+    thread_id = (config.get("configurable") or {}).get("thread_id")
+    if not thread_id:
+        return {}
+    try:
+        import aiosqlite
+        from open_deep_research.factbase import (
+            entities as fbentities,
+            extractor as fbextractor,
+            ingest as fbingest,
+            migrations as fbmig,
+            profile as fbprofile,
+            registry as fbregistry,
+            schema as fbschema,
+            store as fbstore,
+        )
+        prof = fbprofile.load("country_digital_identity")
+        reg = fbregistry.SourceRegistry.load("di_source_registry")
+        model_call = _make_fact_model_call(configurable, config)
+        run_id = state.get("prealloc_run_id")
+        async with aiosqlite.connect(get_db_path(config)) as conn:
+            await fbmig.apply(conn, fbschema.STEPS)
+            sources = await fbstore.RunSourceStore(conn).read(str(thread_id))
+            all_records = []
+            for s in sources:
+                if s["capture_status"] != "raw_text" or not s["text"]:
+                    continue
+                recs = await fbextractor.extract(s["text"], prof, model_call)
+                for r in recs:
+                    r.setdefault("source_url", s["source_url"])
+                all_records.extend(recs)
+            if all_records and run_id:
+                await fbingest.Ingestor(
+                    conn,
+                    profile=prof,
+                    resolver=fbentities.CountryResolver(),
+                    registry=reg,
+                ).ingest(run_id=run_id, records=all_records)
+    except Exception as e:
+        logger.warning("extract_facts failed (non-fatal): %s", e)
+    return {}
+
+
 # Main Deep Researcher Graph Construction
 # Creates the complete deep research workflow from user input to final report
 deep_researcher_builder = StateGraph(
@@ -1027,21 +1148,25 @@ deep_researcher_builder = StateGraph(
 )
 
 # Add main workflow nodes for the complete research process
+deep_researcher_builder.add_node("preallocate_run", preallocate_run)               # Preallocate run id for shared fact capture
 deep_researcher_builder.add_node("assess_knowledge", assess_knowledge)             # Entry: subject match + knowledge decision
 deep_researcher_builder.add_node("answer_from_dossier", answer_from_dossier)       # Answer directly from stored knowledge
 deep_researcher_builder.add_node("clarify_with_user", clarify_with_user)           # User clarification phase
 deep_researcher_builder.add_node("write_research_brief", write_research_brief)     # Research planning phase
 deep_researcher_builder.add_node("research_supervisor", supervisor_subgraph)       # Research execution phase
 deep_researcher_builder.add_node("final_report_generation", final_report_generation)  # Report generation phase
+deep_researcher_builder.add_node("extract_facts", extract_facts)                   # Per-source fact extraction (research path)
 deep_researcher_builder.add_node("persist_research", persist_research)             # Persist results to SQLite
 
 # Define main workflow edges. assess_knowledge (entry) branches via Command(goto)
 # to answer_from_dossier / write_research_brief / clarify_with_user.
-deep_researcher_builder.add_edge(START, "assess_knowledge")                         # Entry point: check the knowledge base first
+deep_researcher_builder.add_edge(START, "preallocate_run")                          # Entry point: preallocate the run id
+deep_researcher_builder.add_edge("preallocate_run", "assess_knowledge")             # Then check the knowledge base
 deep_researcher_builder.add_edge("answer_from_dossier", "persist_research")         # Cached answer -> log the run
 deep_researcher_builder.add_edge("write_research_brief", "research_supervisor")     # Brief to research
 deep_researcher_builder.add_edge("research_supervisor", "final_report_generation") # Research to report
-deep_researcher_builder.add_edge("final_report_generation", "persist_research")    # Report to persistence
+deep_researcher_builder.add_edge("final_report_generation", "extract_facts")       # Report to fact extraction
+deep_researcher_builder.add_edge("extract_facts", "persist_research")              # Fact extraction to persistence
 deep_researcher_builder.add_edge("persist_research", END)                          # Final exit point
 
 # Compile the complete deep researcher workflow

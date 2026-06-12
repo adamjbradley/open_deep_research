@@ -116,4 +116,11 @@ CREATE TABLE IF NOT EXISTS conflict_member (
 
 STEPS: list[tuple[int, str]] = [
     (1, _V1),
+    (2, """
+    ALTER TABLE run_source ADD COLUMN thread_id TEXT;
+    CREATE INDEX IF NOT EXISTS ix_run_source_thread ON run_source(thread_id);
+    ALTER TABLE research_runs ADD COLUMN status TEXT;
+    ALTER TABLE research_runs ADD COLUMN coverage_incomplete INTEGER DEFAULT 0;
+    ALTER TABLE research_runs ADD COLUMN last_heartbeat TEXT;
+    """),
 ]

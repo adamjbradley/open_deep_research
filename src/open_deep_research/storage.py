@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import aiosqlite
@@ -255,3 +256,31 @@ async def get_dossier_history(db_path: str, slug: str) -> list[dict]:
             }
             for row in await cursor.fetchall()
         ]
+
+
+async def preallocate_run(db_path: str, thread_id: str) -> int:
+    """Insert a research_runs row with status='running' and return its id."""
+    now = datetime.now(timezone.utc).isoformat()
+    async with aiosqlite.connect(db_path) as conn:
+        await _ensure_schema(conn)
+        from open_deep_research.factbase import migrations, schema
+        await migrations.apply(conn, schema.STEPS)  # ensure lifecycle columns exist
+        cur = await conn.execute(
+            "INSERT INTO research_runs (thread_id, status, last_heartbeat, created_at) VALUES (?,?,?,?)",
+            (thread_id, "running", now, now),
+        )
+        await conn.commit()
+        return cur.lastrowid
+
+
+async def finalize_research_run(db_path: str, run_id: int, fields: dict) -> None:
+    """UPDATE the preallocated row to its terminal state. Only whitelisted columns."""
+    allowed = {"status", "topic", "research_brief", "final_report", "sources",
+               "raw_notes", "config", "error", "coverage_incomplete"}
+    sets = {k: v for k, v in fields.items() if k in allowed}
+    if not sets:
+        return
+    cols = ", ".join(f"{k}=?" for k in sets)
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.execute(f"UPDATE research_runs SET {cols} WHERE id=?", (*sets.values(), run_id))
+        await conn.commit()
