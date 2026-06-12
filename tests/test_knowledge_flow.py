@@ -161,3 +161,66 @@ def test_persist_stores_new_subject(tmp_path):
         assert any("example.com" in s for s in sources)  # URLs extracted from the report
     finally:
         con.close()
+
+
+# 3b. Researching an ADDITIONAL topic on an existing subject accumulates into the dossier.
+def test_persist_accumulates_additional_topic(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "research.db")
+    config = {
+        "configurable": {
+            "persist_results": True,
+            "accumulate_by_subject": True,
+            "use_knowledge_base": True,
+            "database_path": db_path,
+        }
+    }
+
+    # First run establishes the subject (new subject -> no merge).
+    first = {
+        "messages": [HumanMessage(content="Where do quokkas live?")],
+        "research_brief": "Quokka habitat",
+        "final_report": "# Quokka\nHabitat: Western Australia. Source: https://a.example/habitat",
+        "raw_notes": ["habitat note https://a.example/habitat"],
+        "subject": "Quokka",
+    }
+    res1 = asyncio.run(persist_research(first, config))
+
+    # Second run researches a DIFFERENT aspect of the same subject. The LLM merge is
+    # stubbed with a deterministic concat so the accumulation logic is what's tested.
+    async def fake_merge(subject, existing_report, new_report, configurable, config):
+        return f"{existing_report}\n\n## Additional research\n{new_report}"
+
+    monkeypatch.setattr(deep_researcher, "_merge_dossier", fake_merge)
+
+    second = {
+        "messages": [HumanMessage(content="What do quokkas eat?")],
+        "research_brief": "Quokka diet",
+        "final_report": "# Quokka diet\nThey eat leaves and grasses. Source: https://b.example/diet",
+        "raw_notes": ["diet note https://b.example/diet"],
+        "subject": "Quokka",
+    }
+    res2 = asyncio.run(persist_research(second, config))
+
+    assert res2["subject"] == "Quokka"
+    assert res2["report_id"] != res1["report_id"]  # a distinct run was recorded
+
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    try:
+        subject = con.execute("SELECT * FROM subjects WHERE slug = 'quokka'").fetchone()
+        assert subject["run_count"] == 2  # the second run accumulated, not replaced
+
+        # The merged dossier retains the original AND adds the new topic.
+        assert "Habitat: Western Australia" in subject["current_report"]
+        assert "They eat leaves and grasses" in subject["current_report"]
+
+        # Sources from both runs are unioned.
+        sources = json.loads(subject["sources"])
+        assert any("a.example" in s for s in sources)
+        assert any("b.example" in s for s in sources)
+
+        # Full history kept: two runs and two timestamped dossier snapshots.
+        assert con.execute("SELECT COUNT(*) FROM research_runs").fetchone()[0] == 2
+        assert con.execute("SELECT COUNT(*) FROM dossier_versions").fetchone()[0] == 2
+    finally:
+        con.close()
