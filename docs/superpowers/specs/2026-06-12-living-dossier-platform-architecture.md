@@ -1,183 +1,186 @@
-# Living Fact Base — Architecture (v1)
+# Living Fact Base — Architecture (v1 feature)
 
 **Date:** 2026-06-12
 **Layer:** Architecture (spec-driven development)
-**Status:** Draft v1 — pending multi-agent review
-**Builds on:** Vision+Principles v8 (`...-design.md`) and Feature Spec v4 (`...-features.md`)
-**Scope:** v1 = Digital Identity pillar × ~15–20 country cohort; per-country dossier + cross-country
-compare (read-only) + CSV/MD export.
+**Status:** Draft v2 — incorporated round-1 review (5 reviewers, 4 ANOTHER ROUND). Pending round-2.
+**Builds on:** Vision+Principles v8, Feature Spec v4.
+**Scope:** Digital Identity pillar × ~15–20 country cohort; per-country dossier + cross-country compare
+(read-only) + CSV/MD export.
 
----
+> **Revision note (v2).** Round-1 (code-grounded) review found the v1 ingestion path unbuildable and
+> under-specified. Fixes: **(1)** extraction is a **single post-supervisor node, per-source** over
+> retained source-tagged notes (the per-researcher path didn't survive `ResearcherOutputState` /
+> `supervisor_tools`); **(2) evidence spans are substring-verified** against the retained source text,
+> else rejected; **(3)** a **transactional, idempotent ingestion protocol** (one atomic write per run,
+> per-fact isolation, single writer); **(4)** a first-class **`EntityResolver`** port (no phantom
+> entities); **(5)** **flat per-property** extraction schema (not a nested qualifier object-list) for
+> robust Gemini/Codex coercion + per-fact post-coercion validation; **(6)** a **`FactIdentity`** service
+> and an **ingestion application service** (persist_research is no longer a god-aggregator); a real
+> **migration framework**; **(7)** `dossier` is a **net-new CLI program**; registry **versioning +
+> recompute**; **soft-delete** columns; retention notes.
 
 ## 1. Context, existing patterns, invariants
+Built inside `deep_researcher`. Reuses: stdlib `aiosqlite` on one DB (`get_db_path`); the
+`with_structured_output(PydanticModel)` node pattern (per-backend, CLAUDE.md); the **graph owns the
+loop** invariant (`allowed_tools=[]`, models never execute tools); subscription backends. `research_runs`
+already stores the per-run report = the vision's immutable run report (P2), kept. The LLM prose-merge
+(`_merge_dossier`/`current_report`/`dossier_versions`) is **retired** for fact subjects.
 
-The fact base is built **inside the existing `deep_researcher` LangGraph app**, reusing its patterns:
-- **Storage:** `storage.py` uses stdlib `aiosqlite` against one SQLite file (`get_db_path`). New tables
-  are added to the **same DB** (decision: *new tables alongside*). `research_runs` already stores the
-  per-run report — that **is** the vision's immutable run report (P2); we keep it. The LLM prose-merge
-  (`_merge_dossier` → `subjects.current_report`, `dossier_versions`) is **retired** for v1 fact subjects
-  (left in place only for any non-fact legacy use); the dossier view renders from facts.
-- **Structured output:** every node calls `model.with_structured_output(PydanticModel)` (e.g.
-  `KnowledgeAssessment`). Per CLAUDE.md this is reimplemented per backend (Claude native; Gemini/Codex
-  coerce a JSON envelope). Fact extraction is **one more structured-output call** — no new mechanism.
-- **Invariant — the graph owns the loop:** extraction *selects/produces structured data*; it never
-  executes tools. Models are invoked with `allowed_tools=[]`. Preserved.
-- **Backends bill against a subscription:** no new API-key paths.
-
-## 2. Component model (ports & adapters — decoupling)
-
-Business logic must not depend on infrastructure. Five **ports** (interfaces), each with a v1 adapter:
-
-| Port | Responsibility | v1 adapter |
-|---|---|---|
-| `FactExtractor` | compressed notes → candidate facts (+spans) | LLM structured-output over the per-researcher backend |
-| `FactStore` | persist/query facts, tuples, conflicts, history, evidence | `aiosqlite` adapter (same DB) |
-| `SourceRegistry` | source → (type,property) trust tier + flags | data-file adapter (domain profile) |
-| `ConflictPolicy` | value-equality + tuple grouping + conflict open/close | pure-Python adapter (exact-match v1) |
-| `PromotionPolicy` | provisional→trusted / demote decisions | pure-Python adapter (P7 rule) |
-
-Surfaces (`dossier show`, `dossier compare`, export) and the engines depend on the **ports**, not the
-SQLite/LLM specifics — so the store, extractor model, or equality rule can be swapped without touching
-business logic (the swap test). The conflict/promotion policies are **pure functions** (no I/O) →
-unit-testable in isolation.
-
-## 3. Data model (SQLite)
-
-New tables (names indicative). Existing `subjects`/`research_runs` kept; `research_runs.id` is the run
-reference.
+## 2. Where it hooks into the graph (corrected)
+The supervisor fan-out is unchanged. After the supervisor completes and `notes`/`raw_notes` are
+assembled (top-level `AgentState`), a **new `extract_facts` node runs once**, before/within
+`persist_research`:
 
 ```
-entity_type(id, name, profile_json)                    -- 'country'; profile = property defs + qualifiers
-entity_instance(id, type_id, canonical_key, name,      -- canonical_key = ISO-3166 alpha-3 for countries
-                aliases_json)                           -- alias resolution (Türkiye/Turkey…)
-property_def(id, type_id, name, value_kind,            -- 'id_coverage_pct', 'percentage', …
-             identity_qualifiers_json,                  -- ['population_basis','coverage_kind','measured_modeled']
-             validation_json)                           -- ranges/enums/regex (sanity check, §5 FS)
-
-fact(id, instance_id, property_id,
-     qualifiers_json,         -- the non-temporal identity qualifiers (the TUPLE discriminator); 'unspecified' allowed
-     tuple_key,               -- deterministic hash of (instance, property, sorted qualifiers) — the conflict-group key
-     as_of,                   -- version dimension (year in v1); nullable => 'unknown'
-     value, unit,
-     source_id,
-     admission,               -- 'provisional' | 'trusted'
-     lifecycle,               -- 'current' | 'stale' | 'superseded'
-     confidence,              -- computed, heuristic
-     run_id,                  -- REFERENCES research_runs(id)
-     created_at)
-evidence(id, fact_id, quoted_span, source_url, doc_identity, retrieved_at)
-fact_revision(id, fact_id, change, cause, why, created_at)   -- append-only (vision P6)
-conflict(id, tuple_key, as_of, status, opened_run_id, resolved_run_id, created_at)  -- 'open'|'resolved'
-conflict_member(conflict_id, fact_id)
-source(id, url/domain, registry_tier_json, flags_json)       -- modeled / incentivized flags
+… supervisor_subgraph → final_report_generation → extract_facts → persist_research → END
 ```
 
-**Identity:** the conflict group is `tuple_key` = hash(instance, property, sorted non-temporal
-qualifiers). `as_of` is **not** in `tuple_key` (it is the version axis). A fact with any required
-qualifier = `unspecified` gets a *distinct* `tuple_key` (so it never compares against specified-basis
-facts) and is flagged non-promotable.
+`extract_facts` reads the run's **source-tagged notes** (see §3), runs the `FactExtractor` **per
+source**, and emits an `ExtractionResult` into `AgentState` (a new field with a list-append reducer).
+`persist_research` then calls the **ingestion service** (§5). This needs **no change to
+ResearcherState/SupervisorState** — the round-1 blocker is avoided. **Single writer:** all fact writes
+happen in this one node at end-of-run (not concurrently per researcher), so SQLite contention is moot;
+we still set `busy_timeout` + a bounded retry defensively.
 
-## 4. Fact extraction (the load-bearing deliverable)
+**Source-tagged notes (build item):** today `raw_notes` is a `str`-join (`compress_research`,
+deep_researcher.py:716). To extract per-source with verifiable spans, the researcher must retain
+**`{source_url, text}` note segments** (a small additive change to compression — keep the per-source
+tool-result text, not only the joined prose). `FactExtractor` runs against each segment's `text`; the
+`evidence_span` is then **verified as an exact substring of that segment** (§4) — impossible to
+hallucinate undetected.
 
-**Placement:** a `FactExtractor` call **per researcher**, over that researcher's compressed,
-citation-bearing notes (where source spans are tightest), emitted into `ResearcherState`; aggregated
-in `persist_research`. (Decision: per-researcher over compressed notes.)
+## 3. Component model (ports & adapters)
 
-**Output schema** (Pydantic, structured output):
+| Port | Responsibility | v1 adapter | Notes |
+|---|---|---|---|
+| `FactExtractor` | one source-note → candidate facts for **one property at a time** | LLM structured-output | flat schema (§4) |
+| `EntityResolver` | `instance_name` → canonical key, or **unresolved** | ISO-3166 + alias manifest | miss ⇒ quarantine, never auto-create |
+| `FactIdentity` | `tuple_key` hash + `canonicalize(value,unit)` + value-equality | pure module | **single owner** of identity/equality |
+| `SourceRegistry` | source → (type,property) tier + flags + **registry_version** | profile data-file | versioned |
+| `FactStore` | split: `FactWriter` (atomic ingest tx) + `FactQuery` (read) | aiosqlite | narrow interfaces |
+| `ConflictPolicy` / `PromotionPolicy` | **pure decision functions** → return intents | pure module | caller (writer) applies writes |
+
+Pure policies **return decisions** (e.g. `Promote(fact_id)`, `OpenConflict([...])`,
+`Supersede(old_id)`); the `FactWriter` applies them inside the transaction — so "pure" policies never
+touch store columns (fixes round-1 decoupling leak). The **ingestion application service** orchestrates
+resolve → identity → validate → registry → policies → writer; `persist_research` just calls it (thin).
+
+## 4. Fact extraction contract
+**Per property, flat schema** (avoids nested qualifier object-lists that break Gemini/Codex coercion):
 ```
-ExtractedFact { instance_name, property_name, value, unit?,
-                qualifiers: {name: value|"unspecified"},
-                as_of?, source_url, evidence_span }   # value bound to an exact quoted span
-ExtractionResult { facts: list[ExtractedFact] }
+ExtractedFact {            # one source, one property
+  instance_name: str
+  value: str               # raw value as stated; typing/validation downstream
+  unit: str | null
+  as_of: str | null        # year in v1
+  q_<qualifier>: enum|null  # FLAT, property-specific fields, e.g. q_population_basis, q_coverage_kind
+  evidence_span: str        # must be substring of the source note
+}
+ExtractionResult { property: str, source_url: str, facts: list[ExtractedFact] }
 ```
-**Abstain calibration (the contract):** the prompt instructs the model to emit a qualifier **only when
-the source explicitly states it (or a direct synonym); when in doubt, `unspecified`** — never inferred.
-A value is emitted only with a supporting `evidence_span` (AC1.4); no span → no fact. Property/qualifier
-names are constrained to the `property_def` vocabulary (closed enums) to keep extraction a *classify*,
-not *generate*, task — which also makes the Gemini/Codex JSON-envelope coercion robust.
+The node loops `(source-note × property-in-profile)`; each call returns facts for **one** property,
+keeping the schema flat and the task a **classify** (closed enums), not generate. **Abstain:** a
+`q_*` enum is emitted only when the source explicitly states it (or a direct synonym); else `null`
+(⇒ `unspecified` tuple, §5). **Post-coercion validation** (every backend, esp. Gemini/Codex):
+drop any `ExtractedFact` that (a) fails schema/enum, (b) has `evidence_span` **not found verbatim** in
+the source note, or (c) fails `property_def.validation` (range/regex). **Drop-rate guardrail:** if a
+property's drop ratio exceeds a threshold, log a warning (catches over-tight validation / coercion
+collapse). Truncated/partial JSON from a backend → that one `(source,property)` call is retried once
+then skipped-with-log; **other facts are unaffected** (per-call isolation).
 
-**Aggregation (`persist_research`):** map `instance_name`→`entity_instance` (alias resolution),
-validate values against `property_def.validation_json` (drop implausible), compute `tuple_key`, look up
-`source` tier via `SourceRegistry`, then hand tuples to the Conflict + Promotion engines.
+## 5. Ingestion protocol (transactional + idempotent)
+For each candidate fact, the application service: `EntityResolver.resolve` (miss → quarantine table,
+not a phantom entity); `FactIdentity.tuple_key` (instance_id + property + sorted non-null `q_*`; any
+`unspecified` ⇒ its own non-promotable tuple); `SourceRegistry.tier` (+ record `registry_version`);
+then `ConflictPolicy`/`PromotionPolicy` produce intents. **`FactWriter.ingest_run(run_id, intents)`
+runs in ONE transaction:** insert facts + evidence + `fact_revision` + conflict changes atomically;
+either all land or none (no provenance-less facts, no half-open conflicts). **Per-fact isolation:** a
+single bad fact is dropped+logged and never aborts the batch. **Idempotency / re-run dedup:** a fact is
+deduped on `(tuple_key, as_of, value, source_id)`; re-running the same source/value does not create a
+duplicate or a phantom revision (only a genuine value change for that source writes a revision).
+`persist_research` wraps the call so a failure **logs but never crashes the completed run** (matches
+today's best-effort contract).
 
-## 5. Conflict & promotion engines (pure functions)
+## 6. Conflict, promotion, lifecycle (pure decisions)
+- **Conflict:** within a `tuple_key`, partition by `as_of` year; among **trust-bar-meeting** facts in a
+  bucket, ≥2 distinct values (`FactIdentity` equality) ⇒ `OpenConflict`. Lower-tier disagreement is
+  stored/surfaced, never promotion-blocking. **Auto-close:** a conflict closes when its members
+  collapse to one value (correction/supersession) — so phantom conflicts from a since-fixed extraction
+  don't block forever.
+- **Promotion:** `trusted` iff source tier ≥ property threshold AND no `unspecified` required qualifier
+  AND no open conflict in its (tuple_key, as_of) bucket.
+- **Version vs supersede:** newer `as_of` ⇒ prior current version `superseded` (kept in history). A
+  **dated** value always orders above `as_of: unknown` (deterministic null rule); two facts at equal
+  `as_of` differing in value are a conflict, not a supersede.
+- **Recompute:** bumping `registry_version` (or a tier edit) triggers a **re-evaluate pass** over
+  affected tuples (re-run pure policies over stored facts) — no re-research, no LLM calls.
 
-**ConflictPolicy.group_and_detect(facts):** group by `tuple_key`; within a group, partition by
-`as_of` year; for each (tuple_key, as_of) bucket, among **trust-bar-meeting** facts, if ≥2 distinct
-values under **exact-match** → open a `conflict` linking those facts. Lower-tier facts are stored and
-surfaced but never open a promotion-blocking conflict. *(v1 equality = strict string-equal within
-identical unit; normalization/tolerance deferred — a single `canonicalize(value,unit)` seam exists,
-identity function in v1.)*
+## 7. Data model (SQLite + migrations)
+A **versioned migration framework** replaces the ad-hoc `executescript(_SCHEMA)` (storage.py:94): a
+`schema_migrations(version)` table + ordered migration steps, so new tables land safely on a populated
+DB. Tables (indicative): `entity_type`, `entity_instance(canonical_key, aliases_json)`,
+`unresolved_instance` (quarantine), `property_def(value_kind, identity_qualifiers, validation)`,
+`source(registry_version, tier, flags, soft_deleted_at)`, `fact(tuple_key, as_of, value, unit,
+admission, lifecycle, confidence, source_id, run_id, soft_deleted_at)`, `evidence(fact_id, quoted_span,
+source_url, doc_identity, retrieved_at)`, `fact_revision(fact_id, change, cause, why, created_at)`,
+`conflict(tuple_key, as_of, status)`, `conflict_member`. **Soft-delete** columns make redaction/
+tombstoning (vision §8) real, not aspirational. **Retention:** evidence spans are bounded length and
+de-duplicated by `(source_url, hash(span))` to cap bloat; a prune policy is configurable.
 
-**PromotionPolicy.evaluate(fact, group):** promote to `trusted` iff (source tier ≥ property threshold)
-AND (no `unspecified` required qualifier) AND (no open conflict in its (tuple_key, as_of) bucket). A
-newer `as_of` supersedes the prior current version (→ `lifecycle=superseded`, kept in history). A
-later trust-bar fact disagreeing at the same as_of demotes + opens a conflict. Every transition writes
-a `fact_revision` (what/cause/why) — this is also the **explainability** record (§8).
-
-## 6. Source registry (data, not code)
-
-A versioned file in the domain profile (`profiles/country-digital-identity.yaml`): maps source
-domain/dataset → per-(type,property) tier (`authoritative`/`reputable`/`unvetted`) + flags
-(`modeled`, `incentivized`). Encodes domain corrections (ID4D=modeled; national-operator coverage not
-ranked above academic). `SourceRegistry` resolves a fact's `source_url` → tier; unknown domains →
-`unvetted`. **No real-time URL classification.** Editable without code changes (inclusion/bias seam,
-vision §8).
-
-## 7. Read-only surfaces
-
-CLI commands (and the equivalent callable for the dev server), rendering through **one canonical
-render path** (the rendering contract, vision §5):
+## 8. Read-only surfaces (net-new CLI program)
+`dossier` is a **new CLI entry point** (console-script + a callable usable from the dev server) — the
+repo has none today; it opens the DB read-only via `FactQuery` and renders through **one canonical
+render path** (the rendering contract, vision §5): never present provisional/contested as established.
 - `dossier show <country>` — fact table: per property, one row per (qualifier-tuple, current version):
-  value, `~prov` if provisional, `⚠` + both values if conflicted, source, as_of, evidence handle.
-- `dossier compare <property>` — cohort rows; one column **per qualifier tuple** (e.g. per
-  `population_basis`), never merging mismatched bases; footer states coverage (N value / N unknown).
+  value (`~prov` if provisional, `⚠`+both if conflicted), source, as_of, evidence handle.
+- `dossier compare <property>` — cohort rows; one column **per qualifier tuple**; footer states
+  coverage (N value / N unknown / column bases).
 - `--format csv|md` — every row carries value+source+as_of+qualifiers; provisional/conflicted labelled.
-The renderer is the single place that enforces "never present provisional/contested as established."
 
-## 8. Required-coverage
+## 9. Required-coverage
+- **Decoupling:** §3 ports; `FactIdentity` is the single identity owner; policies are pure and return
+  intents; ingestion service orchestrates; `FactStore` split into writer/query. Swap test passes for
+  store, extractor backend, and equality rule (now all behind ports).
+- **Resilience/degradation:** per-call extraction isolation + retry-once; per-fact drop+log; one
+  atomic ingest tx; single writer + `busy_timeout`; `persist_research` never crashes the run; degraded
+  synthesis (P7) for thin trusted data; drop-rate guardrail.
+- **Observability/anti-metrics:** coverage, groundedness, **audited false-conflict rate** + a new
+  **false-rejection (drop-rate)** signal, trusted/provisional ratio. Never optimize raw fact count.
+- **Explainability:** every intent writes a `fact_revision(why)`; every fact has an `evidence` row with
+  a verified span.
+- **Security/privacy:** local single-user DB; **new egress acknowledged** — `extract_facts` sends
+  source text to the model backend (existing providers, but new volume; governed by provider retention).
+  Soft-delete + redaction hooks for erasure.
+- **Cost:** extraction is `sources × properties` structured-output calls at end-of-run; bounded by
+  cohort×6 and de-duplicated per source; no per-token API cost. Pure engines negligible. Recompute is
+  LLM-free.
+- **Vendor:** extractor behind `FactExtractor` (any backend); source acquisition behind `SourceRegistry`.
 
-- **Decoupling:** §2 ports; conflict/promotion are pure functions; swap test passes.
-- **Graceful degradation:** extraction failure on a researcher → that run yields fewer facts, logged,
-  never crashes the run (matches today's best-effort `persist_research`). Backend structured-output
-  failure → retry then skip-with-log. Degraded synthesis (vision P7) handles thin trusted data.
-- **Observability / anti-metrics:** instrument coverage, groundedness, **audited false-conflict rate**
-  (the key health signal), trusted/provisional ratio. **Never optimize raw fact count** (anti-metric).
-- **Explainability:** every promotion/demotion/conflict writes a `fact_revision` with a `why`; every
-  fact has an `evidence` row. A user can always answer "why is this the value, and who says so."
-- **Security / privacy:** single-user local SQLite; no new network egress beyond existing search. PII
-  is low for country-level DPI facts, but the evidence store keeps source excerpts → redaction/
-  tombstoning hook on `fact`/`evidence` (vision §8) deferred but schema-ready (soft-delete columns).
-- **Cost model:** +1 structured-output call per researcher (bounded by `max_concurrent_research_units`)
-  + pure-Python engines (negligible). Cohort×6 properties is bounded; no per-token API cost
-  (subscription backends). Conflict detection is O(facts-in-tuple), not O(N²-global).
-- **Vendor dependency:** extractor is behind `FactExtractor`; works on any of the three backends via
-  the existing per-role selection. Source data behind `SourceRegistry` (swap ID4D/GSMA acquisition).
+## 10. Migration
+Legacy `current_report`/`dossier_versions` prose **left as-is** (readable); fact base starts empty;
+**no back-fill** (would fabricate provenance, vision P3/§9). Schema migrations are additive.
 
-## 9. Migration
-Legacy `subjects.current_report` / `dossier_versions` prose is **left as-is** (readable history); the
-fact base starts empty and populates on new runs. **No back-fill** — extracting facts from old prose
-would fabricate provenance/evidence-spans (forbidden, vision P3/§9). A future migration could re-run
-extraction over stored run reports, but only by attaching real source spans.
+## 11. Build sequence (TDD)
+1. Migration framework + schema; `FactIdentity` + `ConflictPolicy` + `PromotionPolicy` as pure modules
+   with unit tests first.
+2. `property_def` + Digital-Identity profile (property set + qualifiers + validation).
+3. `EntityResolver` (ISO-3166 + alias manifest) + quarantine.
+4. `SourceRegistry` data file + adapter (+ versioning).
+5. Source-tagged notes change in compression; `FactExtractor` per-(source,property) + post-coercion
+   validation + span verification.
+6. `extract_facts` node + ingestion application service + `FactWriter` atomic tx; wire into the graph.
+7. `FactQuery` + `dossier` CLI (show → compare → export), one render path.
+8. Instrumentation (metrics, false-conflict + drop-rate audit); recompute pass.
 
-## 10. Build sequence (for the implementation plan)
-1. Schema + `FactStore` (migrations; pure-fn engines with unit tests first — TDD).
-2. `property_def` + domain profile for Digital Identity (the §2.1 property set + validation).
-3. `SourceRegistry` data file + adapter.
-4. `FactExtractor` node in the researcher subgraph + aggregation in `persist_research`.
-5. Conflict + promotion wiring; `fact_revision` explainability.
-6. `dossier show` → `dossier compare` → export (one render path).
-7. Instrumentation (metrics + false-conflict audit harness).
-
-## 11. Open questions → implementation
-- Exact `tuple_key` hashing + qualifier canonicalization (sorted, case-folded enums).
-- `value_kind`-specific `canonicalize()` rules (when post-v1 normalization lands).
-- ISO-3166 alias map source; how `entity_instance.aliases_json` is seeded.
-- Extraction prompt calibration for "explicitly states" (the false-conflict-rate dial).
-- Source acquisition for ID4D/GSMA (API vs scrape vs manual seed) — connector design.
-- Whether `dossier show` triggers refresh (flywheel) — default: explicit run only (cost-bounded).
+## 12. Open questions → implementation
+- `tuple_key` hash spec + qualifier canonicalization (sorted, case-folded enums).
+- Exact source-tagged-note representation from compression; span-verification tolerance (whitespace).
+- ISO-3166 alias manifest source + how `unresolved_instance` is reviewed.
+- Extraction prompt calibration for "explicitly states" (the false-conflict / drop-rate dial).
+- Per-property trust thresholds; registry recompute trigger granularity.
+- Source acquisition for ID4D/GSMA (API vs scrape vs manual seed).
 
 ---
 
-*Next step: multi-agent review of this Architecture, then the implementation-plan layer
-(`writing-plans`), built TDD per the build sequence.*
+*Next step: round-2 review of this Architecture, then the implementation-plan layer (`writing-plans`),
+built TDD per §11.*
