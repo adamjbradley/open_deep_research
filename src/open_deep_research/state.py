@@ -42,9 +42,36 @@ class ClarifyWithUser(BaseModel):
 
 class ResearchQuestion(BaseModel):
     """Research question and brief for guiding research."""
-    
+
     research_brief: str = Field(
         description="A research question that will be used to guide the research.",
+    )
+
+class SubjectResolution(BaseModel):
+    """Canonical subject a research query concerns, for grouping/accumulation."""
+
+    subject: str = Field(
+        description=(
+            "The canonical subject this query concerns - the entity or topic itself, "
+            "not the specific question or aspect. If it matches one of the existing "
+            "subjects (even a different aspect of it), return that subject's name "
+            "EXACTLY as listed. Example: 'What is the battery chemistry of the Tesla "
+            "Model 3?' -> 'Tesla Model 3'."
+        ),
+    )
+
+class KnowledgeAssessment(BaseModel):
+    """Whether existing stored knowledge already answers a question, and the gaps."""
+
+    is_answerable: bool = Field(
+        description="True if the existing knowledge already fully and confidently answers the question.",
+    )
+    missing_information: str = Field(
+        description=(
+            "If not fully answerable, a concise description of what additional "
+            "information must be researched to answer the question. Empty when "
+            "is_answerable is true."
+        ),
     )
 
 
@@ -70,6 +97,8 @@ class AgentState(MessagesState):
     raw_notes: Annotated[list[str], override_reducer] = []
     notes: Annotated[list[str], override_reducer] = []
     final_report: str
+    report_id: Optional[int]
+    subject: Optional[str]
 
 class SupervisorState(TypedDict):
     """State for the supervisor that manages research tasks."""

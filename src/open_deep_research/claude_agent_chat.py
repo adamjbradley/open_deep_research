@@ -49,8 +49,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import uuid
-from typing import Any, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import claude_agent_sdk as cas
 from langchain_core.callbacks import (
@@ -297,6 +298,45 @@ def _extract_json(text: str) -> Optional[dict]:
     return None
 
 
+def _loop_handles_subprocess() -> bool:
+    """Whether the running event loop can spawn subprocesses.
+
+    On Windows only the ProactorEventLoop supports subprocesses. ``langgraph dev``
+    (uvicorn) runs on a SelectorEventLoop on Windows, under which spawning the
+    agent CLIs would fail -- so callers offload to a Proactor-loop worker thread.
+    """
+    if sys.platform != "win32":
+        return True
+    try:
+        return isinstance(asyncio.get_running_loop(), asyncio.ProactorEventLoop)
+    except RuntimeError:
+        return True
+
+
+async def _offload_subprocess(make_coro: Callable[[], Any]) -> Any:
+    """Await a subprocess-spawning coroutine, on a loop that supports subprocesses.
+
+    If the current loop can spawn subprocesses (POSIX, or a Windows Proactor loop)
+    we await directly. Otherwise (Windows SelectorEventLoop under ``langgraph dev``)
+    we run the work in a worker thread that owns its own ProactorEventLoop.
+    """
+    if _loop_handles_subprocess():
+        return await make_coro()
+    box: dict = {}
+
+    def runner():
+        loop = asyncio.ProactorEventLoop()
+        try:
+            asyncio.set_event_loop(loop)
+            box["value"] = loop.run_until_complete(make_coro())
+        finally:
+            asyncio.set_event_loop(None)
+            loop.close()
+
+    await asyncio.to_thread(runner)
+    return box.get("value")
+
+
 async def _run_cli(
     cmd: list[str],
     env: Optional[dict] = None,
@@ -309,37 +349,39 @@ async def _run_cli(
     Resolves the binary via PATH and, on Windows, runs ``.cmd``/``.bat`` shims
     (e.g. npm-installed ``gemini.cmd``) through ``cmd /c`` so they execute. Runs
     in a neutral empty cwd by default so agent CLIs don't load project context.
+    Uses a blocking ``subprocess.run`` offloaded to a thread, so it works under
+    any event loop (including the Windows SelectorEventLoop used by langgraph dev).
     """
     import shutil
-    import sys
+    import subprocess
 
     resolved = shutil.which(cmd[0]) or cmd[0]
     argv = [resolved, *cmd[1:]]
     if sys.platform == "win32" and resolved.lower().endswith((".cmd", ".bat")):
         argv = ["cmd", "/c", *argv]
 
-    proc = await asyncio.create_subprocess_exec(
-        *argv,
-        # Close stdin (DEVNULL) when none is supplied so CLIs that "read
-        # additional input from stdin" (e.g. codex exec) don't block forever.
-        stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-        cwd=cwd or _cli_cwd(),
-    )
+    run_kwargs: dict = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "env": env,
+        "cwd": cwd or _cli_cwd(),
+        "timeout": timeout,
+    }
+    if stdin is None:
+        # Close stdin so CLIs that "read additional input from stdin" (codex exec)
+        # don't block forever.
+        run_kwargs["stdin"] = subprocess.DEVNULL
+    else:
+        run_kwargs["input"] = stdin.encode()
+
     try:
-        out, err = await asyncio.wait_for(
-            proc.communicate(input=stdin.encode() if stdin is not None else None),
-            timeout=timeout,
-        )
-    except asyncio.TimeoutError:
-        proc.kill()
+        proc = await asyncio.to_thread(subprocess.run, argv, **run_kwargs)
+    except subprocess.TimeoutExpired:
         raise RuntimeError(f"CLI timed out after {timeout}s: {cmd[0]}")
     if proc.returncode != 0:
-        detail = (err or b"").decode(errors="replace")[:800]
+        detail = (proc.stderr or b"").decode(errors="replace")[:800]
         raise RuntimeError(f"CLI {cmd[0]} failed (exit {proc.returncode}): {detail}")
-    return (out or b"").decode(errors="replace")
+    return (proc.stdout or b"").decode(errors="replace")
 
 
 def _render_messages(messages: Sequence[BaseMessage]) -> tuple[str, str]:
@@ -469,22 +511,27 @@ class ClaudeAgentChat(BaseChatModel):
             model=self.model,
         )
 
-        text = ""
-        structured: Optional[dict] = None
-        result_text: Optional[str] = None
-        usage: Any = None
-        is_error = False
-        async with _semaphore():
+        async def _consume() -> dict:
+            data = {"text": "", "structured": None, "result_text": None, "usage": None, "is_error": False}
             async for msg in cas.query(prompt=prompt, options=options):
                 if isinstance(msg, cas.AssistantMessage):
                     for block in msg.content:
                         if isinstance(block, cas.TextBlock):
-                            text += block.text
+                            data["text"] += block.text
                 elif isinstance(msg, cas.ResultMessage):
-                    structured = msg.structured_output
-                    result_text = msg.result
-                    usage = msg.usage
-                    is_error = bool(msg.is_error)
+                    data["structured"] = msg.structured_output
+                    data["result_text"] = msg.result
+                    data["usage"] = msg.usage
+                    data["is_error"] = bool(msg.is_error)
+            return data
+
+        async with _semaphore():
+            data = await _offload_subprocess(_consume)
+        text = data["text"]
+        structured = data["structured"]
+        result_text = data["result_text"]
+        usage = data["usage"]
+        is_error = data["is_error"]
 
         if is_error:
             raise RuntimeError(f"Claude Agent SDK returned an error: {result_text!r}")
@@ -737,18 +784,21 @@ async def run_search_agent(
         model=model,
     )
 
-    text = ""
-    result_text: Optional[str] = None
-    is_error = False
-    async with _semaphore():
+    async def _consume() -> dict:
+        data = {"text": "", "result_text": None, "is_error": False}
         async for msg in cas.query(prompt=prompt, options=options):
             if isinstance(msg, cas.AssistantMessage):
                 for block in msg.content:
                     if isinstance(block, cas.TextBlock):
-                        text += block.text
+                        data["text"] += block.text
             elif isinstance(msg, cas.ResultMessage):
-                result_text = msg.result
-                is_error = bool(msg.is_error)
+                data["result_text"] = msg.result
+                data["is_error"] = bool(msg.is_error)
+        return data
+
+    async with _semaphore():
+        data = await _offload_subprocess(_consume)
+    text, result_text, is_error = data["text"], data["result_text"], data["is_error"]
 
     if is_error and not text:
         return f"Error performing Claude Code web search: {result_text!r}"
