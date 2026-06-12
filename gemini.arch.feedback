@@ -66,3 +66,24 @@ The architecture is now buildable and the state-boundary blocker is resolved. Th
 > "One call per source... flat list of fact records across properties" (§4)
 
 <!-- gemini arch3 exit=0 -->
+
+---
+## Round 4 — 2026-06-12 — Architecture v4 convergence check
+
+1. DID v4 CLOSE THE ROUND-3 BLOCKERS/FOLD-INS?
+- **run_id lifecycle**: CLOSED. "preallocates the run row at graph start... finalized in `persist_research`" provides the required key for tools to write.
+- **Search-adapter fidelity**: PARTIAL. Restricting to raw-text adapters is correct, but "disables fact extraction for the run" introduces a new bug (see below).
+- **Same-run conflicting facts**: CLOSED. Ingestion "evaluates each tuple against stored facts and the run's other candidates".
+- **Source ceiling**: CLOSED. "coverage-incomplete marker" explicitly handles omitted sources.
+- **run_source lifecycle**: CLOSED. "RunSourceStore write port" and "WAL + busy_timeout" isolate the DB contention.
+- **Policy read shape**: CLOSED. Policies read strictly via "FactQuery DTO".
+
+2. NEW CONTRADICTIONS
+- **Mixed-Adapter Run Collapse**: You state, "a summarizing CLI/native search adapter disables fact extraction for the run". This is fatal for mixed-adapter runs. If the supervisor routes one query to a raw-text Tavily tool and another to a summarizing local tool, disabling extraction *for the entire run* silently discards all the valid Tavily facts. The extraction bypass must be evaluated *per-source* or *per-adapter result*, not as a global per-run kill switch.
+- **Orphaned Runs & Schema Mismatch**: You state the system "preallocates the run row at graph start (status `running`, finalized in `persist_research`)". Today, `persist_research` executes an `INSERT`. While changing it to an `UPDATE` is trivial, if the LangGraph execution crashes, errors out, or is cancelled before reaching `persist_research`, the `research_runs` row is permanently orphaned in the `running` state. The lifecycle needs to account for crash-recovery or explicitly tolerate orphaned rows.
+
+3. CONVERGENCE CALL
+ANOTHER ROUND
+Change the summarizing-adapter extraction bypass from "for the run" to per-source/per-adapter so mixed-tool runs do not discard valid facts.
+
+<!-- gemini arch4 exit=0 -->
