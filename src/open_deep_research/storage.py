@@ -127,37 +127,66 @@ async def get_subject_by_slug(db_path: str, slug: str) -> Optional[dict]:
         }
 
 
-async def log_research_run(db_path: str, slug: str, run: dict) -> Optional[int]:
+async def log_research_run(
+    db_path: str, slug: str, run: dict, run_id: Optional[int] = None
+) -> Optional[int]:
     """Insert a research_runs row under an existing subject without changing the
     dossier (used when a question was answered from the cache). Returns the run id.
+
+    If ``run_id`` is given, UPDATE that preallocated row instead of inserting a
+    new one (avoids an orphan 'running' row + duplicate completed row).
     """
     async with aiosqlite.connect(db_path) as conn:
         await _ensure_schema(conn)
         cursor = await conn.execute("SELECT id FROM subjects WHERE slug = ?", (slug,))
         row = await cursor.fetchone()
         subject_id = row[0] if row else None
-        run_cursor = await conn.execute(
-            """
-            INSERT INTO research_runs (
-                subject_id, thread_id, topic, research_brief, final_report,
-                sources, raw_notes, config, status, error, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                subject_id,
-                run.get("thread_id"),
-                run.get("topic"),
-                run.get("research_brief"),
-                run.get("final_report"),
-                json.dumps(run.get("sources", [])),
-                json.dumps(run.get("raw_notes", [])),
-                json.dumps(run.get("config", {})),
-                run.get("status", "answered_from_cache"),
-                run.get("error"),
-                run.get("created_at"),
-            ),
-        )
-        run_id = run_cursor.lastrowid
+        if run_id is not None:
+            await conn.execute(
+                """
+                UPDATE research_runs SET
+                    subject_id = ?, thread_id = ?, topic = ?, research_brief = ?,
+                    final_report = ?, sources = ?, raw_notes = ?, config = ?,
+                    status = ?, error = ?
+                WHERE id = ?
+                """,
+                (
+                    subject_id,
+                    run.get("thread_id"),
+                    run.get("topic"),
+                    run.get("research_brief"),
+                    run.get("final_report"),
+                    json.dumps(run.get("sources", [])),
+                    json.dumps(run.get("raw_notes", [])),
+                    json.dumps(run.get("config", {})),
+                    run.get("status", "answered_from_cache"),
+                    run.get("error"),
+                    run_id,
+                ),
+            )
+        else:
+            run_cursor = await conn.execute(
+                """
+                INSERT INTO research_runs (
+                    subject_id, thread_id, topic, research_brief, final_report,
+                    sources, raw_notes, config, status, error, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    subject_id,
+                    run.get("thread_id"),
+                    run.get("topic"),
+                    run.get("research_brief"),
+                    run.get("final_report"),
+                    json.dumps(run.get("sources", [])),
+                    json.dumps(run.get("raw_notes", [])),
+                    json.dumps(run.get("config", {})),
+                    run.get("status", "answered_from_cache"),
+                    run.get("error"),
+                    run.get("created_at"),
+                ),
+            )
+            run_id = run_cursor.lastrowid
         await conn.commit()
         return run_id
 
@@ -171,6 +200,7 @@ async def save_run_and_upsert_subject(
     sources_union: list[str],
     run: dict,
     now: str,
+    run_id: Optional[int] = None,
 ) -> tuple[int, int]:
     """Insert the run and upsert its subject's accumulated dossier, atomically.
 
@@ -195,28 +225,53 @@ async def save_run_and_upsert_subject(
         cursor = await conn.execute("SELECT id FROM subjects WHERE slug = ?", (slug,))
         subject_id = (await cursor.fetchone())[0]
 
-        run_cursor = await conn.execute(
-            """
-            INSERT INTO research_runs (
-                subject_id, thread_id, topic, research_brief, final_report,
-                sources, raw_notes, config, status, error, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                subject_id,
-                run.get("thread_id"),
-                run.get("topic"),
-                run.get("research_brief"),
-                run.get("final_report"),
-                json.dumps(run.get("sources", [])),
-                json.dumps(run.get("raw_notes", [])),
-                json.dumps(run.get("config", {})),
-                run.get("status", "completed"),
-                run.get("error"),
-                run.get("created_at", now),
-            ),
-        )
-        run_id = run_cursor.lastrowid
+        if run_id is not None:
+            # Finalize the row preallocated at graph START (no duplicate insert).
+            await conn.execute(
+                """
+                UPDATE research_runs SET
+                    subject_id = ?, thread_id = ?, topic = ?, research_brief = ?,
+                    final_report = ?, sources = ?, raw_notes = ?, config = ?,
+                    status = ?, error = ?
+                WHERE id = ?
+                """,
+                (
+                    subject_id,
+                    run.get("thread_id"),
+                    run.get("topic"),
+                    run.get("research_brief"),
+                    run.get("final_report"),
+                    json.dumps(run.get("sources", [])),
+                    json.dumps(run.get("raw_notes", [])),
+                    json.dumps(run.get("config", {})),
+                    run.get("status", "completed"),
+                    run.get("error"),
+                    run_id,
+                ),
+            )
+        else:
+            run_cursor = await conn.execute(
+                """
+                INSERT INTO research_runs (
+                    subject_id, thread_id, topic, research_brief, final_report,
+                    sources, raw_notes, config, status, error, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    subject_id,
+                    run.get("thread_id"),
+                    run.get("topic"),
+                    run.get("research_brief"),
+                    run.get("final_report"),
+                    json.dumps(run.get("sources", [])),
+                    json.dumps(run.get("raw_notes", [])),
+                    json.dumps(run.get("config", {})),
+                    run.get("status", "completed"),
+                    run.get("error"),
+                    run.get("created_at", now),
+                ),
+            )
+            run_id = run_cursor.lastrowid
 
         # Timestamped snapshot of the dossier as it stands after this update, so
         # the evolution of the subject's knowledge can be viewed historically.

@@ -958,7 +958,9 @@ async def persist_research(state: AgentState, config: RunnableConfig):
         # Answered from the cache: log the Q&A run, but leave the dossier unchanged.
         if state.get("answered_from_cache") and state.get("subject"):
             run["status"] = "answered_from_cache"
-            run_id = await log_research_run(db_path, slugify(state["subject"]), run)
+            run_id = await log_research_run(
+                db_path, slugify(state["subject"]), run, run_id=state.get("prealloc_run_id")
+            )
             return {"report_id": run_id, "subject": state["subject"]}
 
         if configurable.accumulate_by_subject and final_report:
@@ -1012,6 +1014,7 @@ async def persist_research(state: AgentState, config: RunnableConfig):
             sources_union=sources_union,
             run=run,
             now=now,
+            run_id=state.get("prealloc_run_id"),
         )
         return {"report_id": run_id, "subject": subject_name}
     except Exception as e:
