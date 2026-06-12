@@ -60,3 +60,26 @@ No. The precision fixes resolve the remaining collisions between immutability an
 **ADVANCE.** The document has reached structural and terminology convergence; remaining risks (claim identity, extraction quality) are properly deferred to the Feature/Architecture layers.
 
 <!-- gemini r4 exit=0 -->
+
+---
+## Round 5 — 2026-06-12 — re-review of the v6 fact-base reframe
+
+### 1. DOES THE REFRAME HOLD?
+1. **P5 (Disagreement-held) is conceptually strained.** The document defines conflict as a "different value for the same entity-property." This assumes real-world conflicts are clean, scalar collisions (e.g., 68.2M vs. 67.9M). In scientific research, disagreement is rarely a pure value collision; it stems from differing definitions, methodologies, or conditions. Treating it as a simple "value discrepancy" flattens reality.
+2. **P7 (Degraded synthesis) feels vestigial.** The document pivots the core view to a "structured fact table" but retains heavy focus on fallback synthesis in "source-grounded prose." Mixing a strict knowledge-graph schema with generative prose synthesis creates an awkward hybrid where the legacy literature-review DNA fights the new database reality.
+
+### 2. ARE THE TWO RISK-REDUCTION CLAIMS TRUE?
+1. **Extraction risk is lowered: REFUTED.** The claim that "A *fact triple* is far more atomic... which **lowers** the round-1 extraction-quality risk" is categorically false. Forcing complex, highly contextual academic prose into a rigid `(instance, property, value, unit)` schema demands aggressive semantic coercion. This vastly increases the risk of hallucination and loss of critical context compared to extracting self-contained prose claims.
+2. **Claim-identity is tamed: REFUTED.** The document claims "(instance, property) keying largely tames the round-1 'claim identity' risk." It merely relocates it. Instead of comparing propositions, the system must now map infinite linguistic variations of concepts into strict, aligned "property names" and "entity instances" across different sources. The semantic ambiguity is not reduced; it is just pushed into the ontology mapping.
+
+### 3. NEW PROBLEMS THE REFRAME INTRODUCES
+1. **The Context/Atomic Contradiction.** The document claims triples are "more atomic," yet admits a fact "Retains the qualifiers (as-of date, scope/conditions) needed to be meaningful." A fact bound by endless methodological qualifiers is not atomic. If the extractor must parse and attach all conditions that make a scientific value true, the complexity is higher than v5, not lower.
+2. **Loss of Qualitative Utility.** By pivoting strictly to "verifiable questions of fact, not scholarly argument," the platform abandons any domain where research involves mechanisms, theoretical frameworks, causal relationships, or qualitative outcomes. It is no longer deep research; it is automated data entry. 
+3. **Ontological Rigidity.** Relying on an "Entity type" that "Defines the properties worth gathering" demands a massive, rigid taxonomy. While the document waves at "discovered" properties, a structured fact table shatters if properties aren't strictly predefined and aligned, making the system highly brittle to novel research vectors.
+
+### 4. CONVERGENCE CALL
+ANOTHER ROUND
+
+**Blocker:** The rigid fact-triple model is fatally naive for domain research; it either strips the methodological qualifiers required to make physical-world values meaningful, or it includes them, instantly destroying the claim that this reframe reduces extraction complexity.
+
+<!-- gemini r5 exit=0 -->

@@ -87,3 +87,25 @@ as primary input to the **Architecture** layer. The deferred doc accumulates acr
     test the §7 wedge against a real workflow rather than the abstract "domain researchers."
 25. **Success-metric refinement.** Turn §3's outcome targets into measurable, instrumented metrics
     distinguishing a living dossier from an accumulating search history.
+
+---
+
+## Added from round-5 review (v7 — fact-base reframe deepening)
+
+26. **Value-equality with tolerance + unit normalization.** The new conflict-detection primitive:
+    decide when two values for the same (instance, property, qualifiers) are "the same" (68.2M =
+    68,200,000), "different" (68.2M vs 67.9M), or within tolerance; normalize units (mg/L vs µmol/L;
+    years vs hours). Without it, conflict detection both false-positives and false-negatives.
+27. **Qualifier alignment.** Decide whether two facts share the *same* qualifiers (is "2023" the same
+    as-of basis as "mid-2023 estimate"? is benchmark "ImageNet" the same split?). Mis-alignment
+    fabricates conflicts or collapses distinct facts. The harder half of the relocated identity problem.
+28. **Multi-valued / time-series / relationship facts.** v1 assumes one value per qualified key.
+    Real properties are sometimes sets (a country's official languages), curves (population by year),
+    or relations (drug→interacts-with→drug). Model these as first-class without treating them as
+    perpetual self-conflict.
+29. **Definitional disagreement.** Two sources give different values because they define the property
+    differently (accuracy under different metric/split; "unemployment" under different denominators),
+    not because they disagree on a fact. Capture/compare definitions, not just property names.
+30. **Fact semantic-fidelity extraction.** (Sharpened from #2.) The schema is narrow but extracting
+    the *right* qualifiers, unit, as-of date, and evidence binding is the real difficulty — measure
+    and design for it; do not assume the triple grammar reduces it.
