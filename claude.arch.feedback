@@ -56,3 +56,35 @@ Internal red team (decoupling, resilience, codebase-integration realist) + CLIs.
   context; evidence-store bloat (no retention/pruning).
 
 ### Convergence: ANOTHER ROUND (4/5). Consensus fixes for v2 below.
+
+---
+
+## Round 2 — 2026-06-12 — Architecture v2 convergence check
+
+Internal red team + CLIs. Tally: **3 ADVANCE / 1 ANOTHER ROUND (integration realist) / gemini pending.**
+
+- **Decoupling — ADVANCE.** FactIdentity / pure-intents / writer-query split / ingestion service all
+  CLOSED. Fold-in: pure policies must receive the current tuple's stored facts as INPUT and emit
+  fully-resolved intents (Supersede/auto-close), so FactWriter only persists, never re-decides.
+- **Resilience — ADVANCE.** Atomic tx + per-fact isolation + alias-quarantine + auto-close + null
+  ordering + recompute + dedup all CLOSED. Fold-in: the registry-bump **recompute pass needs the same
+  atomic-tx + per-tuple isolation + resumable-on-registry_version** contract (the one mutating path not
+  yet covered); source-tagged-notes drop = unrecoverable-in-run (detectable via drop-rate).
+- **codex — ADVANCE.** All 6 closed. Fold-ins: (1) cost is `sources × properties`, NOT "cohort×6" —
+  needs a per-run extraction ceiling/batching; (2) dedup must key on **canonical(value,unit)**, not raw
+  value; (3) clarify no-op/deduped reruns write **no** fact_revision.
+- **integration realist — ANOTHER ROUND (code-verified):**
+  - **Placement bug:** `extract_facts` is placed after `final_report_generation`, which **clears
+    `notes`→[]** (final report node). So read **`raw_notes`** (survives), or insert before
+    final_report_generation. Also note `persist_research` has TWO in-edges (answer_from_dossier +
+    final_report_generation) — extraction wires only on the research path.
+  - **THE re-opened blocker:** "source-tagged notes" is NOT a small compression tweak. `raw_notes` is
+    `list[str]` joined at compress_research and **re-joined at the supervisor fan-in (deep_researcher.py
+    :487-490 `"\n".join`)**, destroying structure. Carrying `{source_url,text}` requires changing the
+    type/reducer at ResearcherState + ResearcherOutputState + the supervisor flatten + AgentState — the
+    exact round-1 boundary. And tool results aren't source-tagged at that point (extract_sources greps
+    URLs post-hoc) — so a structured per-source carry from the search tools is needed. Span-verification
+    (§4) has no verbatim text to verify against until this survives line 488. **The round-1 blocker is
+    open, not closed.**
+
+### Convergence: ANOTHER ROUND. Real decision: how source-attributed text reaches extract_facts.
