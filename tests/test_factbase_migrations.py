@@ -24,3 +24,29 @@ def test_apply_runs_pending_migrations_once():
             assert {r[0] for r in await cur.fetchall()} == {"a", "b"}
 
     asyncio.run(run())
+
+
+def test_failing_multistatement_step_rolls_back():
+    async def run():
+        async with aiosqlite.connect(":memory:") as conn:
+            steps = [
+                (1, "CREATE TABLE good (id INTEGER PRIMARY KEY); CREATE TABLE bad (;"),
+            ]
+            raised = False
+            try:
+                await migrations.apply(conn, steps)
+            except Exception:
+                raised = True
+            assert raised, "apply should raise on an invalid statement"
+
+            cur = await conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='good'"
+            )
+            assert await cur.fetchall() == [], "table 'good' should have rolled back"
+
+            cur = await conn.execute(
+                "SELECT version FROM schema_migrations WHERE version=1"
+            )
+            assert await cur.fetchall() == [], "version 1 should not be recorded"
+
+    asyncio.run(run())

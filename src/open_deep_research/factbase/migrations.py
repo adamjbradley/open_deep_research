@@ -20,6 +20,10 @@ async def _applied_versions(conn: aiosqlite.Connection) -> set[int]:
     return {row[0] for row in await cur.fetchall()}
 
 
+def _statements(sql: str) -> list[str]:
+    return [s.strip() for s in sql.split(";") if s.strip()]
+
+
 async def apply(conn: aiosqlite.Connection, steps: list[tuple[int, str]]) -> None:
     """Apply pending migration ``steps`` in ascending version order.
 
@@ -35,7 +39,13 @@ async def apply(conn: aiosqlite.Connection, steps: list[tuple[int, str]]) -> Non
         if version in done:
             continue
         try:
-            await conn.executescript(sql)
+            # Open an explicit transaction so DDL (CREATE TABLE, ...) is also
+            # covered by the rollback. sqlite3's implicit transactions only
+            # begin before DML, so without this a failing multi-statement step
+            # would leak already-applied DDL.
+            await conn.execute("BEGIN")
+            for stmt in _statements(sql):
+                await conn.execute(stmt)
             await conn.execute(
                 "INSERT INTO schema_migrations (version, applied_at) "
                 "VALUES (?, datetime('now'))",
