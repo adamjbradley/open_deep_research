@@ -1,0 +1,43 @@
+
+---
+
+## Round 2 — 2026-06-12 — review of v2 revision
+
+Internal Claude red team (same three lenses), focused on whether the v2 fixes held.
+
+### Reviewer A — Product Skeptic — convergence call: YES (advance)
+- Fork A held but the rendering contract is a hidden behavioral promise P5 can't guarantee.
+- Fork C is the strongest fix. Fork B coherent but "regenerated from claims" is unfalsifiable.
+- **New contradiction (key):** auto-merge (P1) + trusted-only synthesis (P7) means a brand-new
+  subject's first report synthesizes from ZERO trusted claims — the cold-start case §1 promises to
+  serve. Gating created this; v1 didn't have it.
+- Also: P7 has no promotion *trigger* (corroboration only arrives on later runs; nothing triggers
+  re-research) — "the accumulation flywheel has no motor." Single-researcher + subscription ToS
+  caps the wedge. Domain-profile bias named but unowned.
+- **Single highest-value change:** define what a first-run report on a brand-new subject
+  synthesizes from.
+
+### Reviewer B — Technical Realist — convergence call: YES (advance)
+- Fork A holds technically. Fork B inconsistent: prose→claims→prose is NOT identity-preserving
+  (extraction is lossy); "regenerated" prose is a thinner artifact — say "claims-derived view."
+- **Fork C's gate has no feasible promotion signal:** P7 promotes on corroboration, but P4 concedes
+  corroboration can't detect independence and is "a weak signal." So promotion is either inflatable
+  (defeats the gate) or reduces to single-source-trust + no-contradiction. v2 never picks. The gate
+  is called "primary defense" while its main signal is conceded unsound — the central gap.
+- **New contradiction:** "provisional excluded from synthesis" (P7) vs "conflict surfaced inline in
+  prose" (P5) — a fresh contradicting claim is provisional, so is it excluded or surfaced?
+- Cold-start: trusted-by-default makes first reports empty — early value is *negative*.
+- **Single highest-value change:** define the promotion signal — e.g. promote = (source-trust ≥ bar)
+  AND (no open contradiction), corroboration explicitly NOT an input until independence lands; and
+  state whether provisional contradicting claims surface in prose.
+
+### Reviewer C — Market Cynic — convergence call: NO
+- §7 names the "why switch" question then declines to answer it; the wedge loses to Elicit (rigor)
+  and ChatGPT-memory (low-effort recall). The defensible sliver — cross-run conflict/confidence
+  state — is exactly what Fork A defers (no UI to see it).
+- **Fork A guts the v1 product:** v1 ships "a schema plus a ⚠ string in prose" — "a database
+  migration wearing a vision's clothes." Fork C adds friction with no v1 payoff (thinner reports).
+- No single-session "aha"; audit dependency unfunded; target persona unspecified for GTM.
+- **Single highest-value change:** pull ONE read-only surface into v1 — a `dossier show <subject>`
+  render of trusted claims, open conflicts, and confidence tiers — so the wedge is testable in the
+  first session, not a deferred promise.

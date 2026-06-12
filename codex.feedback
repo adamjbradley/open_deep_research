@@ -1,0 +1,31 @@
+
+---
+## Round 2 — 2026-06-12 — review of v2 revision
+
+## 1. Did the fixes hold?
+
+1. **Fork A is honestly scoped but sequenced incoherently.** P1 says value depends on audit “*actually happening*,” while §6 concedes adjudication and history exploration “*are not usable in v1*.” This is more than deferred convenience: v1 cannot exercise the feedback process its trust model requires. Machine-queryable SQLite lineage does not make researcher auditing a credible operating loop.
+
+2. **Fork B does not hold.** P2 says neither representation is subordinate, yet claims are “*extracted from*” prose and “*prose can be regenerated from claims*.” These are asymmetric transformations. Regenerated prose is not the original citable artifact and may omit qualifiers or introduce synthesis language. The document never defines whether canonical prose means immutable run reports, current synthesized prose, or both.
+
+3. **Fork C papers over “trusted.”** Promotion may use “*sufficient corroboration from sufficiently trusted sources*,” but P4 admits corroboration is currently vulnerable to syndication and gaming. With no human approval gate, a heuristic explicitly described as weak can automatically confer `trusted` status. Calling such claims “vetted” and using the gate as the “*primary defense*” overstates what the mechanism establishes.
+
+## 2. New contradictions from the changes
+
+1. **Dual-canonical prose conflicts with gated synthesis.** A run’s prose is co-canonical even when its extracted claims remain provisional, while authoritative reports exclude those claims. The system can therefore retain canonical prose asserting material that its trusted claim base rejects. Conflict warnings do not solve disagreement between the two canonical forms.
+
+2. **Status conflates independent dimensions.** `provisional`/`trusted` describe epistemic admission; `stale`/`superseded` describe lifecycle. Modeling them as one `status` forces nonsense choices such as whether a stale trusted claim ceases to be trusted. These must be separate axes at the vision level, not left as schema detail.
+
+## 3. Remaining structural issues
+
+1. **“Trusted” lacks a defined authority.** The vision must state whether promotion is automatic, researcher-confirmed, or domain-profile policy. That is a product-governance decision, not an Architecture mechanism.
+
+2. **The canonical dossier state is undefined.** Reports are per-run artifacts, claims accumulate across runs, and prose may be regenerated, but there is no declared current dossier view or rule for how historical prose relates to current trusted knowledge.
+
+3. **Success is not operationalized.** “*More complete and better-grounded*” and “*quality and groundedness*” provide no vision-level test of improvement. Without explicit outcome criteria, accumulation can still masquerade as progress.
+
+## 4. Convergence call
+
+**NO.** The most confidence-increasing change would be a precise canonical-state contract defining immutable run prose, current synthesized prose, claim tiers, divergence handling, and exactly who or what may promote a claim to trusted.
+
+<!-- codex r2 exit=0 -->
