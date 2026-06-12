@@ -41,3 +41,40 @@ Internal Claude red team (same three lenses), focused on whether the v2 fixes he
 - **Single highest-value change:** pull ONE read-only surface into v1 — a `dossier show <subject>`
   render of trusted claims, open conflicts, and confidence tiers — so the wedge is testable in the
   first session, not a deferred promise.
+
+---
+
+## Round 3 — 2026-06-12 — convergence check on v3
+
+Internal Claude red team (convergence check). Tally with external CLIs: **3 ADVANCE / 2 ANOTHER ROUND**.
+
+### Reviewer A — Product Skeptic — ANOTHER ROUND
+- (1) degraded synthesis RESOLVED; (2) promotion rule RESOLVED; (3) reframed model RESOLVED.
+- New issues: P7 "no open contradiction" depends on deferred contradiction detection (blocker —
+  flag the dependency or define v1 fallback); §3 metric "share of trusted claims backed by a
+  trusted source" is ~tautological under P7; machine-generated caveats are load-bearing but deferred.
+
+### Reviewer B — Technical Realist — ADVANCE
+- All three collisions RESOLVED. Promotion rule implementable as written; the contradiction-detection
+  dependency is *acceptable at the vision layer* (commits to what the gate decides on, not mechanism;
+  P5 already makes conflicts first-class). Remaining items sub-vision-layer / Architecture's problem.
+
+### Reviewer C — Market Cynic — ADVANCE
+- Round-2 "no testable product" RESOLVED by the read-only `dossier show` view + degraded synthesis;
+  the wedge is now demonstrable in session one. Two residual GTM concerns (CLI is a thin vehicle for
+  the wedge; session-one shows the weakest version of the differentiator) are Feature-Spec/sequencing
+  risks, not unsettled vision questions.
+
+### External CLIs
+- **codex — ANOTHER ROUND:** (1)(2) RESOLVED, (3) PARTIAL. Blocker: immutable run reports
+  ("never rewritten") vs. P5 "surface conflicts wherever rendered (run reports, dossier view)" —
+  reports can't be both frozen artifacts and live surfaces; plus "confidence-gated ingestion" vs
+  P1 "ingestion is unconditional" terminology.
+- **gemini — ADVANCE:** all collisions resolved; no new contradictions; structurally sound.
+
+### Disposition (v4)
+All round-3 findings are precision/wording fixes, not structural. Applied in v4: run reports are
+immutable snapshots (current conflicts live in the dossier view); rendering contract scoped to
+claim-derived rendering; "gated promotion" terminology; honest contradiction-detection dependency
+flag; success metric de-tautologized. **Convergence reached** — remaining feedback is operational,
+not structural.

@@ -29,3 +29,30 @@
 **NO.** The most confidence-increasing change would be a precise canonical-state contract defining immutable run prose, current synthesized prose, claim tiers, divergence handling, and exactly who or what may promote a claim to trusted.
 
 <!-- codex r2 exit=0 -->
+
+---
+## Round 3 — 2026-06-12 — convergence check on v3
+
+## 1. Round-2 Collisions
+
+1. **Degraded synthesis — RESOLVED.** P7 permits provisional claims with explicit machine-generated caveats when trusted evidence is insufficient.
+
+2. **Promotion rule — RESOLVED.** P7 defines automatic promotion by profile trust bar plus no open contradiction, explicitly excluding corroboration.
+
+3. **Data model + read-only view — PARTIAL.** Reports, claim base, and dossier view are clearly separated, but report immutability conflicts with universal conflict surfacing.
+
+## 2. New Contradictions
+
+1. P2 says run reports are immutable and “never rewritten,” while P5 requires conflicts to be surfaced “wherever the subject is rendered (run reports, dossier view).” A conflict discovered later cannot appear in an existing immutable report.
+
+2. The rendering contract says “all rendering (run reports, dossier view)” uses one canonical path, but run reports are stored source-grounded prose while dossier views are generated from mutable claim state. These cannot share one rendering path without either regenerating reports or weakening what “one canonical render path” means.
+
+3. Scope still calls the mechanism “confidence-gated ingestion,” while P1 explicitly says “ingestion is unconditional” and only promotion is gated.
+
+## 3. Convergence Call
+
+**ANOTHER ROUND**
+
+Blocking issue: Define whether immutable run reports are historical artifacts or live rendered surfaces; the document currently requires them to be both.
+
+<!-- codex r3 exit=0 -->

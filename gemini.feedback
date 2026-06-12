@@ -26,3 +26,19 @@
 **Required Change:** Define a "Degraded Synthesis" mode. If "Trusted" claims are insufficient to generate a report, the system must have a principled way to utilize "Provisional" data with explicit, machine-generated caveats, rather than simply excluding it. This prevents the "purgatory" problem created by Fork A.
 
 <!-- gemini r2 exit=0 -->
+
+---
+## Round 3 — 2026-06-12 — convergence check on v3
+
+**1. ARE THE ROUND-2 COLLISIONS RESOLVED?**
+*   **Degraded Synthesis:** RESOLVED. P7 now mandates fallback to provisional claims with "explicit, machine-generated caveats" to avoid the cold-start dead-end.
+*   **Concrete Promotion Rule:** RESOLVED. P7 defines a specific, non-circular rule (source-trust + no-contradiction) and explicitly excludes corroboration per P4.
+*   **Reframed Data Model + Read-Only View:** RESOLVED. Section 5 clearly defines the triad (Run Report, Claim Base, Dossier View) and P7 successfully decouples admission status from lifecycle status.
+
+**2. NEW CONTRADICTIONS INTRODUCED BY v3**
+*   **None identified.** The integration of the "Rendering Contract" in Section 5 effectively binds the disparate data types into a unified output strategy without creating new logical loops.
+
+**3. CONVERGENCE CALL**
+**ADVANCE.** The document is structurally sound and the previously conflicting requirements for synthesis, trust, and data modeling have been successfully reconciled into a coherent vision.
+
+<!-- gemini r3 exit=0 -->

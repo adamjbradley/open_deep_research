@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-12
 **Layer:** Vision + Principles (spec-driven development)
-**Status:** Draft v3 — incorporated round-2 feedback; pending round-3 convergence check
+**Status:** Draft v4 — round-3 convergence check passed (3 ADVANCE / 2 minor); precision fixes applied
 **Topic:** How the Open Deep Research platform should work for domain researchers
 
 > **Revision history**
@@ -18,6 +18,11 @@
 >   history are visible (interactive *adjudication* stays deferred); plus a reframed data model
 >   (immutable run reports + accumulating claim base + on-demand dossier view) that fixes the
 >   "dual-canonical / canonical-state undefined" problem.
+> - **v4** — round-3 convergence check (3 ADVANCE / 2 minor). Precision fixes: run reports are
+>   immutable historical snapshots (current conflicts live in the dossier view, not retro-injected
+>   into past reports); rendering contract scoped to claim-derived rendering; "gated *promotion*"
+>   not "gated ingestion"; honest flag that the promotion rule's "no open contradiction" clause
+>   depends on contradiction-detection robustness; success metric de-tautologized.
 
 ---
 
@@ -52,10 +57,10 @@ profile (data), never hard-coded in the engine, so bias is inspectable and revis
 > current dossier view, all linked.
 
 Success is measured by the quality and groundedness of the accumulated dossier, not by any single
-report. **Operationalized (v1 targets, to refine in Feature Spec):** share of trusted claims backed
-by a profile-trusted source; conflicts surfaced rather than silently dropped; staleness flagged
-rather than served as current. These are the outcomes that distinguish a *living dossier* from a
-growing *search history*.
+report. **Operationalized (v1 targets, to refine in Feature Spec):** the share of a subject's
+rendered answer drawn from *trusted* vs. provisional claims, and whether that share grows across
+runs; conflicts surfaced rather than silently dropped; staleness flagged rather than served as
+current. These are the outcomes that distinguish a *living dossier* from a growing *search history*.
 
 ## 4. Principles
 
@@ -100,9 +105,11 @@ anti-gaming defense.
 
 ### P5 — Disagreement is information; the platform never silently picks a winner
 When new research contradicts an existing claim, the platform **records both and marks the conflict**,
-and **surfaces it wherever the subject is rendered** (run reports, dossier view). It never
-auto-arbitrates a winner. Crucially, gating does not silence disagreement: a contradicting claim is
-*surfaced* even while provisional — "excluded from synthesis" (P7) means **not asserted as
+and **surfaces it in the current state of the subject** — the dossier view. It never auto-arbitrates
+a winner. (A *run report* is an immutable snapshot of what one run found and the conflicts known *at
+that time*; newly discovered conflicts surface in the dossier view, which renders current state — we
+do not rewrite past reports. P2.) Crucially, gating does not silence disagreement: a contradicting
+claim is *surfaced* even while provisional — "excluded from synthesis" (P7) means **not asserted as
 established**, never **made invisible**. Interactive *adjudication* (resolve/override/triage) is
 deferred (§6); the read-only dossier view *shows* conflicts in v1.
 
@@ -121,6 +128,13 @@ domain-profile-policy rule: **the supporting source(s) meet the profile's trust 
 open contradiction.** (Corroboration is *not* a promotion input in v1 — see P4.) Promotion/demotion
 is automatic by policy because interactive override is deferred; demotion occurs when a contradiction
 opens against a previously-trusted claim.
+
+**Honest dependency:** the "no open contradiction" clause is only as good as contradiction detection,
+which P5 already requires for v1 (conflicts are first-class) but whose *robustness* is bounded by
+claim-identity resolution (deferred, §9). Weak detection risks *over-*promotion (a real conflict goes
+unseen), so degraded-synthesis caveats and after-the-fact audit remain necessary backstops, not
+optional polish. The caveat-generation mechanism itself is deferred (§9); the *commitment* that
+provisional content is always marked as such is firm.
 
 **Report synthesis prefers trusted claims, but degrades gracefully:** when trusted claims are
 insufficient (every brand-new subject; heavily-contested topics), synthesis **falls back to
@@ -159,8 +173,10 @@ Gemini/Codex backends (which coerce JSON envelopes, per CLAUDE.md). Both deferre
 ### Rendering contract
 A data-model invariant cannot by itself guarantee a presentation invariant. Therefore the renderer
 has explicit obligations: **never silently flatten a conflict, never drop a confidence/admission
-tier, never present a provisional or contested claim as established.** v1 routes all rendering
-(run reports, dossier view) through one canonical render path so this contract holds in one place.
+tier, never present a provisional or contested claim as established.** This contract governs all
+*claim-derived* rendering — the dossier view, and the synthesis written into a run report *at run
+time* — through one canonical render path, so the contract holds in one place. (A stored run report
+is thereafter an immutable artifact, displayed as-written; it is not re-rendered against later state.)
 
 ## 6. Scope and non-goals
 
@@ -168,7 +184,8 @@ tier, never present a provisional or contested claim as established.** v1 routes
 - The **run report + claim base + dossier view** data model with provenance, confidence, conflicts,
   history (P2–P6).
 - The **claim-extraction** pipeline step.
-- **Confidence-gated ingestion** with the defined promotion rule and **degraded synthesis** (P7).
+- **Confidence-gated promotion** (ingestion is unconditional; *promotion* is gated) with the
+  defined promotion rule and **degraded synthesis** (P7).
 - **Conflict surfacing** inline in rendered output.
 - A **read-only dossier view** (`dossier show <subject>`) — the one surface that makes
   conflict/confidence/history visible and the §7 wedge testable in session one.
@@ -240,5 +257,7 @@ persona; success metric refinement.
 
 ---
 
-*Next step (per spec-driven methodology): round-3 review — a convergence check that the round-2
-collisions are resolved and no new ones were introduced — before advancing to the Feature Spec layer.*
+*Status: round-3 convergence check passed (no structural issues remain; v4 applied the residual
+precision fixes). Next step (per spec-driven methodology), on user confirmation: advance to the
+**Feature Spec** layer — scope v1, name the beachhead persona, write user stories and acceptance
+criteria — carrying the deferred-questions doc forward.*
