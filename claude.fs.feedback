@@ -60,3 +60,36 @@ Internal red team: Scope Hawk, Feasibility Auditor, DPI Domain Realist. Tally wi
 - Missing: evidence-inspection journey; constrained comparison (region/common as-of); rerun/refresh
   change-log.
 - **#1 fix:** qualifier-complete fact identity + evidence record + deterministic current/promotion rules.
+
+---
+
+## Round 2 — 2026-06-12 — Feature Spec v2 convergence check
+
+Internal red team + CLIs. Tally: **2 ADVANCE (scope hawk, DPI domain) / 3 ANOTHER ROUND (feasibility, codex, gemini)** — all residual findings precise/structural, fixed in v3.
+
+- **Scope Hawk — ADVANCE.** Round-1 concerns closed. Flagged US-8 cohort-run + rich 4-bucket changelog
+  as v1.1 creep; AC2.1 needs a full per-tuple resolution precedence lattice (carry to Architecture).
+- **Feasibility — ANOTHER ROUND.** AC3.1 contradiction CLOSED by qualifier key + exact-match. But the
+  qualifier-complete key SHIFTS the hard problem into extraction: the extractor must reliably emit
+  population_basis/measured_modeled per fact (sources state them implicitly) — guess→false conflicts,
+  abstain→never compares. Evidence record raises precision (value→span binding). **#1 fix: write the
+  fact-extraction contract + infer-vs-abstain policy.**
+- **DPI Domain — ADVANCE.** Domain concerns closed. New: scheme_status needs basis:de_jure/de_facto
+  (mandatory-by-law vs piloting-in-practice false-conflict); data_protection_law needs stage/scope;
+  measured_modeled is binary but reality tiered. "Enum additions in Architecture, don't block."
+- **codex — ANOTHER ROUND.** Sharp: **as-of is a version dimension, not identity** — conflict/
+  resolution/promotion must be per (country, property, non-temporal-qualifier tuple), as-of governs
+  version precedence. Fixes 3 contradictions (AC2.1 "same qualifiers newest as-of", AC3.3 per-property
+  vs per-fact, AC6.1 became-unknown vs append-only). Undetermined-qualifier behavior undefined.
+- **gemini — ANOTHER ROUND.** Canonicalization paradox ("68.2M = 68,200,000" contradicts exact-match +
+  deferred normalization); **promotion-blocking blind to source tier** (a stray blog blocks a World
+  Bank fact). Per-property sanity-check schema unscoped.
+
+### Disposition (v3 — all incorporated, no user decisions needed)
+(a) as-of = version dimension; conflict/resolution/promotion per non-temporal tuple. (b) Undetermined
+required qualifier ⇒ abstain (`unspecified`, own tuple). (c) Removed canonicalization; strict
+exact-match within identical unit; format/magnitude parsing deferred. (d) Promotion-blocking conflict
+scoped to trust-bar-meeting sources; lower-tier disagreement surfaced but non-blocking. (e) Added
+scheme_status.basis (de_jure/de_facto), data_protection_law.stage/scope. (f) Demoted US-8 + rich
+changelog to v1.1. (g) Fact-extraction contract (incl. infer-vs-abstain + value→span) and per-property
+validation schema + resolution lattice named as Architecture deliverables.

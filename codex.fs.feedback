@@ -32,3 +32,30 @@
 **ANOTHER ROUND — Make the qualifier-complete fact identity, evidence record, and deterministic current/promotion rules explicit; Architecture cannot repair an undefined behavioral contract.**
 
 <!-- codex fs exit=0 -->
+
+---
+## Round 2 — 2026-06-12 — Feature Spec v2 convergence check
+
+1. **Round-1 blockers**
+- (1) **CLOSED** — “same ... all conflict-key qualifiers” plus exact-match prevents denominator false conflicts.
+- (2) **CLOSED** — normalization/tolerance is consistently deferred.
+- (3) **CLOSED** — bounded cohort and six-property scope.
+- (4) **CLOSED** — curated per-property registry replaces automated classification.
+- (5) **CLOSED** — evidence requires passage, canonical URL, timestamp, and run linkage.
+- (6) **PARTIAL** — stories exist, but current-value and supersession semantics remain inconsistent.
+
+2. **New contradictions**
+- AC2.1 says “among non-conflicting facts with the same qualifiers, the newest `as-of` wins,” but `as-of` is itself a qualifier. Different dates cannot have “the same qualifiers.”
+- AC3.3 blocks promotion for an entire “property,” while AC5.2 promotes/demotes individual facts. A conflict in one qualifier tuple must not block unrelated tuples.
+- AC6.1 allows properties to “became `unknown`,” yet append-only history and “`as-of: unknown` ... never supersedes a dated one” imply a failed refresh cannot replace an existing dated value.
+
+3. **Architecture-blocking ambiguity**
+- AC2.1 requires one “resolved current value,” although distinct qualifier tuples intentionally coexist. It must resolve per qualifier tuple, not per property.
+- Required-qualifier behavior is undefined when `population_basis`, `measured_modeled`, or `jurisdiction` cannot be extracted: reject, provisional fact, or `unknown`.
+- “Trivial format canonicalization” is undefined while exact equality depends on it; `"68,200,000" = "68.2M"` already introduces magnitude parsing.
+
+4. **Convergence call**
+
+**ANOTHER ROUND** — define resolution, conflict, promotion, and supersession uniformly per `(country, property, non-temporal qualifier tuple)`, with `as-of` governing version precedence rather than identity.
+
+<!-- codex fs2 exit=0 -->
