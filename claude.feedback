@@ -157,3 +157,30 @@ facts, not conflicts; (2) distinguish **conflict vs. temporal-change vs. multi-v
 (i)** honestly (schema not semantics); (4) **broaden/clarify the framing** beyond "physical world";
 (5) confront the **demand** challenge via a concrete high-stakes persona. (1)-(4) are vision edits;
 (5) is the next Feature-Spec gate.
+
+---
+
+## Round 6 — 2026-06-12 — re-convergence check on v7
+
+Internal Claude red team + external CLIs. Tally: **4 ADVANCE / 1 ANOTHER ROUND** (codex; fixed in v8).
+
+- **Product skeptic — ADVANCE.** All five round-5 blockers CLOSED; no surviving new contradiction;
+  verified examples don't smuggle multi-valued/time-series facts.
+- **Technical realist — ADVANCE.** Blockers closed at vision/logic level; the residual (P5/P7 hinge on
+  the deferred value-equality + qualifier-alignment primitive) is an owned Architecture dependency,
+  honestly flagged, not a contradiction.
+- **Market cynic — ADVANCE.** Demand blocker CLOSED at vision level (honest, high-stakes, falsifiable).
+  Flagged a Feature-Spec tension: high-stakes users must *act* on conflicts but v1 is read-only;
+  "competitive/market intelligence" is the softest of the named domains. (→ deferred items #31, #32.)
+- **gemini — ADVANCE.** All five closed; two flagged issues (single-valued forcing false conflicts on
+  lists; qualifier-alignment failure → over-promotion) — both addressed by v8.
+- **codex — ANOTHER ROUND (valid, fixed in v8):** v7's "single value per (instance, property,
+  qualifiers)" contradicted the conflict model (a conflict needs ≥2 unequal values under that exact
+  key); revision-vs-concurrent-assertion also blurred.
+
+### Disposition (v8)
+codex's contradiction fixed: **provenance is part of fact identity** — each fact is one source's
+assertion, so a qualified key carries multiple competing source-assertions (the conflict), while the
+dossier presents one *resolved current* value. Clarified revision (one source over time) vs. conflict
+(different sources), and intrinsic multi-valued properties vs. cross-source disagreement; sharpened
+P7's over-promotion dependency to name qualifier under-/over-matching (gemini). **Reframe converged.**

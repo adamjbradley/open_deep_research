@@ -83,3 +83,22 @@ ANOTHER ROUND
 **Blocker:** The rigid fact-triple model is fatally naive for domain research; it either strips the methodological qualifiers required to make physical-world values meaningful, or it includes them, instantly destroying the claim that this reframe reduces extraction complexity.
 
 <!-- gemini r5 exit=0 -->
+
+---
+## Round 6 — 2026-06-12 — re-convergence check on v7
+
+1. DID v7 CLOSE THE ROUND-5 BLOCKERS (1)-(5)?
+* **(1) FALSE CONFLICTS:** CLOSED. Fixes the schema by making facts "qualifier-aware" where "differing qualifiers do not make a conflict" (P5).
+* **(2) OVERCLAIMED RISK REDUCTION:** CLOSED. Explicitly retracts the claim: "does not lower the semantic-fidelity risk... relocated, not removed" (P2). 
+* **(3) "PHYSICAL WORLD" FRAMING:** CLOSED. Broadens scope to "things in the world and their attributes" while deliberately carving out "mechanism / causal / qualitative synthesis" (Sec 1).
+* **(4) DEMAND CHALLENGE:** CLOSED. Narrows persona to high-stakes "regulatory / compliance, due-diligence, scientific reference-data" where conflict resolution is mandatory (Sec 2).
+* **(5) DEFERRED PRIMITIVES:** CLOSED. Explicitly defers "value-equality with tolerance and unit normalization" (P5) and "multi-valued, time-series, and relationship facts" (Sec 5).
+
+2. NEW CONTRADICTIONS
+* **Qualifier-aware identity neuters P7 gating:** P7 auto-promotes if "there is no open conflict for that (instance, property, qualifiers)." Because LLM extraction is "lossy" (P2) and "qualifier alignment" is deferred (§9), the platform will rarely generate exact qualifier matches across runs. Conflicts will be artificially rare, causing systemic over-promotion that functionally breaks the P1 "Trust through... gating" mandate.
+* **Single-valued constraint forces false conflicts on lists:** Section 5 declares "v1 assumes a single value per (instance, property, qualifiers)." For properties that genuinely possess multiple concurrent values (e.g., a drug's multiple target receptors, a country's multiple official languages), P5's rigid rule ("different value... = conflict") will automatically classify these valid lists as disagreements, directly violating Section 5's promise that multi-valued facts are "not handled by pretending they are conflicts."
+
+3. CONVERGENCE CALL
+ADVANCE. (The fact-base reframe is now structurally sound and honest about its massive deferred risks; resume Feature Spec to resolve the qualifier-matching and multi-value constraints in user stories.)
+
+<!-- gemini r6 exit=0 -->

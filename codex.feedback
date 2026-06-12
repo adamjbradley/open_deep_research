@@ -108,3 +108,23 @@ Blocking issue: Define whether immutable run reports are historical artifacts or
 **ANOTHER ROUND** — The blocker is that qualifier-aware assertion identity and conflict semantics are foundational to the reframe, yet v6 incorrectly treats `(instance, property)` as sufficient.
 
 <!-- codex r5 exit=0 -->
+
+---
+## Round 6 — 2026-06-12 — re-convergence check on v7
+
+**Round-5 Blockers**
+
+1. **CLOSED** — Conflict identity now requires “same entity, property, *and* qualifiers”; qualifier variance is explicitly distinct facts.
+2. **CLOSED** — v6’s risk claim is fully retracted: “the hard part is relocated, not removed.”
+3. **CLOSED** — Scope consistently covers attributed measured, derived, methodological, and institutional facts while excluding causal/argument synthesis.
+4. **CLOSED** — The high-stakes beachhead and weak-moat risk are explicit and testable through the persona gate.
+5. **NOT-CLOSED** — “single value per (instance, property, qualifiers)” contradicts conflicts containing multiple unequal values under that exact key.
+
+**New Contradictions**
+
+1. The model cannot represent its central differentiator. A fact is keyed by `(instance, property, qualifiers)` and restricted to one value, yet a conflict is “between facts on the same (instance, property, qualifiers) with values unequal.” Either source assertion/provenance must participate in fact identity, or the key must own multiple asserted values.
+2. P6’s “append-only revision history: what the value changed to” further blurs replacement versus simultaneous conflicting assertions. Under the stated identity, a second value can be interpreted as a revision, despite P5 requiring both values to remain concurrently visible.
+
+**ANOTHER ROUND** — Resolve the data-model contradiction between single-valued qualified keys and multiple competing values before returning to Feature Spec.
+
+<!-- codex r6 exit=0 -->

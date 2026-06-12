@@ -2,8 +2,9 @@
 
 **Date:** 2026-06-12
 **Layer:** Vision + Principles (spec-driven development)
-**Status:** v7 — fact-base reframe deepened after round-5 re-review (facts are qualifier-aware;
-risk-reduction overclaims retracted; framing broadened). Pending round-6 re-convergence check.
+**Status:** v8 — round-6 re-convergence check (4 ADVANCE / 1 minor + gemini pending). Fixed the one
+objection: provenance is part of fact identity, so a qualified key holds multiple competing
+source-assertions (the conflict) while the dossier presents one resolved value. Reframe converged.
 **Topic:** How the Open Deep Research platform should work for domain researchers
 
 > **Revision history**
@@ -28,6 +29,13 @@ risk-reduction overclaims retracted; framing broadened). Pending round-6 re-conv
 >   methodological, institutional). **(4)** Multi-valued / time-series / relationship facts and
 >   value-equality/unit-normalization named as deferred. Persona to be anchored on a **high-stakes**
 >   use where cross-source conflict matters.
+> - **v8** — round-6 re-convergence check (4 ADVANCE / 1 minor). Fixed codex's catch: v7's "single
+>   value per qualified key" contradicted the conflict model. Resolution: **provenance is part of fact
+>   identity** — each fact is one source's assertion, so a qualified key carries multiple competing
+>   source-assertions (which *is* the conflict), while the dossier view presents one *resolved current*
+>   value. Clarified revision (one source over time) vs. conflict (different sources), and intrinsic
+>   multi-valued properties vs. cross-source disagreement. Carried a Feature-Spec tension: high-stakes
+>   users may need to *act* on conflicts, but v1 is read-only. **Reframe converged.**
 
 ---
 
@@ -158,7 +166,10 @@ read-only dossier view *shows* conflicts in v1.
 ### P6 — Every fact has a history (data-model commitment)
 Each fact has an **append-only revision history**: what the value changed to, when, the cause (new
 run, gate promotion/demotion, conflict, staleness), and the why. Recorded and machine-queryable in v1;
-surfaced read-only in the dossier view.
+surfaced read-only in the dossier view. Because provenance is part of fact identity (§5), a revision
+tracks how *one source's* asserted value evolves across runs (e.g. the UN restating France's
+population); a *different* source's differing value is a **separate fact and a conflict** (P5), never
+silently folded in as a revision — this is the replacement-vs-concurrent-disagreement distinction.
 
 **Honest scope of the identity problem (correcting v6).** A fact is keyed by **(instance, property,
 qualifiers)**. This gives history a real primary key, but it does **not** "tame" the round-1
@@ -178,12 +189,14 @@ override is deferred; demotion occurs when a conflict opens against a previously
 
 **Honest dependency:** the "no open conflict" clause is only as good as conflict detection — which
 needs the value-equality/unit-normalization primitive (P5) and qualifier alignment (P6), both
-deferred. Weak detection risks **over-promotion** (a real conflict goes unseen and the fact renders
-as *trusted*, hence uncaveated); the backstops are **after-the-fact audit** and later
-detection→**demotion**, *not* caveats (the system wrongly believes it is established). Over-eager
-detection risks **false conflicts** from misaligned qualifiers, which would wrongly *block* sound
-facts from promotion. Both failure directions are real; degraded-synthesis caveats cover only the
-distinct thin-trusted-base case. The caveat-generation mechanism is deferred (§9); the *commitment*
+deferred. Qualifier alignment fails in *both* directions, and both are dangerous. **Under-matching** (lossy
+extraction fails to see that two source-assertions share a key) makes conflicts artificially rare →
+**systemic over-promotion** (a real conflict goes unseen and the fact renders as *trusted*, hence
+uncaveated); the backstops are **after-the-fact audit** and later detection→**demotion**, *not*
+caveats (the system wrongly believes it is established). **Over-matching** (treating distinct
+qualifiers as the same) manufactures **false conflicts** that wrongly *block* sound facts from
+promotion. This means the gating mandate (P1) is only as strong as deferred qualifier alignment —
+named, not hidden; degraded-synthesis caveats cover only the distinct thin-trusted-base case. The caveat-generation mechanism is deferred (§9); the *commitment*
 that provisional content is always marked is firm.
 
 **Report synthesis prefers trusted facts, but degrades gracefully:** when trusted facts are
@@ -208,15 +221,22 @@ query, is the deferred "flywheel motor", §9.)
 - **Property** — a named attribute (*population*, *half-life*, *reported accuracy*) with an expected
   value kind / unit, and the **qualifiers** it is parameterized by (as-of date, scope, method).
   Properties may be profile-predefined *and/or* discovered by research (open question — §9).
-- **Fact** — a provenanced **(instance, property, qualifiers) → value (+unit)**. Carries source(s),
-  origin run, admission status, lifecycle status, computed confidence. *v1 assumes a single value per
-  (instance, property, qualifiers)*; **multi-valued, time-series, and relationship facts are deferred**
-  (§9) — a known limitation, not handled by pretending they are conflicts.
+- **Fact** — *one source's* provenanced assertion: **(instance, property, qualifiers) → value
+  (+unit)**, identified including its **source/run** (provenance is part of identity, per P3). So
+  several sources asserting values for the *same* (instance, property, qualifiers) produce **several
+  facts** — and when their values are unequal (under P5's value-equality), that coexistence **is the
+  conflict**. The qualified key is therefore *not* single-valued in storage; what is single is the
+  **resolved current value** the dossier view presents per key (a trusted value, or "in conflict").
+  Carries admission status, lifecycle status, computed confidence. (**Intrinsically multi-valued
+  properties** — a country's official *languages* — plus **time-series and relationship facts** are a
+  separate, deferred concern, §9, not to be confused with cross-source conflict on a single-valued
+  property.)
 - **Fact revision** — append-only history entry: what/when/cause/why (P6).
 - **Run report** — immutable source-grounded prose for a run; never rewritten; linked to its facts.
 - **Source** — external reference with a (type, property)-scoped trust prior (P4).
-- **Conflict** — first-class link between facts on the same (instance, property, qualifiers) with
-  values unequal under tolerance/unit-normalization, `open`/`resolved` (P5).
+- **Conflict** — first-class link among the (≥2) facts on the same (instance, property, qualifiers)
+  whose values are unequal under tolerance/unit-normalization, `open`/`resolved` (P5). Conflict is a
+  relation *between source-assertions*, which is why provenance is part of fact identity above.
 - **Resolution** — adjudication record (deferred interactive workflow): chosen value, rationale,
   who, when.
 - **Dossier view** — on-demand rendering of an entity's current factual state: trusted facts,
@@ -244,7 +264,8 @@ path. (A stored run report is thereafter immutable, displayed as-written; not re
 **In scope (v1):**
 - The **entity-type / instance / property** schema and the **fact base + run report + dossier view**
   data model with provenance, confidence, conflicts, history (P2–P6) — facts are **qualifier-aware**
-  but **single-valued per (instance, property, qualifiers)**.
+  and **provenance-keyed** (multiple source-asserted values may coexist per qualified key — that is
+  the conflict — while the dossier view presents one *resolved current* value per key).
 - The **fact-extraction** pipeline step.
 - **Hybrid source space** — scholarly sources (authoritative facts) *and* the open web (currency),
   distinguished by source-trust tiers (P4). Adds a scholarly-source integration over today's search.
@@ -255,8 +276,11 @@ path. (A stored run report is thereafter immutable, displayed as-written; not re
 - Per-deployment **domain profile** (entity types, properties, qualifiers, trusted-source priors).
 
 **Out of scope / explicit non-goals (v1):**
-- **Multi-valued, time-series, and relationship facts** — deferred; v1 is single-value-per-qualified-
-  key. Named so they are not mis-modeled as conflicts.
+- **Intrinsically multi-valued, time-series, and relationship facts** — deferred; v1 handles
+  properties whose answer is a single value per qualified key (cross-source disagreement on that value
+  is the conflict). A property whose *correct answer is itself a set* (a country's official languages)
+  or a curve (population by year) or a relation is out of scope. Named so they are not mis-modeled as
+  conflicts.
 - **Mechanism / causal / qualitative synthesis** — the reframe's deliberate trade (§1). Not a research-
   argument tool.
 - **No interactive workflow UI** — no adjudication/resolve/override/triage/fact-editing surface; data
@@ -330,7 +354,8 @@ recompute-on-trust-change; **beachhead persona** (high-stakes lens); success-met
 
 ---
 
-*Status: v7 deepened the fact-base reframe after a 5/5 "another round" re-review — facts are now
-qualifier-aware, the v6 risk-reduction overclaims are retracted, and the framing is broadened with an
-explicit scope boundary. Next step: a round-6 re-convergence check, then resume the **Feature Spec**
-layer (anchor the high-stakes persona, v1 scope, user stories, success metrics).*
+*Status: **fact-base reframe converged at v8** (round-6 re-convergence: 4 ADVANCE / 1 minor, the
+objection fixed — provenance is part of fact identity). The vision survived going back through the
+full review cycle. Next step: resume the **Feature Spec** layer — anchor the concrete high-stakes
+persona, scope v1, write user stories + acceptance criteria, and resolve the carried tension that
+high-stakes users may need to act on conflicts while v1 is read-only.*

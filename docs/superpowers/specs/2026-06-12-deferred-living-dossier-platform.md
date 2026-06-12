@@ -109,3 +109,18 @@ as primary input to the **Architecture** layer. The deferred doc accumulates acr
 30. **Fact semantic-fidelity extraction.** (Sharpened from #2.) The schema is narrow but extracting
     the *right* qualifiers, unit, as-of date, and evidence binding is the real difficulty — measure
     and design for it; do not assume the triple grammar reduces it.
+
+---
+
+## Added from round-6 review (v8) — for the Feature Spec
+
+31. **High-stakes persona vs. read-only v1 (the productive tension).** v1 surfaces conflicts but defers
+    interactive adjudication (Fork A). Yet the high-stakes beachhead (regulatory/due-diligence) often
+    must *act* on a conflict — pick a filing value, record a sign-off. The Feature Spec must decide
+    whether read-only conflict-surfacing is *enough value* for that user, or whether a minimal
+    "record-a-decision" action must come into v1. The v1 surface is thinnest exactly where stakes are
+    highest.
+32. **Prune the persona shortlist.** Of §2's candidates, three are provenance-hard (regulatory,
+    due-diligence, scientific reference); "competitive/market intelligence" is the most
+    LLM-substitutable and risks re-importing the low-stakes lookup user — weigh when choosing the
+    beachhead.
