@@ -122,3 +122,31 @@ ingestion evaluates each tuple against stored facts AND the run's other candidat
 source ceiling + coverage-incomplete marker. (e) run_source via RunSourceStore write port, content-hash
 dedup, soft-delete + prune, WAL+busy_timeout. (f) Policies read via FactQuery DTO. Provenance-pollution
 + density noted as impl/prompt concerns.
+
+---
+
+## Round 4 — 2026-06-12 — Architecture v4 convergence check
+
+Internal red team + CLIs. Tally: **1 ADVANCE / 2 ANOTHER ROUND** (implementation-level seams; fixed in v5).
+
+- **Resilience+Decoupling — ADVANCE.** run_source write port + concurrency + FactQuery DTO CLOSED.
+  Fold-ins: prune policy must not drop run_source still referenced by live evidence; stale-`running`
+  orphan rows need a reaper; put soft_deleted_at on run_source DDL.
+- **Integration realist — ANOTHER ROUND (code-verified):** preallocation needs a **finalize UPDATE
+  port** — `save_run_and_upsert_subject`/`log_research_run` both INSERT complete rows (storage.py:197,
+  138-159), so "finalized in persist_research" would create a 2nd row; need finalize_research_run(run_id)
+  called by both research + cache paths. Entry is `assess_knowledge` (START edge :1040) which branches
+  to the cache path, so a dedicated `preallocate_run` node on START→assess_knowledge is cleaner;
+  subject_id NULL until finalize. **Per-run disable is wrong** — get_all_tools can mix Tavily+CLI search;
+  must be **per-source** (extract sources with a run_source row, skip others) + mark run coverage-incomplete.
+- **codex — ANOTHER ROUND:** same — one authoritative run lifecycle (status field, graph-start INSERT,
+  persist UPDATE/finalize, failure cleanup) + run-level extraction/coverage status defining mixed-adapter
+  behavior; persisted coverage-incomplete marker; source ceiling marker not in §7.
+- **gemini — (pending; 4 reviews decisive.)**
+
+### Disposition (v5 — all incorporated, no user decision)
+preallocate_run node on START→assess_knowledge (status='running'); finalize_research_run UPDATE port
+called by both research + cache paths (one row per run); stale-running reaper; per-SOURCE extraction
+(skip sources without a run_source row; mixed-adapter runs extract their raw-text sources);
+persisted research_runs.coverage_incomplete; run_source.soft_deleted_at + prune guard (don't drop rows
+referenced by live evidence). All implementation-level — convergence is near.

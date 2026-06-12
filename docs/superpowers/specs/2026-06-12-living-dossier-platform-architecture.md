@@ -2,9 +2,9 @@
 
 **Date:** 2026-06-12
 **Layer:** Architecture (spec-driven development)
-**Status:** Draft v4 — round-3 review (2 ADVANCE / 2 code-verified). Preallocated `run_id`; per-adapter
-source-capture (extraction disabled where raw per-source text is unavailable); cumulative same-run
-candidate staging; `run_source` lifecycle. Pending round-4 convergence check.
+**Status:** Draft v5 — round-4 review (1 ADVANCE / 2 implementation-level). One authoritative run
+lifecycle (`status` + `finalize_research_run` UPDATE port + stale-run reaper); **per-source** extraction
+with a persisted coverage-incomplete marker; prune-vs-evidence guard. Pending round-5 convergence check.
 **Builds on:** Vision+Principles v8, Feature Spec v4.
 **Scope:** Digital Identity pillar × ~15–20 country cohort; per-country dossier + cross-country compare
 (read-only) + CSV/MD export.
@@ -53,8 +53,22 @@ candidate staging; `run_source` lifecycle. Pending round-4 convergence check.
 > port, not aiosqlite), content-hash de-duplicated, with soft-delete + a prune policy; WAL +
 > busy_timeout for the fan-out concurrent writes. **(f)** policies read stored facts only via a
 > `FactQuery` DTO (not raw rows).
-
-## 1. Context, existing patterns, invariants
+>
+> **Revision note (v5).** Round-4 (code-grounded) found the v4 fixes right in intent but
+> under-specified at the seams; all folded in (implementation-level, no structural change):
+> **(a) One authoritative run lifecycle.** A `preallocate_run` node on the `START → assess_knowledge`
+> seam INSERTs a `research_runs` row with `status='running'` (new column); **both** the research path
+> (`persist_research`) and the cache path (`answer_from_dossier`) **finalize** it via a new
+> `finalize_research_run(run_id, …)` **UPDATE port** — replacing the INSERTs in
+> `save_run_and_upsert_subject`/`log_research_run` (storage.py) so there is exactly one row per run.
+> `subject_id` is NULL until finalize. A **stale-`running` reaper** (TTL sweep) cleans crashed runs and
+> their `run_source` rows. **(b) Per-source, not per-run, extraction.** `extract_facts` extracts only
+> sources that have a `run_source` row (raw-text adapters); sources from summarizing adapters are simply
+> skipped — a **mixed-adapter run still extracts its raw-text sources**. When any source is skipped (by
+> adapter or by the deterministic ceiling), the run is marked **`coverage_incomplete`** (a persisted
+> field), so absence never reads as authoritative. **(c)** `run_source` gets `soft_deleted_at` in the
+> DDL, and the **prune policy refuses to drop any `run_source` row still referenced by live
+> `evidence`** (the span re-verification anchor), accounting for content-hash sharing across runs.
 Built inside `deep_researcher`. Reuses: stdlib `aiosqlite` on one DB (`get_db_path`); the
 `with_structured_output(PydanticModel)` node pattern (per-backend, CLAUDE.md); the **graph owns the
 loop** invariant (`allowed_tools=[]`, models never execute tools); subscription backends. `research_runs`
@@ -66,8 +80,9 @@ The supervisor fan-out is unchanged. A **new `extract_facts` node runs once** on
 inserted between the existing edges:
 
 ```
-… supervisor_subgraph → final_report_generation → extract_facts → persist_research → END
-        (cache-hit path:  answer_from_dossier → persist_research   — skips extract_facts)
+START → preallocate_run → assess_knowledge → … → final_report_generation → extract_facts → persist_research → END
+  (preallocate_run INSERTs research_runs status='running'; persist_research finalizes via UPDATE)
+  (cache-hit path: assess_knowledge → answer_from_dossier → persist_research — skips extract_facts, still finalizes)
 ```
 
 **Source text via a side store (not graph state).** The round-1/round-2 boundary problem is that
@@ -77,8 +92,10 @@ table** (via the `RunSourceStore` write port) as it fetches them — persistence
 **`run_id` is preallocated** at graph start (a `research_runs` row with status `running`, finalized in
 `persist_research`) so it exists when tools write (round-3 fix: today run_id is only minted at persist).
 **Only raw-text search adapters feed this** (Tavily-class keep per-`{url, raw_text}` before
-summarization, utils.py); a **summarizing CLI/native search adapter disables fact extraction** for the
-run (report still produced — facts need verifiable text). `run_source` is content-hash de-duplicated,
+summarization, utils.py); sources from summarizing CLI/native adapters simply have no `run_source` row
+and are **skipped per-source** by `extract_facts` (a mixed-adapter run still extracts its raw-text
+sources). When any source is skipped (adapter or ceiling), the run is flagged **`coverage_incomplete`**
+so absence never reads as authoritative. `run_source` is content-hash de-duplicated,
 soft-deletable, with a prune policy; WAL + `busy_timeout` cover the concurrent fan-out writes.
 `extract_facts` reads `run_source` **by `run_id`** (not `notes`, cleared at `final_report_generation`,
 nor the flattened `raw_notes`). No ResearcherState/SupervisorState change; extraction gets the
@@ -173,8 +190,12 @@ today's best-effort contract).
 ## 7. Data model (SQLite + migrations)
 A **versioned migration framework** replaces the ad-hoc `executescript(_SCHEMA)` (storage.py:94): a
 `schema_migrations(version)` table + ordered migration steps, so new tables land safely on a populated
-DB. Tables (indicative): `run_source(run_id, source_url, text, retrieved_at, content_hash)` (the
-extraction input + evidence source, written at the tool layer), `entity_type`,
+DB. A migration also adds **`research_runs.status`** (`running`/`completed`/`error`) +
+**`research_runs.coverage_incomplete`** (per the per-source skip/ceiling rule) to the existing table,
+finalized via `finalize_research_run`. New tables (indicative):
+`run_source(run_id, source_url, text, retrieved_at, content_hash, soft_deleted_at)` (the extraction
+input + evidence source, written at the tool layer; **prune refuses rows still referenced by live
+`evidence`**), `entity_type`,
 `entity_instance(canonical_key, aliases_json)`,
 `unresolved_instance` (quarantine), `property_def(value_kind, identity_qualifiers, validation)`,
 `source(registry_version, tier, flags, soft_deleted_at)`, `fact(tuple_key, as_of, value, unit,
@@ -241,5 +262,5 @@ Legacy `current_report`/`dossier_versions` prose **left as-is** (readable); fact
 
 ---
 
-*Next step: round-4 convergence check on this Architecture (confirming the run_id/adapter/staging fixes
-hold), then the implementation-plan layer (`writing-plans`), built TDD per §11.*
+*Next step: round-5 convergence check on this Architecture (confirming the run-lifecycle/per-source/
+prune fixes hold), then the implementation-plan layer (`writing-plans`), built TDD per §11.*

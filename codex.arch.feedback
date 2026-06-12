@@ -80,3 +80,26 @@ ANOTHER ROUND
 Preallocate a durable run ID before research begins, and define a structured source-capture contract for each supported adapter; unsupported adapters must explicitly disable fact extraction.
 
 <!-- codex arch3 exit=0 -->
+
+---
+## Round 4 — 2026-06-12 — Architecture v4 convergence check
+
+**Round-3 Closure**
+
+- **run_id lifecycle — PARTIAL.** “Preallocates the run row at graph start” closes timing, but §7 neither adds `research_runs.status` nor explicitly replaces the existing `persist_research` INSERT with UPDATE/finalization semantics.
+- **Search-adapter fidelity — PARTIAL.** Raw-text-only ingestion is sound, but “a summarizing CLI/native search adapter disables fact extraction for the run” is ambiguous for mixed-adapter fan-out.
+- **Same-run conflicting facts — CLOSED.** “Collects all candidates first” and evaluates against stored facts plus “the run’s other candidates.”
+- **Source ceiling — PARTIAL.** Deterministic selection and “coverage-incomplete” are asserted, but no persisted run-level marker appears in §7.
+- **run_source lifecycle/coupling — CLOSED.** `RunSourceStore`, hash deduplication, soft-delete/pruning, WAL, and `busy_timeout` define the boundary and lifecycle.
+- **Policy read shape — CLOSED.** Stored facts are supplied through `FactQuery`; policies remain pure intent producers.
+
+**New Contradictions**
+
+1. Preallocation conflicts with the retained persistence contract unless explicitly reconciled: v4 says `persist_research` “finalized” the row, while the identified existing behavior is an INSERT. The schema also omits the required run status/finalization fields.
+2. Mixed adapters have undefined semantics. One summarizing adapter apparently disables extraction for the entire run, discarding valid raw-text sources; extracting only raw-source results would instead require the run to be marked coverage-incomplete.
+
+**CONVERGENCE CALL**
+
+ANOTHER ROUND — specify one authoritative run lifecycle: migration fields, graph-start INSERT, `persist_research` UPDATE/finalization, failure cleanup, and a run-level extraction/coverage status that defines mixed-adapter behavior.
+
+<!-- codex arch4 exit=0 -->
