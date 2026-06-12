@@ -60,6 +60,20 @@ class SubjectResolution(BaseModel):
         ),
     )
 
+class KnowledgeAssessment(BaseModel):
+    """Whether existing stored knowledge already answers a question, and the gaps."""
+
+    is_answerable: bool = Field(
+        description="True if the existing knowledge already fully and confidently answers the question.",
+    )
+    missing_information: str = Field(
+        description=(
+            "If not fully answerable, a concise description of what additional "
+            "information must be researched to answer the question. Empty when "
+            "is_answerable is true."
+        ),
+    )
+
 
 ###################
 # State Definitions

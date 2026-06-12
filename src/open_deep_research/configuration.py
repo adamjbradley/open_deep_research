@@ -247,6 +247,16 @@ class Configuration(BaseModel):
             }
         }
     )
+    use_knowledge_base: bool = Field(
+        default=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "default": True,
+                "description": "Before researching, match the question to an existing subject and assess whether the stored dossier already answers it. The research is then scoped to verify existing knowledge or to research the whole subject when information is missing, and results are merged back. When off, every question is researched from scratch."
+            }
+        }
+    )
     # MCP server configuration
     mcp_config: Optional[MCPConfig] = Field(
         default=None,

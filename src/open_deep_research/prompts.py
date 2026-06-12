@@ -393,6 +393,26 @@ Existing subjects in the knowledge base:
 Return the canonical subject name.
 """
 
+knowledge_assessment_prompt = """You are deciding whether an existing knowledge dossier already answers a new question.
+
+Subject: {subject}
+Today's date: {date}
+
+New question / research brief:
+{research_brief}
+
+Existing knowledge dossier for this subject:
+{dossier}
+
+Decide:
+- is_answerable: true ONLY if the dossier already contains a complete, confident answer to
+  the question. If the question targets an aspect the dossier does not cover, or the relevant
+  facts may be out of date, set it to false.
+- missing_information: when not fully answerable, concisely describe what additional
+  information must be researched to answer the question (the specific aspects/elements that
+  are missing or need refreshing). Leave empty when is_answerable is true.
+"""
+
 merge_reports_prompt = """You maintain an evolving research dossier about a single SUBJECT: "{subject}".
 
 You are given the EXISTING dossier and a NEW research report. The new report may cover
@@ -402,8 +422,10 @@ Produce an UPDATED dossier that:
 - PRESERVES all existing information -- do not drop facts, sections, or sources.
 - INTEGRATES the new findings: add new sections/aspects for new material, and weave new
   details into existing sections where they belong.
-- Where a new fact supersedes or corrects an older one, use the newer fact and briefly
-  note that it updates prior information (include dates when known).
+- TIMESTAMPS every fact that is added or updated in this pass with "(as of {date})".
+- Where a new fact supersedes or corrects an older one, use the newer fact, keep the prior
+  value with its earlier date as superseded history (e.g. "now X (as of {date}); previously
+  Y"), so the reader can see how the fact changed over time.
 - Stays well-organized by aspect/element, with clear markdown section headings.
 - Preserves all source URLs from both documents.
 

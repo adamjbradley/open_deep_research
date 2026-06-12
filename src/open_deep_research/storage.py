@@ -47,6 +47,14 @@ CREATE TABLE IF NOT EXISTS research_runs (
     error          TEXT,
     created_at     TEXT
 );
+CREATE TABLE IF NOT EXISTS dossier_versions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject_id  INTEGER REFERENCES subjects(id),
+    run_id      INTEGER REFERENCES research_runs(id),
+    dossier     TEXT,   -- snapshot of the accumulated dossier at this update
+    sources     TEXT,   -- JSON array snapshot
+    created_at  TEXT    -- ISO-8601 UTC; ordered timeline of how the subject evolved
+);
 """
 
 
@@ -172,5 +180,42 @@ async def save_run_and_upsert_subject(
             ),
         )
         run_id = run_cursor.lastrowid
+
+        # Timestamped snapshot of the dossier as it stands after this update, so
+        # the evolution of the subject's knowledge can be viewed historically.
+        await conn.execute(
+            """
+            INSERT INTO dossier_versions (subject_id, run_id, dossier, sources, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (subject_id, run_id, merged_report, json.dumps(sources_union), now),
+        )
+
         await conn.commit()
         return subject_id, run_id
+
+
+async def get_dossier_history(db_path: str, slug: str) -> list[dict]:
+    """Return the timestamped dossier snapshots for a subject, oldest first."""
+    async with aiosqlite.connect(db_path) as conn:
+        await _ensure_schema(conn)
+        conn.row_factory = aiosqlite.Row
+        cursor = await conn.execute(
+            """
+            SELECT v.created_at, v.dossier, v.sources, v.run_id
+            FROM dossier_versions v
+            JOIN subjects s ON s.id = v.subject_id
+            WHERE s.slug = ?
+            ORDER BY v.created_at, v.id
+            """,
+            (slug,),
+        )
+        return [
+            {
+                "created_at": row["created_at"],
+                "dossier": row["dossier"],
+                "sources": json.loads(row["sources"] or "[]"),
+                "run_id": row["run_id"],
+            }
+            for row in await cursor.fetchall()
+        ]
