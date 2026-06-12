@@ -2,9 +2,9 @@
 
 **Date:** 2026-06-12
 **Layer:** Architecture (spec-driven development)
-**Status:** Draft v3 — round-2 review (4 ADVANCE / 1 code-verified blocker). Source text now reaches
-extraction via a **`run_source` side store** (not graph-state notes), one extraction call **per source**.
-Pending round-3 convergence check.
+**Status:** Draft v4 — round-3 review (2 ADVANCE / 2 code-verified). Preallocated `run_id`; per-adapter
+source-capture (extraction disabled where raw per-source text is unavailable); cumulative same-run
+candidate staging; `run_source` lifecycle. Pending round-4 convergence check.
 **Builds on:** Vision+Principles v8, Feature Spec v4.
 **Scope:** Digital Identity pillar × ~15–20 country cohort; per-country dossier + cross-country compare
 (read-only) + CSV/MD export.
@@ -36,6 +36,23 @@ Pending round-3 convergence check.
 > Recompute is forward-only** (re-evaluate status; atomic + per-tuple isolation + resumable on
 > `registry_version`; never rewrites closed history). **(f)** dedup keys on **canonical(value,unit)**;
 > no-op reruns write no revision.
+>
+> **Revision note (v4).** Round-3 (code-grounded) confirmed v3 and found two real blockers + fold-ins:
+> **(a) `run_id` lifecycle:** today `run_id` is minted by the INSERT in `persist_research`, *after*
+> tools run — so v4 **preallocates the run row at graph start** (status `running`, finalized in
+> `persist_research`), giving the tool layer + `extract_facts` a real `run_id`. **(b) Per-adapter
+> source capture:** only raw-text search adapters (Tavily-class: per-`{url, raw_text}` before
+> summarization, utils.py) can feed `run_source`; **CLI/native summarizing search adapters disable fact
+> extraction** for that run (the run still produces a report — facts just aren't extracted without
+> verifiable source text). v1 targets a raw-text search adapter; other adapters are a fast-follow.
+> **(c) Cumulative same-run staging:** `extract_facts` collects *all* candidates first; the ingestion
+> service evaluates each tuple against stored facts **and** the run's other candidates (so two
+> conflicting facts found in one run see each other). **(d) Deterministic source ceiling** + an explicit
+> **coverage-incomplete** marker (omitted sources never make absence look authoritative). **(e)
+> `run_source` lifecycle:** written via a `RunSourceStore` **write port** (tool layer depends on the
+> port, not aiosqlite), content-hash de-duplicated, with soft-delete + a prune policy; WAL +
+> busy_timeout for the fan-out concurrent writes. **(f)** policies read stored facts only via a
+> `FactQuery` DTO (not raw rows).
 
 ## 1. Context, existing patterns, invariants
 Built inside `deep_researcher`. Reuses: stdlib `aiosqlite` on one DB (`get_db_path`); the
@@ -56,12 +73,17 @@ inserted between the existing edges:
 **Source text via a side store (not graph state).** The round-1/round-2 boundary problem is that
 `raw_notes` is `list[str]` and is *re-joined* at the supervisor fan-in (`deep_researcher.py:488`), so
 per-source structure cannot survive in LangGraph state. Instead, the **search/researcher-tool layer
-writes each retrieved source to a `run_source(run_id, source_url, text, retrieved_at, content_hash)`
-table** as it fetches them — persistence is the carry channel. `extract_facts` then reads
-`run_source` **by `run_id`** (it does *not* use `notes`, which `final_report_generation` clears, or the
-flattened `raw_notes`). This needs **no ResearcherState/SupervisorState change** and gives extraction
-the **original retrieved text**, so `evidence_span` is verified as an exact substring of the true
-source (§4) — and the evidence record's `retrieved_at`/`doc_identity` come straight from `run_source`.
+table** (via the `RunSourceStore` write port) as it fetches them — persistence is the carry channel.
+**`run_id` is preallocated** at graph start (a `research_runs` row with status `running`, finalized in
+`persist_research`) so it exists when tools write (round-3 fix: today run_id is only minted at persist).
+**Only raw-text search adapters feed this** (Tavily-class keep per-`{url, raw_text}` before
+summarization, utils.py); a **summarizing CLI/native search adapter disables fact extraction** for the
+run (report still produced — facts need verifiable text). `run_source` is content-hash de-duplicated,
+soft-deletable, with a prune policy; WAL + `busy_timeout` cover the concurrent fan-out writes.
+`extract_facts` reads `run_source` **by `run_id`** (not `notes`, cleared at `final_report_generation`,
+nor the flattened `raw_notes`). No ResearcherState/SupervisorState change; extraction gets the
+**original retrieved text**, so `evidence_span` is verified as an exact substring of the true source
+(§4) — and `retrieved_at`/`doc_identity` come straight from `run_source`.
 
 `extract_facts` runs the `FactExtractor` **once per source** (§4), collects candidate facts, and hands
 them to the **ingestion service** (§5) which `persist_research` calls. **Single writer:** all fact
@@ -219,5 +241,5 @@ Legacy `current_report`/`dossier_versions` prose **left as-is** (readable); fact
 
 ---
 
-*Next step: round-3 convergence check on this Architecture, then the implementation-plan layer
-(`writing-plans`), built TDD per §11.*
+*Next step: round-4 convergence check on this Architecture (confirming the run_id/adapter/staging fixes
+hold), then the implementation-plan layer (`writing-plans`), built TDD per §11.*

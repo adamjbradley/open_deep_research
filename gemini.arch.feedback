@@ -40,3 +40,29 @@ The single most important fix: **Define a formal `EntityResolver` port and adapt
 ADVANCE
 
 <!-- gemini arch2 exit=0 -->
+
+---
+## Round 3 — 2026-06-12 — Architecture v3 convergence check
+
+1. **DID v3 CLOSE THE ROUND-2 FINDINGS?**
+- **CLOSED:** The `run_source` side store ("persistence is the carry channel") correctly bypasses the LangGraph state-merging boundary at the supervisor fan-in. Writing at the tool layer ensures per-source metadata/text exists before the `raw_notes` flattening.
+- **CLOSED:** Node placement (`extract_facts` after `final_report_generation`) correctly uses `run_id` to retrieve source text, avoiding the "cleared notes" bug.
+- **CLOSED:** Call volume is reduced to O(sources) via the "flat list of fact records" schema.
+- **CLOSED:** Logic separation is achieved; "Pure policies... return fully-resolved intents" and the writer only "persists them inside the transaction."
+- **CLOSED:** Forward-only recompute and canonical dedup (value, unit) are soundly defined.
+
+2. **NEW CONTRADICTIONS**
+- **Provenance Pollution:** v3 states `run_source` is written at the "tool layer... as it fetches them" and `extract_facts` reads "by `run_id`." This implies extraction runs on *every* source retrieved during the search phase, including those the Supervisor or Researcher might have discarded as irrelevant for the final report. This risks polluting the dossier with "noise" sources that failed the primary agent's quality filter.
+- **Context/Density Risk:** Moving to "one call per source" for all profile properties (15–20 fields) increases the risk of LLM output truncation or "coercion collapse" in dense, text-heavy sources. While §4 adds a "drop-rate guardrail," the prompt complexity for a single pass over 20 properties is significantly higher than the v2 property-scoped approach.
+- **Storage Redundancy:** Writing full source text to `run_source` at the tool layer for every retrieval across multiple researchers/runs without a global (cross-run) content-addressable store will lead to rapid SQLite bloat.
+
+3. **CONVERGENCE CALL**
+**ADVANCE**
+
+The architecture is now buildable and the state-boundary blocker is resolved. The provenance and density risks are manageable at the implementation/prompt-engineering layer (§12).
+
+> "source text reaches extraction via a `run_source` side store... persistence is the carry channel... no ResearcherState/SupervisorState change" (§2)
+> "extract_facts reads the store by run_id... does not use notes" (Revision note c)
+> "One call per source... flat list of fact records across properties" (§4)
+
+<!-- gemini arch3 exit=0 -->

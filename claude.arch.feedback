@@ -88,3 +88,37 @@ Internal red team + CLIs. Tally: **3 ADVANCE / 1 ANOTHER ROUND (integration real
     open, not closed.**
 
 ### Convergence: ANOTHER ROUND. Real decision: how source-attributed text reaches extract_facts.
+
+---
+
+## Round 3 — 2026-06-12 — Architecture v3 convergence check
+
+Internal red team + CLIs. Tally: **2 ADVANCE / 2 ANOTHER ROUND** (two code-verified blockers, fixed in v4).
+
+- **Resilience+Decoupling — ADVANCE.** Both round-2 fold-ins CLOSED (recompute atomic/resumable;
+  policies receive stored facts, writer never re-decides). Fold-ins: run_source is a concurrent fan-out
+  write table (not covered by the fact-writes single-writer claim) → needs WAL/busy_timeout + retention/
+  soft-delete + content-hash dedup; run_source write needs a port (not direct aiosqlite in tools);
+  policies should read via a FactQuery DTO.
+- **gemini — ADVANCE.** Boundary blocker resolved; remaining (provenance pollution from extracting over
+  discarded sources; density of one-call-per-source over many properties; storage redundancy) manageable
+  at impl/prompt layer.
+- **Integration realist — ANOTHER ROUND (code-verified):** (1) **run_id doesn't exist at the tool
+  layer** — it's `lastrowid` from the persist_research INSERT (storage.py:159,218), minted AFTER tools
+  run; only thread_id is in state (:940). Fix: preallocate run_id (or key by thread_id, reconcile).
+  (2) **Only Tavily keeps per-source {url, raw_text}** (utils.py:84,120-131); CLI/native search return
+  summarized prose → run_source empty/low-fidelity, span-verification fails. Fix: per-adapter capture
+  contract; unsupported adapters disable fact extraction.
+- **codex — ANOTHER ROUND:** same two blockers (run_id lifecycle inversion; per-adapter source capture).
+  Plus: same-run conflicting facts won't see each other unless candidates are staged cumulatively before
+  the batch write; the source ceiling must be deterministic + record incomplete-coverage (omitted
+  sources mustn't make absence look authoritative).
+
+### Disposition (v4 — all incorporated, no user decision)
+(a) Preallocate run_id at graph start (research_runs row status=running, finalized at persist).
+(b) Per-adapter source capture: only raw-text adapters (Tavily-class) feed run_source; summarizing
+adapters disable fact extraction (report still produced). (c) Cumulative same-run candidate staging —
+ingestion evaluates each tuple against stored facts AND the run's other candidates. (d) Deterministic
+source ceiling + coverage-incomplete marker. (e) run_source via RunSourceStore write port, content-hash
+dedup, soft-delete + prune, WAL+busy_timeout. (f) Policies read via FactQuery DTO. Provenance-pollution
++ density noted as impl/prompt concerns.

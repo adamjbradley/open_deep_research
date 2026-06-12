@@ -54,3 +54,29 @@ ANOTHER ROUND — define a transactional, idempotent ingestion/recomputation pro
 **ADVANCE**
 
 <!-- codex arch2 exit=0 -->
+
+---
+## Round 3 — 2026-06-12 — Architecture v3 convergence check
+
+**Round-2 Findings**
+
+- **Source boundary: PARTIAL.** `run_source` avoids graph-state flattening for Tavily, where URL and `raw_content` coexist before summarization. CLI/native search wrappers currently return compiled strings, not `"original retrieved text"` per URL.
+- **Cleared notes: CLOSED.** `"extract_facts reads run_source by run_id"` removes dependence on cleared `notes`.
+- **Call explosion: CLOSED.** `"once per source"` is O(sources); flat records do not recreate the nested qualifier schema.
+- **Writer re-deciding: CLOSED.** Policies emit `"fully-resolved intents"`; the writer only persists.
+- **Recompute/history: CLOSED.** Forward-only revisions and `"never rewrites closed historical conflicts/resolutions"` are coherent.
+- **Dedup: CLOSED.** `canonical(value,unit)` plus no revision for no-op reruns resolves the finding.
+
+**New Contradictions**
+
+1. **Blocking lifecycle inversion.** Tools must write `run_source(run_id, ...)`, and `extract_facts` reads it before `persist_research`; but current `persist_research` creates the research-run ID. v3 never establishes a `run_id` before tool execution.
+2. **Same-run decisions may be stale.** Policies receive `"current tuple's stored facts"` before one final batch write. Unless candidates are staged cumulatively, two conflicting facts discovered in the same run will not see each other.
+3. **Source ceiling is lossy without semantics.** `"per-run source ceiling"` bounds cost but specifies neither deterministic selection nor explicit incomplete-coverage status; silently omitted sources can make absence appear authoritative.
+
+**Convergence Call**
+
+ANOTHER ROUND
+
+Preallocate a durable run ID before research begins, and define a structured source-capture contract for each supported adapter; unsupported adapters must explicitly disable fact extraction.
+
+<!-- codex arch3 exit=0 -->
