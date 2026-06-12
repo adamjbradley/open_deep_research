@@ -19,3 +19,24 @@ The "alias resolution (Türkiye/Turkey…)" mentioned in §4 is a hand-waved "mi
 The single most important fix: **Define a formal `EntityResolver` port and adapter.** Deterministic conflict detection via `tuple_key` is impossible if the "alias resolution" logic is an undefined post-processing step. You must specify how model-emitted strings map to canonical IDs (e.g., via a pre-seeded manifest or a similarity-search utility) before implementation begins.
 
 <!-- gemini arch exit=0 -->
+
+---
+## Round 2 — 2026-06-12 — Architecture v2 convergence check
+
+1. DID v2 CLOSE ROUND-1 BLOCKERS (1)-(6)?
+(1) CLOSED. Moving to a "single post-supervisor `extract_facts` node" running over retained notes successfully bypasses the `ResearcherOutputState` tooling bottleneck.
+(2) CLOSED. Mandating that `evidence_span` is "verified as an exact substring of that segment" concretely eliminates hallucinated provenance.
+(3) CLOSED. Defining "ONE transaction" for ingestion with strict `(tuple_key, as_of, value, source_id)` deduplication resolves the missing transactional/idempotent guarantees.
+(4) CLOSED. The `EntityResolver` port with a strict "miss ⇒ quarantine" rule prevents the system from being flooded with phantom entities.
+(5) CLOSED. The "flat, per-property" extraction schema elegantly bypasses Gemini/Codex nested-object coercion failures, backed by a drop-rate guardrail.
+(6) CLOSED. "Pure policies return decisions... `FactWriter` applies them" fully resolves the persistence decoupling leaks.
+
+2. NEW CONTRADICTIONS
+- **O(N×M) LLM Call Explosion:** The architecture states "The node loops `(source-note × property-in-profile)`; each call returns facts for one property". For 50 sources and 20 properties, this generates 1,000 discrete LLM calls at the end of the run. This contradicts standard rate-limit and latency budgets for a single node, requiring aggressive concurrency or batching during implementation.
+- **Substring Rigidity vs. Compression:** V2 claims "evidence_span is then verified as an exact substring" but defers "span-verification tolerance (whitespace)" to implementation. If the upstream `compress_research` alters formatting, strict substring matching will trigger a massive false-rejection rate, conflicting with the goal of high extraction yield.
+- **Recompute Mutation vs. Append-Only History:** V2 states "bumping `registry_version`... triggers a re-evaluate pass over affected tuples". Re-evaluating pure policies over historical facts could trigger a cascade of new `fact_revision` writes or retroactive supersessions, potentially conflicting with the immutability of past conflicts/resolutions.
+
+3. CONVERGENCE CALL
+ADVANCE
+
+<!-- gemini arch2 exit=0 -->
