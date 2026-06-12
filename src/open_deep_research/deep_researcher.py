@@ -3,7 +3,6 @@
 import asyncio
 from typing import Literal
 
-from langchain.chat_models import init_chat_model
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -16,6 +15,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
 
+from open_deep_research.claude_agent_chat import configurable_claude_model
 from open_deep_research.configuration import (
     Configuration,
 )
@@ -52,10 +52,10 @@ from open_deep_research.utils import (
     think_tool,
 )
 
-# Initialize a configurable model that we will use throughout the agent
-configurable_model = init_chat_model(
-    configurable_fields=("model", "max_tokens", "api_key"),
-)
+# Initialize a configurable model that we will use throughout the agent.
+# Backed by the Claude Agent SDK (Claude Code) so all LLM activity bills against
+# a Claude subscription rather than per-token API credits. See claude_agent_chat.py.
+configurable_model = configurable_claude_model()
 
 async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "__end__"]]:
     """Analyze user messages and ask clarifying questions if the research scope is unclear.

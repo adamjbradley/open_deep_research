@@ -10,7 +10,10 @@ from pydantic import BaseModel, Field
 
 class SearchAPI(Enum):
     """Enumeration of available search API providers."""
-    
+
+    CLAUDE = "claude"
+    GEMINI = "gemini"
+    CODEX = "codex"
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
     TAVILY = "tavily"
@@ -76,13 +79,16 @@ class Configuration(BaseModel):
     )
     # Research Configuration
     search_api: SearchAPI = Field(
-        default=SearchAPI.TAVILY,
+        default=SearchAPI.CLAUDE,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "tavily",
+                "default": "claude",
                 "description": "Search API to use for research. NOTE: Make sure your Researcher Model supports the selected search API.",
                 "options": [
+                    {"label": "Claude Code Web Search", "value": SearchAPI.CLAUDE.value},
+                    {"label": "Gemini Google Search", "value": SearchAPI.GEMINI.value},
+                    {"label": "Codex Web Search", "value": SearchAPI.CODEX.value},
                     {"label": "Tavily", "value": SearchAPI.TAVILY.value},
                     {"label": "OpenAI Native Web Search", "value": SearchAPI.OPENAI.value},
                     {"label": "Anthropic Native Web Search", "value": SearchAPI.ANTHROPIC.value},
@@ -119,12 +125,12 @@ class Configuration(BaseModel):
     )
     # Model Configuration
     summarization_model: str = Field(
-        default="openai:gpt-4.1-mini",
+        default="haiku",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "openai:gpt-4.1-mini",
-                "description": "Model for summarizing research results from Tavily search results"
+                "default": "haiku",
+                "description": "Model for summarizing research results from Tavily search results. With the Claude Agent SDK backend, use a family ('haiku'/'sonnet'/'opus') or a full 'claude-*' id."
             }
         }
     )
@@ -151,12 +157,12 @@ class Configuration(BaseModel):
         }
     )
     research_model: str = Field(
-        default="openai:gpt-4.1",
+        default="sonnet",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "openai:gpt-4.1",
-                "description": "Model for conducting research. NOTE: Make sure your Researcher Model supports the selected search API."
+                "default": "sonnet",
+                "description": "Model for conducting research. Backend is chosen per role by an optional provider prefix: 'claude:opus' (Claude Code), 'gemini:2.5-pro' (Gemini CLI), 'codex:gpt-5' (Codex CLI). No prefix = Claude family ('opus'/'sonnet'/'haiku')."
             }
         }
     )
@@ -171,12 +177,12 @@ class Configuration(BaseModel):
         }
     )
     compression_model: str = Field(
-        default="openai:gpt-4.1",
+        default="sonnet",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "openai:gpt-4.1",
-                "description": "Model for compressing research findings from sub-agents. NOTE: Make sure your Compression Model supports the selected search API."
+                "default": "sonnet",
+                "description": "Model for compressing research findings from sub-agents (Claude Agent SDK family or 'claude-*' id)."
             }
         }
     )
@@ -191,12 +197,12 @@ class Configuration(BaseModel):
         }
     )
     final_report_model: str = Field(
-        default="openai:gpt-4.1",
+        default="opus",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "openai:gpt-4.1",
-                "description": "Model for writing the final report from all research findings"
+                "default": "opus",
+                "description": "Model for writing the final report from all research findings (Claude Agent SDK family or 'claude-*' id)."
             }
         }
     )
