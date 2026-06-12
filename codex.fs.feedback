@@ -59,3 +59,34 @@
 **ANOTHER ROUND** — define resolution, conflict, promotion, and supersession uniformly per `(country, property, non-temporal qualifier tuple)`, with `as-of` governing version precedence rather than identity.
 
 <!-- codex fs2 exit=0 -->
+
+---
+## Round 3 — 2026-06-12 — Feature Spec v3 convergence check
+
+**ROUND-2 FIXES**
+
+(a) **CLOSED** — “`as-of` is the *version* dimension, *not* identity”; differing dates become history, not conflicts.
+
+(b) **PARTIAL** — `unspecified` is isolated and declared “never auto-promoted,” but AC5.2 promotes any threshold-meeting, conflict-free fact without excluding `unspecified`.
+
+(c) **CLOSED** — “strict exact-value match within an identical unit”; normalization and tolerance are deferred.
+
+(d) **CLOSED** — only conflicts among “trust-bar-meeting sources” block or demote promotion.
+
+(e) **CLOSED** — `scheme_status.basis` and `data_protection_law.stage/scope` are explicit identity qualifiers.
+
+(f) **CLOSED** — US-8 and the rich change-log are explicitly v1.1.
+
+(g) **CLOSED** — §7 names the extraction contract and evidence binding; §8 names validation schemas and the resolution lattice.
+
+**NEW CONTRADICTIONS**
+
+1. Qualifier abstention says an `unspecified` tuple is “never auto-promoted,” while AC5.2 says: “A fact whose source meets the tuple's trust threshold AND has no open conflict in its tuple is promoted to `trusted`.” No `unspecified` exception exists.
+
+2. The extraction policy says qualifiers may be emitted when the source “strongly implies them,” while repeatedly requiring “never guessed.” Without a stated distinction, implicit inference can violate abstention.
+
+**CONVERGENCE CALL**
+
+**ANOTHER ROUND** — blocking fix: amend every promotion rule, especially AC5.2, to explicitly prohibit auto-promotion when any required identity qualifier is `unspecified`.
+
+<!-- codex fs3 exit=0 -->

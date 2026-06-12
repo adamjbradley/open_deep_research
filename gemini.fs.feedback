@@ -52,3 +52,23 @@ The single most important fix: Strip out automated trust tiering, unit normaliza
 Fix: Enforce strict EXACT-match by removing "trivial canonicalization" in §5; clarify in AC3.1/5.2 that only conflicts between *registry-tier sources* block promotion, preventing unvetted data from paralyzing the "trusted" status.
 
 <!-- gemini fs2 exit=0 -->
+
+---
+## Round 3 — 2026-06-12 — Feature Spec v3 convergence check
+
+1. DID v3 CLOSE THE ROUND-2 FIXES (a)-(g)?
+(a) **`as-of` is a VERSION dimension:** CLOSED. > "`as-of` is the *version* dimension, *not* identity: within one tuple, the newest `as-of` is the current version"
+(b) **Undetermined required qualifier ⇒ ABSTAIN:** CLOSED. > "fact is marked `unspecified` for that qualifier and held as its own tuple — never guessed ... never auto-promoted."
+(c) **Strict exact-match within identical unit:** CLOSED. > "v1 uses strict exact-value match within an identical unit ... format/magnitude canonicalization, unit normalization, and numeric tolerance are deferred"
+(d) **Tier-scoped promotion-blocking:** CLOSED. > "A conflict blocks promotion only when it is among trust-bar-meeting sources"
+(e) **Added `basis`, `stage`/`scope` qualifiers:** CLOSED. Added to §2.1 table and cross-referenced in §3.
+(f) **Demoted cohort-run and change-log:** CLOSED. Both explicitly moved to v1.1 in US-6 and US-8.
+(g) **Named extraction contract, schema, and lattice as Architecture deliverables:** CLOSED. The fact-extraction contract is defined as a "load-bearing dependency" in §7, while validation schema and resolution precedence are explicitly assigned to Architecture in §8.
+
+2. NEW CONTRADICTIONS
+None. The spec rigorously bounds the problem. By holding `unspecified` qualifiers in isolated tuples and explicitly deferring canonicalization, tolerance, and alignment mechanisms, the data model avoids structural contradictions and accurately scopes the NLP requirements for the next layer.
+
+3. CONVERGENCE CALL
+ADVANCE
+
+<!-- gemini fs3 exit=0 -->

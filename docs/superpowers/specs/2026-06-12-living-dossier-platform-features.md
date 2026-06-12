@@ -2,9 +2,9 @@
 
 **Date:** 2026-06-12
 **Layer:** Feature Spec (spec-driven development)
-**Status:** Draft v3 — round-2 FS review (2 ADVANCE / 2 minor, gemini pending). Reframed `as-of` as a
-*version* dimension (not identity): conflict/resolution/promotion are per non-temporal qualifier tuple;
-undetermined required qualifiers **abstain** (`unspecified`). Pending round-3 convergence check.
+**Status:** Draft v4 — **Feature Spec converged** (round-3: 4 ADVANCE / 1 minor, the AC5.2 objection
+fixed). Final precision pass: AC5.2 excludes `unspecified` tuples from promotion; abstain-default for
+ambiguous qualifiers; `as-of` compared as exact-year in v1; added `coverage_kind`. Ready for Architecture.
 **Builds on:** `2026-06-12-living-dossier-platform-design.md` (Vision+Principles v8, converged)
 **Beachhead:** Digital Public Infrastructure (DPI) researcher
 
@@ -67,14 +67,17 @@ Profile-defined properties for the `country` entity type. Two qualifier roles (r
 - **`as-of` is the *version* dimension**, *not* identity: within one tuple, the newest `as-of` is the
   current version and older values move to history (vision P6). Differing `as-of` is **not** a conflict.
 
-A conflict is therefore two facts in the **same tuple** with **comparable `as-of`** and **differing
-values**.
+A conflict is therefore two facts in the **same tuple** at the **same `as-of` year** with **differing
+values**. (v1 treats `as-of` as exact-year for comparison; finer alignment — "mid-2024" vs "2024" —
+is deferred to Architecture, §8.) `coverage_kind` is included because "coverage" splits on
+enrolled-vs-issued-vs-active credentials (e.g. Aadhaar enrolled ≫ usable) — without it, same-denominator
+figures still false-conflict (domain review).
 
 | Property | Value kind | Identity qualifiers (define the tuple) |
 |---|---|---|
 | `foundational_id_scheme` | name/text | — |
 | `scheme_status` | enum: announced / piloting / operational / mandatory | **basis** (de_jure / de_facto) |
-| `id_coverage_pct` | percentage | **population_basis** (adults_15plus / total_pop / births / registered_holders), **measured_modeled** (measured / modeled) |
+| `id_coverage_pct` | percentage | **population_basis** (adults_15plus / total_pop / births / registered_holders), **coverage_kind** (enrolled / issued / active), **measured_modeled** (measured / modeled) |
 | `biometric_capture` | enum: none / photo / fingerprint / iris / multi | — |
 | `data_protection_law` | boolean + year | **jurisdiction**, **stage** (enacted / in_force), **scope** (comprehensive / sectoral) |
 | `legal_basis` | name + year (the *primary enabling instrument*) | **jurisdiction** |
@@ -153,8 +156,8 @@ and `platform_standard` are cut from v1 (ill-defined / low-convergence per domai
 
 **US-3 — See cross-source conflict (qualifier-correct).**
 - **AC3.1** Two **trust-bar-meeting** facts in the **same tuple** `(country, property,
-  identity-qualifiers)`, at **comparable `as-of`**, with values unequal under strict exact-match, are
-  linked as an `open` conflict (vision P5).
+  identity-qualifiers)`, at the **same `as-of` year**, with values unequal under strict exact-match,
+  are linked as an `open` conflict (vision P5).
 - **AC3.2** Facts differing in **any identity qualifier** (population_basis, jurisdiction, basis,
   stage, scope, measured_modeled) are **distinct facts, not a conflict** — e.g. ID4D `adults_15plus`
   vs GSMA `registered_holders` coverage do **not** conflict; they coexist as separate tuples. Facts
@@ -174,10 +177,12 @@ and `platform_standard` are cut from v1 (ill-defined / low-convergence per domai
 **US-5 — Inspect the evidence behind a fact.**
 - **AC5.1** From any dossier/compare cell, Maya can view the fact's **evidence record**: quoted source
   passage, source document (canonical URL), retrieval timestamp, and the run that produced it.
-- **AC5.2** A fact whose source meets the tuple's trust threshold AND has no open conflict in its tuple
-  is promoted to `trusted` (vision P7). A later **trust-bar-meeting** fact in the same tuple at
-  comparable `as-of` with a differing value demotes it and opens a conflict; a later fact with a
-  **newer `as-of`** supersedes it as the current version (history, not conflict).
+- **AC5.2** A fact is promoted to `trusted` (vision P7) when **all three** hold: its source meets the
+  tuple's trust threshold; it has **no `unspecified` required identity qualifier** (abstained facts are
+  never auto-promoted, §2.2); and there is no open conflict in its tuple. A later **trust-bar-meeting**
+  fact in the same tuple at the same `as-of` year with a differing value demotes it and opens a
+  conflict; a later fact with a **newer `as-of`** supersedes it as the current version (history, not
+  conflict).
 
 **US-6 — Refresh a country.**
 - **AC6.1** Re-running a country updates its tuples: a newer-`as-of` value from a source becomes the
@@ -231,10 +236,11 @@ and `platform_standard` are cut from v1 (ill-defined / low-convergence per domai
 - **Canonical country list (ISO 3166) + alias/instance resolution** beyond `slugify`.
 - **Fact-extraction contract** — a new structured-output graph node producing
   `(country, property, identity-qualifiers, as-of, value, unit, source, evidence-span)`; the actual
-  hard NLP. **Must define the infer-vs-abstain policy:** identity qualifiers (`population_basis`,
-  `measured_modeled`, `basis`, `stage`, `scope`) are emitted only when the source states/strongly
-  implies them, else `unspecified` (§2.2) — *never guessed*. Must bind each value to its exact quoted
-  evidence span (AC1.4). This is the load-bearing dependency of the whole qualifier model.
+  hard NLP. **Must define the infer-vs-abstain policy:** an identity qualifier is emitted only when the
+  source **explicitly states it (or a direct synonym)**; **when in doubt, `unspecified`** (§2.2) — never
+  inferred or guessed. (The authoritative required-qualifier set per property is the §2.1 table.) Must
+  bind each value to its exact quoted evidence span (AC1.4). This is the load-bearing dependency of the
+  whole qualifier model; calibrating "explicitly states" is the extraction node's key tuning task.
 - **Evidence capture** — quoted passage + source identity + retrieval timestamp binding.
 - **Run-report storage** linked to facts.
 
@@ -253,4 +259,8 @@ and `platform_standard` are cut from v1 (ill-defined / low-convergence per domai
 
 ---
 
-*Next step: round-3 convergence check on this Feature Spec, then advance to the Architecture layer.*
+*Status: Feature Spec converged at v4 (3 review rounds). Next step: advance to the **Architecture**
+layer — whose first deliverable is the **fact-extraction contract** (output schema + the abstain
+policy's "explicitly states" calibration + value→evidence-span binding), then the SQLite schema
+(entity/property/fact-tuple/conflict/history/evidence), the curated source registry, the conflict +
+promotion engine, and the two read-only CLI surfaces. Carry the deferred-questions doc forward.*

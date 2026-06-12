@@ -93,3 +93,30 @@ scoped to trust-bar-meeting sources; lower-tier disagreement surfaced but non-bl
 scheme_status.basis (de_jure/de_facto), data_protection_law.stage/scope. (f) Demoted US-8 + rich
 changelog to v1.1. (g) Fact-extraction contract (incl. infer-vs-abstain + value→span) and per-property
 validation schema + resolution lattice named as Architecture deliverables.
+
+---
+
+## Round 3 — 2026-06-12 — Feature Spec v3 convergence check
+
+Internal red team + CLIs. Tally: **4 ADVANCE / 1 ANOTHER ROUND** (codex; fixed in v4). All residual
+findings precise and non-structural — the FS correctly defers its hard mechanisms to Architecture.
+
+- **Scope Hawk — ADVANCE.** v3 edits stayed in scope (qualifiers shrink the comparison surface, not
+  expand it). Non-blocking: define "comparable as-of" as exact-year-match in v1 (fixed in v4).
+- **Feasibility — ADVANCE.** Round-2 blocker CLOSED — §2.2/§7 now state a complete behavioral contract
+  (output shape + abstain policy + value→span); the NLP mechanism is correctly Architecture's job.
+  Non-blocking: "strongly implies" reopens discretion — default to abstain (fixed in v4); consolidate
+  the required-qualifier set in §2.1 (fixed in v4).
+- **DPI Domain — ADVANCE.** basis/stage/scope correctly capture the flagged splits (Aadhaar de jure vs
+  de facto; enacted vs in-force). Non-blocking: add `coverage_kind` (enrolled/issued/active) — the last
+  coverage false-conflict source (fixed in v4); `foundational_id_scheme` kind (noted, lower risk).
+- **codex — ANOTHER ROUND (one precise blocker, fixed in v4):** AC5.2 promoted any threshold-meeting
+  conflict-free fact without excluding `unspecified`-qualifier tuples — contradicting the abstain
+  policy. v4 AC5.2 now requires no `unspecified` required qualifier for promotion.
+- **gemini — (did not return in time; 4 reviews decisive.)**
+
+### Disposition (v4 — Feature Spec converged)
+AC5.2 excludes `unspecified` tuples from auto-promotion; "strongly implies" → explicit-states +
+abstain-default; "comparable as-of" → same-year in v1; added `coverage_kind`; §2.1 is the authoritative
+qualifier set. Remaining items (full resolution lattice, validation schema, as-of alignment heuristic,
+extraction-node calibration, `foundational_id_scheme.kind`) are correctly Architecture-layer.
