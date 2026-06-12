@@ -89,3 +89,10 @@ lint.ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.pytest.ini_options]
+# Unit tests live in tests/ as test_*.py. The other files in tests/ are the
+# LangSmith evaluation harness (not pytest tests) and are not collected.
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
