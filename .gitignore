@@ -67,3 +67,8 @@ tmp/
 temp/
 
 .langgraph_api
+
+# Local research results database
+*.db
+*.db-shm
+*.db-wal

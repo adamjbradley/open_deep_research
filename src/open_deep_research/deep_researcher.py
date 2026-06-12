@@ -1,6 +1,8 @@
 """Main LangGraph implementation for the Deep Research agent."""
 
 import asyncio
+import logging
+from datetime import datetime, timezone
 from typing import Literal
 
 from langchain_core.messages import (
@@ -25,7 +27,9 @@ from open_deep_research.prompts import (
     compress_research_system_prompt,
     final_report_generation_prompt,
     lead_researcher_prompt,
+    merge_reports_prompt,
     research_system_prompt,
+    subject_resolution_prompt,
     transform_messages_into_research_topic_prompt,
 )
 from open_deep_research.state import (
@@ -37,7 +41,16 @@ from open_deep_research.state import (
     ResearcherOutputState,
     ResearcherState,
     ResearchQuestion,
+    SubjectResolution,
     SupervisorState,
+)
+from open_deep_research.storage import (
+    extract_sources,
+    get_db_path,
+    get_subject_by_slug,
+    get_subject_names,
+    save_run_and_upsert_subject,
+    slugify,
 )
 from open_deep_research.utils import (
     anthropic_websearch_called,
@@ -51,6 +64,8 @@ from open_deep_research.utils import (
     remove_up_to_last_ai_message,
     think_tool,
 )
+
+logger = logging.getLogger(__name__)
 
 # Initialize a configurable model that we will use throughout the agent.
 # Backed by the Claude Agent SDK (Claude Code) so all LLM activity bills against
@@ -696,11 +711,162 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
         **cleared_state
     }
 
+async def _resolve_subject(topic, research_brief, existing_subjects, configurable, config):
+    """Use a cheap model to map this query to a canonical subject name.
+
+    Reuses an existing subject's name verbatim when the query concerns it (even a
+    different aspect), so accumulation groups related runs together.
+    """
+    model = (
+        configurable_model
+        .with_structured_output(SubjectResolution)
+        .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+        .with_config({
+            "model": configurable.summarization_model,
+            "max_tokens": configurable.summarization_model_max_tokens,
+            "api_key": get_api_key_for_model(configurable.summarization_model, config),
+            "tags": ["langsmith:nostream"],
+        })
+    )
+    existing = "\n".join(f"- {s}" for s in existing_subjects) or "(none yet)"
+    prompt = subject_resolution_prompt.format(
+        topic=topic, research_brief=research_brief or topic, existing_subjects=existing
+    )
+    response = await model.ainvoke([HumanMessage(content=prompt)])
+    return response.subject.strip()
+
+
+async def _merge_dossier(subject, existing_report, new_report, configurable, config):
+    """Merge a new report into a subject's existing dossier (preserve + integrate)."""
+    model = configurable_model.with_config({
+        "model": configurable.final_report_model,
+        "max_tokens": configurable.final_report_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.final_report_model, config),
+        "tags": ["langsmith:nostream"],
+    })
+    prompt = merge_reports_prompt.format(
+        subject=subject,
+        existing_report=existing_report,
+        new_report=new_report,
+        date=get_today_str(),
+    )
+    response = await model.ainvoke([HumanMessage(content=prompt)])
+    return str(response.content)
+
+
+async def persist_research(state: AgentState, config: RunnableConfig):
+    """Store the completed run and accumulate it into its subject's dossier.
+
+    Resolves the canonical subject, stores this run (full history) in
+    ``research_runs``, and merges the new report into the subject's accumulated
+    dossier so later questions about a different aspect of the same subject add
+    to -- rather than replace -- existing knowledge. Best-effort: a failure is
+    logged but never breaks the completed run.
+
+    Args:
+        state: Agent state containing the final report and research data
+        config: Runtime configuration with persistence settings
+
+    Returns:
+        Dict with the stored run id (``report_id``) and ``subject``, or empty.
+    """
+    configurable = Configuration.from_runnable_config(config)
+    if not configurable.persist_results:
+        return {}
+
+    # Topic is the first user message; the brief is the model-derived question.
+    messages = state.get("messages", [])
+    topic = next(
+        (str(m.content) for m in messages if isinstance(m, HumanMessage)),
+        get_buffer_string(messages[:1]) if messages else "",
+    )
+    research_brief = state.get("research_brief")
+    final_report = state.get("final_report", "")
+    raw_notes = state.get("raw_notes", [])
+    new_sources = extract_sources(final_report, *raw_notes)
+
+    config_used = configurable.model_dump(mode="json")
+    config_used.pop("mcp_config", None)
+
+    run = {
+        "thread_id": (config.get("configurable") or {}).get("thread_id"),
+        "topic": topic,
+        "research_brief": research_brief,
+        "final_report": final_report,
+        "sources": new_sources,
+        "raw_notes": raw_notes,
+        "config": config_used,
+        "status": "completed",
+        "error": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        db_path = get_db_path(config)
+        now = run["created_at"]
+
+        if configurable.accumulate_by_subject and final_report:
+            # 1) Resolve the canonical subject (reusing an existing one when matched).
+            existing_names = await get_subject_names(db_path)
+            try:
+                subject_name = await _resolve_subject(
+                    topic, research_brief, existing_names, configurable, config
+                )
+            except Exception as e:
+                logger.warning("Subject resolution failed, using topic: %s", e)
+                subject_name = topic
+            slug = slugify(subject_name)
+
+            # 2) Merge into the existing dossier (preserve + add) if one exists.
+            existing = await get_subject_by_slug(db_path, slug)
+            if existing and existing.get("current_report"):
+                subject_name = existing["name"] or subject_name  # keep canonical name
+                try:
+                    merged_report = await _merge_dossier(
+                        subject_name, existing["current_report"], final_report,
+                        configurable, config,
+                    )
+                except Exception as e:
+                    # Fallback: concatenate so existing content is never lost.
+                    logger.warning("Dossier merge failed, appending instead: %s", e)
+                    merged_report = (
+                        f"{existing['current_report']}\n\n---\n\n"
+                        f"## Additional research ({now[:10]})\n\n{final_report}"
+                    )
+                sources_union = extract_sources(merged_report) or list(
+                    dict.fromkeys([*existing.get("sources", []), *new_sources])
+                )
+            else:
+                merged_report = final_report
+                sources_union = new_sources
+        else:
+            # No accumulation: each run is its own subject snapshot (no LLM calls).
+            subject_name = topic
+            slug = slugify(topic)
+            merged_report = final_report
+            sources_union = new_sources
+
+        subject_id, run_id = await save_run_and_upsert_subject(
+            db_path,
+            subject_name=subject_name,
+            slug=slug,
+            merged_report=merged_report,
+            sources_union=sources_union,
+            run=run,
+            now=now,
+        )
+        return {"report_id": run_id, "subject": subject_name}
+    except Exception as e:
+        # Persistence is best-effort: never fail a completed run on a DB error.
+        logger.warning("Failed to persist research result: %s", e)
+        return {}
+
+
 # Main Deep Researcher Graph Construction
 # Creates the complete deep research workflow from user input to final report
 deep_researcher_builder = StateGraph(
-    AgentState, 
-    input=AgentInputState, 
+    AgentState,
+    input=AgentInputState,
     config_schema=Configuration
 )
 
@@ -709,11 +875,13 @@ deep_researcher_builder.add_node("clarify_with_user", clarify_with_user)        
 deep_researcher_builder.add_node("write_research_brief", write_research_brief)     # Research planning phase
 deep_researcher_builder.add_node("research_supervisor", supervisor_subgraph)       # Research execution phase
 deep_researcher_builder.add_node("final_report_generation", final_report_generation)  # Report generation phase
+deep_researcher_builder.add_node("persist_research", persist_research)             # Persist results to SQLite
 
 # Define main workflow edges for sequential execution
 deep_researcher_builder.add_edge(START, "clarify_with_user")                       # Entry point
 deep_researcher_builder.add_edge("research_supervisor", "final_report_generation") # Research to report
-deep_researcher_builder.add_edge("final_report_generation", END)                   # Final exit point
+deep_researcher_builder.add_edge("final_report_generation", "persist_research")    # Report to persistence
+deep_researcher_builder.add_edge("persist_research", END)                          # Final exit point
 
 # Compile the complete deep researcher workflow
 deep_researcher = deep_researcher_builder.compile()

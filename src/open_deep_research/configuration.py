@@ -216,6 +216,37 @@ class Configuration(BaseModel):
             }
         }
     )
+    # Result persistence
+    persist_results: bool = Field(
+        default=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "default": True,
+                "description": "Whether to automatically store each completed research run (report, sources, raw notes, config) in the local SQLite database."
+            }
+        }
+    )
+    database_path: str = Field(
+        default="research_results.db",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "text",
+                "default": "research_results.db",
+                "description": "Path to the local SQLite database file used to store research results. Can also be set via the RESEARCH_DB_PATH environment variable."
+            }
+        }
+    )
+    accumulate_by_subject: bool = Field(
+        default=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "default": True,
+                "description": "Group research runs by canonical subject and merge each new report into that subject's accumulated dossier (preserving prior findings and adding new ones). When off, each run is stored independently with no merging (no extra LLM calls)."
+            }
+        }
+    )
     # MCP server configuration
     mcp_config: Optional[MCPConfig] = Field(
         default=None,

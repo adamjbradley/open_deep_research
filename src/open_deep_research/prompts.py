@@ -366,3 +366,54 @@ Remember, your goal is to create a summary that can be easily understood and uti
 
 Today's date is {date}.
 """
+
+subject_resolution_prompt = """You are organizing a research knowledge base by SUBJECT.
+
+Given a new research query and the list of subjects already in the knowledge base,
+determine the single canonical subject this query concerns.
+
+Rules:
+- The canonical subject is the entity or topic itself, NOT the specific question or
+  the particular aspect being asked about. For example,
+  "What is the battery chemistry of the Tesla Model 3?" -> "Tesla Model 3".
+- If the query concerns one of the EXISTING subjects below -- even if it asks about a
+  different aspect or element of that subject -- return that subject's name EXACTLY as
+  it appears in the list.
+- Otherwise, return a concise new canonical subject name.
+
+New query:
+{topic}
+
+Research brief:
+{research_brief}
+
+Existing subjects in the knowledge base:
+{existing_subjects}
+
+Return the canonical subject name.
+"""
+
+merge_reports_prompt = """You maintain an evolving research dossier about a single SUBJECT: "{subject}".
+
+You are given the EXISTING dossier and a NEW research report. The new report may cover
+a different aspect or element of the subject than the existing dossier does.
+
+Produce an UPDATED dossier that:
+- PRESERVES all existing information -- do not drop facts, sections, or sources.
+- INTEGRATES the new findings: add new sections/aspects for new material, and weave new
+  details into existing sections where they belong.
+- Where a new fact supersedes or corrects an older one, use the newer fact and briefly
+  note that it updates prior information (include dates when known).
+- Stays well-organized by aspect/element, with clear markdown section headings.
+- Preserves all source URLs from both documents.
+
+Today's date is {date}.
+
+=== EXISTING DOSSIER ===
+{existing_report}
+
+=== NEW RESEARCH REPORT ===
+{new_report}
+
+Return the complete updated dossier in markdown. Output only the dossier, no preamble.
+"""
