@@ -78,3 +78,26 @@ immutable snapshots (current conflicts live in the dossier view); rendering cont
 claim-derived rendering; "gated promotion" terminology; honest contradiction-detection dependency
 flag; success metric de-tautologized. **Convergence reached** — remaining feedback is operational,
 not structural.
+
+---
+
+## Round 4 — 2026-06-12 — final verification of v4
+
+Final check. Tally with external CLIs: **4 ADVANCE / 1 ANOTHER ROUND**.
+
+- **Product skeptic — ADVANCE.** All five v4 fixes (a)-(e) hold; no fix reopened a prior issue.
+- **Technical realist — ADVANCE.** Each fix holds logically; (b)'s carve-out reinforces immutability.
+- **Market cynic — ADVANCE.** §7 wedge intact and tightened; de-tautologized §3 now measures the
+  wedge rather than restating it; no new GTM contradiction.
+- **gemini — ADVANCE.** Structural and terminology convergence reached.
+- **codex — ANOTHER ROUND (single sharp objection):** v4 fix (d) "DOESN'T HOLD" — degraded-synthesis
+  caveats mark *provisional* content, so they cannot backstop an undetected contradiction that
+  *over-promotes* a claim to trusted (such a claim renders trusted/uncaveated). Only audit (and later
+  detection→demotion) does. **Valid.**
+
+### Disposition (v5)
+codex is right. Fixed in v5: P7 now separates the two failure modes — over-promotion is backstopped
+by after-the-fact audit and later contradiction-detection→demotion (NOT caveats); caveats backstop
+the distinct degraded-synthesis (thin-trusted-base) case. This directly closes the only remaining
+objection. **Convergence reached across all reviewers** — remaining items are deferred Architecture
+concerns, not vision-level issues.

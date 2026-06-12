@@ -56,3 +56,22 @@
 Blocking issue: Define whether immutable run reports are historical artifacts or live rendered surfaces; the document currently requires them to be both.
 
 <!-- codex r3 exit=0 -->
+
+---
+## Round 4 — 2026-06-12 — final verification of v4
+
+(a) **HOLDS** — Reports are “immutable snapshots”; later conflicts surface only in the current dossier view.
+
+(b) **HOLDS** — The canonical path covers claim-derived rendering at run time; stored reports are “displayed as-written.”
+
+(c) **HOLDS** — Ingestion is unconditional; “promotion is gated.”
+
+(d) **DOESN’T HOLD** — Caveats mark provisional content, so they cannot backstop an undetected contradiction that causes erroneous promotion to trusted. Only audit does.
+
+(e) **HOLDS** — The metric now measures trusted versus provisional content in rendered answers across runs.
+
+**New contradiction:** P7 calls degraded-synthesis caveats a backstop against over-promotion, but over-promoted claims are rendered as trusted and therefore uncaveated.
+
+**ANOTHER ROUND** — Remove the claim that provisional-content caveats mitigate false promotion, or define caveating for promotion uncertainty.
+
+<!-- codex r4 exit=0 -->

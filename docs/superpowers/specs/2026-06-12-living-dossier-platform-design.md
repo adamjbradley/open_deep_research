@@ -2,7 +2,8 @@
 
 **Date:** 2026-06-12
 **Layer:** Vision + Principles (spec-driven development)
-**Status:** Draft v4 — round-3 convergence check passed (3 ADVANCE / 2 minor); precision fixes applied
+**Status:** v5 — converged. Round-4 final check 4 ADVANCE / 1 minor; the one objection (caveats can't
+backstop over-promotion) fixed. Ready for the Feature Spec layer.
 **Topic:** How the Open Deep Research platform should work for domain researchers
 
 > **Revision history**
@@ -23,6 +24,10 @@
 >   into past reports); rendering contract scoped to claim-derived rendering; "gated *promotion*"
 >   not "gated ingestion"; honest flag that the promotion rule's "no open contradiction" clause
 >   depends on contradiction-detection robustness; success metric de-tautologized.
+> - **v5** — round-4 final check (4 ADVANCE / 1 minor). Fixed the sole objection: corrected P7's
+>   claim that degraded-synthesis caveats backstop *over-promotion* — they don't (an over-promoted
+>   claim renders as trusted/uncaveated); over-promotion is backstopped only by audit and later
+>   detection→demotion, while caveats cover the distinct degraded-synthesis case. **Converged.**
 
 ---
 
@@ -131,10 +136,14 @@ opens against a previously-trusted claim.
 
 **Honest dependency:** the "no open contradiction" clause is only as good as contradiction detection,
 which P5 already requires for v1 (conflicts are first-class) but whose *robustness* is bounded by
-claim-identity resolution (deferred, §9). Weak detection risks *over-*promotion (a real conflict goes
-unseen), so degraded-synthesis caveats and after-the-fact audit remain necessary backstops, not
-optional polish. The caveat-generation mechanism itself is deferred (§9); the *commitment* that
-provisional content is always marked as such is firm.
+claim-identity resolution (deferred, §9). Weak detection risks **over-promotion** — a real conflict
+goes unseen and the claim is rendered as *trusted*, hence uncaveated. The backstops for *that* failure
+are **after-the-fact audit** and later contradiction detection that **demotes** the claim; caveats do
+*not* help here, because the system wrongly believes the claim is established. Caveats backstop a
+*different* failure — the degraded-synthesis path, where a thin trusted base forces openly-provisional
+claims into a report and they must be marked as such. Both backstops are necessary, not optional
+polish. The caveat-generation mechanism itself is deferred (§9); the *commitment* that provisional
+content is always marked as such is firm.
 
 **Report synthesis prefers trusted claims, but degrades gracefully:** when trusted claims are
 insufficient (every brand-new subject; heavily-contested topics), synthesis **falls back to

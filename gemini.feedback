@@ -42,3 +42,21 @@
 **ADVANCE.** The document is structurally sound and the previously conflicting requirements for synthesis, trust, and data modeling have been successfully reconciled into a coherent vision.
 
 <!-- gemini r3 exit=0 -->
+
+---
+## Round 4 — 2026-06-12 — final verification of v4
+
+**1. DO THE v4 FIXES (a)-(e) HOLD?**
+(a) **HOLDS.** P5/P2 clearly separate immutable "snapshots of what one run found" from the live "dossier view" which surfaces newly discovered conflicts.
+(b) **HOLDS.** §5 Rendering Contract is explicitly "scoped to claim-derived rendering" at creation/view time; "stored run report is thereafter an immutable artifact, displayed as-written."
+(c) **HOLDS.** Terminology corrected in P1 and §6: "ingestion is unconditional; the gate is an automatic promotion policy."
+(d) **HOLDS.** P7 adds the "Honest dependency" clause, admitting the "no open contradiction" check is "only as good as contradiction detection" and committing to caveats/audit backstops.
+(e) **HOLDS.** §3 operationalizes success as the ratio of "trusted vs. provisional claims" and its growth over time, removing the v3 tautology.
+
+**2. DID ANY v4 FIX REOPEN A PRIOR ISSUE or create a new contradiction?**
+No. The precision fixes resolve the remaining collisions between immutability and live state.
+
+**3. FINAL CALL**
+**ADVANCE.** The document has reached structural and terminology convergence; remaining risks (claim identity, extraction quality) are properly deferred to the Feature/Architecture layers.
+
+<!-- gemini r4 exit=0 -->
