@@ -66,3 +66,24 @@ as primary input to the **Architecture** layer. The deferred doc accumulates acr
     new domain needs engine changes (evidence hierarchies, temporal semantics, entity resolution).
 19. **Adoption / cold-start.** Early-dossier value is low and there's no workflow UI; what makes
     the first 90 days worthwhile enough to keep using it?
+
+---
+
+## Added from round-2 review (v3)
+
+20. **Promotion "flywheel" motor.** Trust promotion (P7) and corroboration depend on *later* runs
+    about the same subject. Does the platform actively trigger re-research to earn trust, or wait
+    passively for the next user query? Without a motor, claims sit provisional indefinitely.
+21. **Degraded-synthesis caveat generation.** How reports built partly from provisional claims (P7)
+    generate explicit, machine-verifiable caveats — and how the renderer guarantees those caveats
+    survive into every output (the rendering contract, §5).
+22. **Canonical dossier-view rendering rules.** Exact rules for the on-demand dossier view: how
+    trusted vs. provisional vs. stale claims are ordered/labelled, how conflicts are shown, and how
+    a claim that wasn't in any single run's prose appears. One canonical render path.
+23. **Status as two axes in schema.** Admission (`provisional`/`trusted`) and lifecycle
+    (`current`/`stale`/`superseded`) modeled independently, with defined interactions (e.g. a stale
+    trusted claim).
+24. **Beachhead persona.** A concrete target researcher must be named before the Feature Spec, to
+    test the §7 wedge against a real workflow rather than the abstract "domain researchers."
+25. **Success-metric refinement.** Turn §3's outcome targets into measurable, instrumented metrics
+    distinguishing a living dossier from an accumulating search history.
