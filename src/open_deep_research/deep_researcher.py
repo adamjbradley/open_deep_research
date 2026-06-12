@@ -377,10 +377,43 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
     exceeded_allowed_iterations = research_iterations > configurable.max_researcher_iterations
     no_tool_calls = not most_recent_message.tool_calls
     research_complete_tool_call = any(
-        tool_call["name"] == "ResearchComplete" 
+        tool_call["name"] == "ResearchComplete"
         for tool_call in most_recent_message.tool_calls
     )
-    
+
+    # Guard against premature completion: the CLI/subscription backends select tools via a
+    # JSON envelope that does not enforce per-tool argument schemas, so the supervisor can
+    # satisfy it with the no-argument ResearchComplete and finish before any research runs --
+    # leaving notes/raw_notes empty. If ResearchComplete is called before a single
+    # ConductResearch has returned, don't end: answer the tool call with a corrective nudge and
+    # loop back so the supervisor actually dispatches research. The iteration cap above still
+    # bounds the loop if the model refuses to comply.
+    conducted_research = any(
+        isinstance(message, ToolMessage) and getattr(message, "name", "") == "ConductResearch"
+        for message in supervisor_messages
+    )
+    research_complete_calls = [
+        tool_call for tool_call in most_recent_message.tool_calls
+        if tool_call["name"] == "ResearchComplete"
+    ]
+    if research_complete_calls and not conducted_research and not exceeded_allowed_iterations:
+        corrective_messages = [
+            ToolMessage(
+                content=(
+                    "No research has been conducted yet. Before calling ResearchComplete you "
+                    "must call ConductResearch with one or more specific, standalone "
+                    "research_topic instructions. Dispatch the necessary research now."
+                ),
+                name="ResearchComplete",
+                tool_call_id=tool_call["id"],
+            )
+            for tool_call in research_complete_calls
+        ]
+        return Command(
+            goto="supervisor",
+            update={"supervisor_messages": corrective_messages},
+        )
+
     # Exit if any termination condition is met
     if exceeded_allowed_iterations or no_tool_calls or research_complete_tool_call:
         return Command(
