@@ -75,3 +75,36 @@ Blocking issue: Define whether immutable run reports are historical artifacts or
 **ANOTHER ROUND** — Remove the claim that provisional-content caveats mitigate false promotion, or define caveating for promotion uncertainty.
 
 <!-- codex r4 exit=0 -->
+
+---
+## Round 5 — 2026-06-12 — re-review of the v6 fact-base reframe
+
+**1. Does The Reframe Hold?**
+
+1. P5 breaks under the definition “a **different value for the same entity-property**” equals conflict. Measurements commonly differ by date, scope, methodology, population, or uncertainty without contradicting. The model will manufacture conflicts.
+
+2. P6 is internally inconsistent: a fact is both a value-bearing triple and an `(instance, property)` record whose value changes by revision. Independent source assertions and genuine temporal changes cannot share one revision history without conflation.
+
+3. P7’s “**no open contradiction**” promotion rule becomes hostile to measured facts: legitimate variance can permanently block trust or demote sound values.
+
+4. “**fact base about the physical world**” does not cohere with examples such as “reported accuracy of a method.” Accuracy is an evaluation result conditional on dataset, metric, configuration, and protocol, not an intrinsic property of a method instance.
+
+**2. Risk-Reduction Claims**
+
+1. **Extraction risk: refuted.** The output grammar is narrower, but reliable extraction now requires entity linking, property normalization, unit conversion, temporal scope, conditions, uncertainty, and evidence binding. “Retains the qualifiers … needed to be meaningful” hides the hardest semantic extraction inside an unstructured escape hatch. Syntactic checkability is improved; end-to-end factual extraction risk is not demonstrably lower.
+
+2. **Claim identity: refuted.** `(instance, property)` is insufficient. Identity must include qualifiers such as observation date, jurisdictional scope, methodology, population, metric, and conditions. Otherwise distinct observations collapse into revisions or false conflicts. The residual problem is not merely “**entity instances**” plus “**property names**”; it remains contextual assertion identity.
+
+**3. New Problems Introduced**
+
+1. Many facts are ranges, distributions, bounds, censored measurements, relational values, or qualified categories rather than scalar `value + unit`.
+
+2. Sources may disagree on the property’s definition, not its value: “population,” “unemployment,” and “accuracy” frequently encode incompatible denominators or methodologies.
+
+3. Entity instancing is unstable for changing, composite, abstract, or versioned entities: countries, drugs/formulations, organizations, and model families.
+
+4. “Physical world” arbitrarily excludes valid legal, institutional, economic, and social facts while the document simultaneously includes abstract methods.
+
+**ANOTHER ROUND** — The blocker is that qualifier-aware assertion identity and conflict semantics are foundational to the reframe, yet v6 incorrectly treats `(instance, property)` as sufficient.
+
+<!-- codex r5 exit=0 -->

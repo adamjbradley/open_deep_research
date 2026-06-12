@@ -101,3 +101,59 @@ by after-the-fact audit and later contradiction-detection→demotion (NOT caveat
 the distinct degraded-synthesis (thin-trusted-base) case. This directly closes the only remaining
 objection. **Convergence reached across all reviewers** — remaining items are deferred Architecture
 concerns, not vision-level issues.
+
+---
+
+## Round 5 — 2026-06-12 — re-review of the v6 fact-base reframe
+
+Internal Claude red team. Tally with external CLIs so far: **0 ADVANCE / 4 ANOTHER ROUND** (gemini pending).
+
+### Reviewer A — Product Skeptic — ANOTHER ROUND
+- P5 strains: a fact carries as-of date/scope qualifiers (§5), so France pop 68.2M(2023) vs 67.9M(2021)
+  is NOT a conflict — two valid time-points. P5's "different value = conflict" is under-specified.
+- P4 strain: per-(type,property) trust matrix is heavier than v5's per-source prior.
+- New problems: (a) non-scalar facts (relationships, multi-valued like official languages, time-series)
+  — model assumes a scalar "value"; a multi-valued property looks like perpetual self-conflict;
+  (b) properties contested in *definition* not value (accuracy depends on dataset/metric); (c) entities
+  that don't cleanly instance (methods/events/concepts vs France/aspirin) — slug-keying a fuzzy entity
+  is an unearned vision claim; (d) "physical world" over-narrows and fights its own ML example.
+- **Blocker:** the fact model is silently scalar-only; non-scalar + definitional disagreement are
+  vision-level gaps, not deferrable detail.
+
+### Reviewer B — Technical Realist — ANOTHER ROUND
+- Reframe makes the data model MORE coherent ((instance,property) gives P6 a real primary key).
+- Risk claim (i) **partially true, overstated**: narrows the schema/grammar, but value/unit fidelity,
+  qualifier capture, and as-of date — the hard part — survive inside the triple. Restate as "narrows
+  schema, not semantic-fidelity risk."
+- Risk claim (ii) **true with correctly-scoped residual**, but understates multi-valued properties
+  (half-life by route/dose) and as-of dating — real key is (instance, property, as-of).
+- New: value-equality with tolerance + unit normalization is a NEW conflict-detection primitive
+  (68.2M vs 68,200,000 vs 68.15M); time-varying facts make "conflict vs newer vs staleness" first-class.
+- **Blocker:** restate claim (i); define value-equality/unit-normalization as the new conflict primitive.
+
+### Reviewer C — Market Cynic — ANOTHER ROUND
+- Wedge framing marginally stronger (drops the Elicit fight) but moat weaker: the differentiator is a
+  feature layer, not a defensible asset; Wikidata has data+community, LLM-with-search gives it free.
+- "Personal Wikidata" is a category people avoid (cf. manual spreadsheets never disrupted); facts are
+  a commodity LLMs give free; cross-source conflict matters to a tiny high-stakes slice who also
+  distrust auto-extraction — and v1 defers interactive adjudication.
+- **Blocker:** demand for an auto-built conflict-aware fact base is unvalidated; §7's own hedge admits
+  the wedge isn't yet defensible.
+
+### External codex — ANOTHER ROUND
+- P5 manufactures conflicts (variance by date/scope/method/uncertainty); P6 conflates independent
+  source assertions with genuine temporal change; P7 "no open contradiction" becomes hostile to
+  measured facts (legitimate variance blocks/demotes trust); "physical world" doesn't cohere with the
+  accuracy example. Both risk-reduction claims **refuted** as written (qualifier-aware assertion
+  identity is the real problem, not (instance,property)).
+- **Blocker:** qualifier-aware assertion identity and conflict semantics are foundational, but v6
+  treats (instance, property) as sufficient.
+
+### Synthesis direction
+The reframe is sound in spirit but v6 under-modeled facts. Convergent fixes: (1) **qualifier-aware
+fact identity** — key includes as-of date / scope / method, so differing-qualifier values are distinct
+facts, not conflicts; (2) distinguish **conflict vs. temporal-change vs. multi-valued**; define
+**value-equality + unit normalization** as the conflict primitive; (3) **restate risk-reduction claim
+(i)** honestly (schema not semantics); (4) **broaden/clarify the framing** beyond "physical world";
+(5) confront the **demand** challenge via a concrete high-stakes persona. (1)-(4) are vision edits;
+(5) is the next Feature-Spec gate.
