@@ -406,11 +406,28 @@ Existing knowledge dossier for this subject:
 
 Decide:
 - is_answerable: true ONLY if the dossier already contains a complete, confident answer to
-  the question. If the question targets an aspect the dossier does not cover, or the relevant
-  facts may be out of date, set it to false.
+  the question. Set it to FALSE if the question targets an aspect the dossier does not cover,
+  OR the user is explicitly asking for the latest / current / updated information or a refresh
+  (e.g. "what's the latest", "is this still accurate", "refresh", "update") -- those require
+  new research even if the dossier seems to cover the topic.
 - missing_information: when not fully answerable, concisely describe what additional
   information must be researched to answer the question (the specific aspects/elements that
   are missing or need refreshing). Leave empty when is_answerable is true.
+"""
+
+answer_from_dossier_prompt = """Answer the user's question about "{subject}" using ONLY the
+saved knowledge dossier below. Do not invent facts that are not in the dossier; if the dossier
+does not cover part of the question, say so briefly.
+
+Question:
+{question}
+
+Saved knowledge dossier (last updated {updated_at}):
+{dossier}
+
+Write a clear, direct answer to the question in markdown. Then add a final italic line:
+*Answered from saved knowledge about {subject} (as of {updated_at}). Ask me to refresh or for
+the latest to update it.*
 """
 
 merge_reports_prompt = """You maintain an evolving research dossier about a single SUBJECT: "{subject}".

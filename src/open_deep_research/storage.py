@@ -111,7 +111,7 @@ async def get_subject_by_slug(db_path: str, slug: str) -> Optional[dict]:
         await _ensure_schema(conn)
         conn.row_factory = aiosqlite.Row
         cursor = await conn.execute(
-            "SELECT id, name, current_report, sources FROM subjects WHERE slug = ?",
+            "SELECT id, name, current_report, sources, updated_at FROM subjects WHERE slug = ?",
             (slug,),
         )
         row = await cursor.fetchone()
@@ -122,7 +122,43 @@ async def get_subject_by_slug(db_path: str, slug: str) -> Optional[dict]:
             "name": row["name"],
             "current_report": row["current_report"],
             "sources": json.loads(row["sources"] or "[]"),
+            "updated_at": row["updated_at"],
         }
+
+
+async def log_research_run(db_path: str, slug: str, run: dict) -> Optional[int]:
+    """Insert a research_runs row under an existing subject without changing the
+    dossier (used when a question was answered from the cache). Returns the run id.
+    """
+    async with aiosqlite.connect(db_path) as conn:
+        await _ensure_schema(conn)
+        cursor = await conn.execute("SELECT id FROM subjects WHERE slug = ?", (slug,))
+        row = await cursor.fetchone()
+        subject_id = row[0] if row else None
+        run_cursor = await conn.execute(
+            """
+            INSERT INTO research_runs (
+                subject_id, thread_id, topic, research_brief, final_report,
+                sources, raw_notes, config, status, error, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                subject_id,
+                run.get("thread_id"),
+                run.get("topic"),
+                run.get("research_brief"),
+                run.get("final_report"),
+                json.dumps(run.get("sources", [])),
+                json.dumps(run.get("raw_notes", [])),
+                json.dumps(run.get("config", {})),
+                run.get("status", "answered_from_cache"),
+                run.get("error"),
+                run.get("created_at"),
+            ),
+        )
+        run_id = run_cursor.lastrowid
+        await conn.commit()
+        return run_id
 
 
 async def save_run_and_upsert_subject(

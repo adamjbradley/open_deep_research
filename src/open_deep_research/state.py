@@ -99,6 +99,8 @@ class AgentState(MessagesState):
     final_report: str
     report_id: Optional[int]
     subject: Optional[str]
+    missing_information: Optional[str]
+    answered_from_cache: Optional[bool]
 
 class SupervisorState(TypedDict):
     """State for the supervisor that manages research tasks."""
