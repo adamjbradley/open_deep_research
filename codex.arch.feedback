@@ -1,0 +1,29 @@
+# codex.arch.feedback
+## Round 1 — 2026-06-12 — Architecture v1
+
+**1. DECOUPLING**
+- “Aggregation (`persist_research`): map…validate…compute…look up…then hand tuples…” makes `persist_research` the business-logic service locator. Introduce an ingestion/application service; keep graph persistence as a thin adapter.
+- `FactStore` combines persistence, querying, conflict history, and evidence. That interface is SQLite-shaped and too broad to swap or test cleanly.
+- Policy functions are called “pure,” but promotion requires current conflicts, versions, demotions, and revisions. The transaction/orchestration boundary is unspecified; purity alone does not establish decoupling.
+
+**2. RESILIENCE / DEGRADATION**
+- “Retry then skip-with-log” defines neither retry limits nor whether one malformed fact rejects the entire extraction result. Require per-fact validation so valid facts survive partial backend coercion failures.
+- No atomicity/idempotency contract exists for fact insert, evidence insert, conflict changes, promotion, lifecycle updates, and revisions. An aggregation crash can leave trusted facts without evidence or half-written conflicts.
+- Single-file SQLite contention is dismissed. Per-researcher completion may converge on `persist_research`; define one writer, transaction scope, busy timeout, bounded retry, and replay behavior.
+
+**3. CORRECTNESS / FEASIBILITY**
+- “Exact quoted span” cannot be guaranteed from “compressed…notes”: compression may paraphrase, truncate, or merge sources. Evidence must be validated as an exact substring of a retained, source-addressable note segment; otherwise reject it.
+- `qualifiers: {name: value|"unspecified"}` is not actually a closed enum. Dynamic property-specific qualifier names and values are difficult to enforce through one static Pydantic schema across Claude, Gemini, and Codex. Validate each emitted item independently after coercion.
+- Emitting extraction “into `ResearcherState`; aggregated in `persist_research`” understates required graph changes. The architecture does not specify the reducer for concurrent researcher outputs, state-size implications, or how extraction failure avoids failing the researcher node.
+- Conflict lifecycle is incomplete. No deterministic rule handles duplicate observations, conflict resolution, replacement facts, same-source revisions, or reopening. “A newer `as_of` supersedes the prior current version” also fails to state whether provisional evidence may supersede trusted evidence.
+
+**4. SECURITY / COST / SCALABILITY**
+- “No new network egress” is false: an additional model call transmits compressed source material. It may use existing providers, but it is new egress volume and requires provider-specific retention/privacy treatment.
+- The schema shown has no soft-delete columns, contradicting “schema-ready.” Evidence retention, deletion propagation, and run deletion semantics are undefined.
+- Registry edits can alter promotion eligibility globally, but no registry version is recorded and no deterministic recomputation process exists. Subscription billing does not remove latency, quota, or concurrency cost.
+
+**5. CONVERGENCE CALL**
+
+ANOTHER ROUND — define a transactional, idempotent ingestion/recomputation protocol covering partial extraction, evidence validation, conflict transitions, promotion/lifecycle updates, retries, and registry-version changes.
+
+<!-- codex arch exit=0 -->

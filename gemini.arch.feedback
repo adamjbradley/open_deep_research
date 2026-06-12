@@ -1,0 +1,21 @@
+# gemini.arch.feedback
+## Round 1 — 2026-06-12 — Architecture v1
+
+**1. DECOUPLING**
+The `FactExtractor` is tightly coupled to the specific "compressed, citation-bearing notes" format produced by the researcher subgraph. Any change to the upstream summarization logic—even non-structural—risks breaking the extraction regex or JSON coercion. While the `SourceRegistry` uses a "data-file adapter," the architecture lacks a port for **Entity Resolution**; the logic for mapping `instance_name` to a canonical key is currently buried in the "aggregation" step of `persist_research`, leaking domain-mapping complexity into the storage layer.
+
+**2. RESILIENCE / DEGRADATION**
+The design ignores SQLite write-contention. Under LangGraph's concurrency, multiple research units calling `persist_research` simultaneously against a single `aiosqlite` file will trigger `SQLITE_BUSY` errors or severe latency. Furthermore, the "no span → no fact" policy (§4) is a high-risk failure mode for Gemini/Codex backends; JSON-coerced evidence spans are notoriously brittle, meaning the "explicitly-states-else-unspecified" policy will likely degrade into a "fails-to-coerce-else-dropped" reality, leading to silent data loss.
+
+**3. CORRECTNESS / FEASIBILITY ON THIS STACK**
+The "alias resolution (Türkiye/Turkey…)" mentioned in §4 is a hand-waved "miracle" step. Because the `tuple_key` depends on the `instance_id`, any failure in the `instance_name`→`entity_instance` mapping during aggregation results in "ghost" entities and missed conflicts, rendering the engine's primary value proposition (conflict detection) unreliable. Additionally, injecting a "closed enum" of the entire `property_def` vocabulary into every per-researcher prompt may exceed token/attention limits for narrow-context backends or specific country cohorts with dense property sets.
+
+**4. SECURITY / COST / SCALABILITY**
+"Evidence store keeps source excerpts" (§8) lacks a retention or pruning strategy. In a "living" fact base, the SQLite file will bloat exponentially with redundant source spans, eventually impacting query performance for the CLI surfaces. While LLM calls are "bounded" by subscriptions, the wall-clock overhead of +1 structured-output call per concurrent researcher will significantly increase latency in the graph's execution.
+
+**5. CONVERGENCE CALL**
+**ANOTHER ROUND.**
+
+The single most important fix: **Define a formal `EntityResolver` port and adapter.** Deterministic conflict detection via `tuple_key` is impossible if the "alias resolution" logic is an undefined post-processing step. You must specify how model-emitted strings map to canonical IDs (e.g., via a pre-seeded manifest or a similarity-search utility) before implementation begins.
+
+<!-- gemini arch exit=0 -->

@@ -1,0 +1,58 @@
+# claude.arch.feedback
+## Round 1 — 2026-06-12 — Architecture v1
+
+Internal red team (decoupling, resilience, codebase-integration realist) + CLIs. Tally: **1 ADVANCE / 4 ANOTHER ROUND**.
+
+## Decoupling reviewer — ADVANCE (with fix)
+- persist_research is a "god-aggregator" (maps/validates/hashes/looks-up/hands-off inline) → introduce
+  an ingestion/application service; keep the graph node a thin caller.
+- tuple_key + canonicalize + value-equality are split across FactStore (column) and ConflictPolicy
+  (pure fn) → **extract a `FactIdentity` service** both consume. (Single most important fix.)
+- "Pure" policy writing `lifecycle=superseded` couples policy to store columns. FactStore interface
+  too broad (persist+query+conflict+evidence) — SQLite-shaped.
+- No port for entity/alias resolution; `canonicalize` is an un-ported seam; `confidence` has no owner.
+
+## Resilience reviewer — ANOTHER ROUND
+- **No transaction boundary** across fact+evidence+fact_revision+conflict writes → partial write =
+  provenance-less facts (violates "every fact has evidence", P3). **The single most important fix.**
+- No per-fact isolation: a malformed qualifier dict throwing during tuple_key hashing loses the whole
+  run's facts (and persist_research "must never crash a completed run").
+- Alias miss behavior undefined → phantom entities (silent under-coverage) or dropped facts; need
+  quarantine, never auto-create canonical.
+- Validation can silently drop 100% of a property → need a drop-rate guardrail.
+- Spurious conflicts persist & block promotion with no auto-close; as_of null ordering undefined;
+  no recompute when a registry tier changes; re-run dedup/idempotency undefined.
+
+## Codebase-integration realist — ANOTHER ROUND (code-verified)
+- **THE BLOCKER:** "emit facts into ResearcherState, aggregate in persist_research" does NOT survive
+  the graph. Researcher subgraph compiles with `output=ResearcherOutputState` (deep_researcher.py:754)
+  = only {compressed_research, raw_notes} (state.py:123-127); supervisor_tools flattens
+  compressed_research into a ToolMessage and concatenates raw_notes (string). No structured channel
+  carries typed facts up. AgentState has no fact field; persist_research reads only raw_notes/
+  final_report. → must thread a typed reducer field through ResearcherState→ResearcherOutputState→
+  SupervisorState→AgentState + rewrite the supervisor fan-in, OR relocate extraction post-supervisor.
+- **Evidence spans aspirational:** compress_research emits LLM prose (str-join, :716-726); no per-claim
+  source binding survives; spans can be hallucinated. "no span→no fact" unenforceable without
+  substring-verification against a retained, source-addressable note segment.
+- Nested `qualifiers:{}` object-list schema is the HARD case for Gemini/Codex envelope coercion;
+  existing structured outputs (KnowledgeAssessment, SubjectResolution) are flat scalars. Truncated
+  list = invalid JSON, not "fewer facts".
+- Underestimated: no migration framework (executescript ad hoc, :94-97); **no CLI entry point exists
+  at all** (everything under `langgraph dev`) — dossier show/compare/export is a net-new program.
+
+## codex (CLI) — ANOTHER ROUND
+- Echoes: ingestion/application service; FactStore too broad; transaction/idempotency contract for
+  insert+evidence+conflict+promotion+lifecycle+revision; per-fact validation + retry limits; SQLite
+  single-writer + busy_timeout + bounded retry; evidence must be validated exact substring of a
+  retained note; nested qualifiers not a real closed enum (validate each item post-coercion); new
+  egress (model call ships source material — provider retention); no soft-delete despite "schema-ready";
+  registry version + deterministic recompute.
+
+## gemini (CLI) — ANOTHER ROUND
+- **Single fix: define a formal `EntityResolver` port + adapter** — tuple_key depends on instance_id;
+  undefined alias→canonical mapping makes conflict detection (the core value) unreliable.
+- SQLite write contention under concurrency; "no span→no fact" degrades to "fails-to-coerce→dropped"
+  silent data loss on Gemini/Codex; injecting the whole property_def enum per prompt may exceed
+  context; evidence-store bloat (no retention/pruning).
+
+### Convergence: ANOTHER ROUND (4/5). Consensus fixes for v2 below.
