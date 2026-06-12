@@ -45,7 +45,17 @@ async def apply(conn: aiosqlite.Connection, steps: list[tuple[int, str]]) -> Non
             # would leak already-applied DDL.
             await conn.execute("BEGIN")
             for stmt in _statements(sql):
-                await conn.execute(stmt)
+                try:
+                    await conn.execute(stmt)
+                except aiosqlite.OperationalError as exc:
+                    # Make `ALTER TABLE ... ADD COLUMN` idempotent: SQLite has no
+                    # `ADD COLUMN IF NOT EXISTS`, so a column already present in
+                    # the live schema (e.g. research_runs.status from
+                    # storage._SCHEMA) raises "duplicate column name". Skip those
+                    # and let the step add the columns that are genuinely new.
+                    if "duplicate column name" in str(exc).lower():
+                        continue
+                    raise
             await conn.execute(
                 "INSERT INTO schema_migrations (version, applied_at) "
                 "VALUES (?, datetime('now'))",
