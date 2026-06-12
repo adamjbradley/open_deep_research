@@ -2,8 +2,8 @@
 
 **Date:** 2026-06-12
 **Layer:** Vision + Principles (spec-driven development)
-**Status:** v5 — converged. Round-4 final check 4 ADVANCE / 1 minor; the one objection (caveats can't
-backstop over-promotion) fixed. Ready for the Feature Spec layer.
+**Status:** v6 — reframed as a *fact base over the physical world* (entity instances and their
+properties) during Feature-Spec dialogue; pending re-review of the reframe.
 **Topic:** How the Open Deep Research platform should work for domain researchers
 
 > **Revision history**
@@ -28,21 +28,33 @@ backstop over-promotion) fixed. Ready for the Feature Spec layer.
 >   claim that degraded-synthesis caveats backstop *over-promotion* — they don't (an over-promoted
 >   claim renders as trusted/uncaveated); over-promotion is backstopped only by audit and later
 >   detection→demotion, while caveats cover the distinct degraded-synthesis case. **Converged.**
+> - **v6** — Feature-Spec dialogue revealed the product is a **fact base over the physical world**
+>   (real-world entity *instances* and their measurable *properties*), not a literature-synthesis
+>   tool. Went back to revise this layer (per the methodology's go-back protocol). A claim is now a
+>   **fact triple** (instance → property → value, with unit + provenance) — *more* atomic than
+>   prose-derived claims, which **lowers** the round-1 extraction-quality risk. A conflict is a
+>   **value discrepancy**; the dossier view is a **structured fact table**. Competitive wedge
+>   reframed (vs. Wikidata/knowledge-graphs, not Elicit). Pending re-review.
 
 ---
 
 ## 1. Vision
 
-Open Deep Research becomes a platform for **building a living dossier**: an accumulating,
-provenance-bearing body of knowledge on the subjects a researcher cares about. The product is the
-accumulating knowledge, held as three linked things: **immutable per-run reports** (source-grounded
-prose), an **accumulating claim base** (the machine-auditable layer), and an on-demand **dossier
-view** that renders the current state of a subject.
+Open Deep Research becomes a platform for **building a living fact base about the physical world**:
+an accumulating, provenance-bearing record of **real-world entities and their measurable properties**
+— the population of a country, the half-life of a drug, the reported accuracy of a method — gathered
+by automated research and held to scrutiny. It answers verifiable questions of fact, not scholarly
+argument.
 
-Each session deepens a body of knowledge the researcher returns to. We are honest that the payoff
-is *conditional* (§4, §8): accumulation without quality control produces volume, not value — so the
-platform's job is as much about *gating, surfacing disagreement, and aging knowledge* as about
-gathering it.
+The product is the accumulating knowledge, held as three linked things: an **accumulating fact base**
+(the machine-auditable layer — entity instances, properties, provenanced values), **immutable per-run
+reports** (the source-grounded prose a run produced), and an on-demand **dossier view** that renders
+the current factual state of an entity.
+
+Each session deepens a body of knowledge the researcher returns to. We are honest that the payoff is
+*conditional* (§4, §8): accumulation without quality control produces volume, not value — so the
+platform's job is as much about *gating, surfacing disagreement between sources, and aging facts* as
+about gathering them.
 
 ## 2. Who it's for
 
@@ -58,14 +70,16 @@ profile (data), never hard-coded in the engine, so bias is inspectable and revis
 
 ## 3. The core job
 
-> Build and maintain a living dossier per subject — run reports, an accumulating claim base, and a
-> current dossier view, all linked.
+> Gather and maintain a living fact base about real-world entities — for each entity instance, an
+> accumulating set of provenanced property values, the conflicts between sources, and the history of
+> how each fact changed; rendered as a current dossier view, with the run reports behind it.
 
-Success is measured by the quality and groundedness of the accumulated dossier, not by any single
-report. **Operationalized (v1 targets, to refine in Feature Spec):** the share of a subject's
-rendered answer drawn from *trusted* vs. provisional claims, and whether that share grows across
-runs; conflicts surfaced rather than silently dropped; staleness flagged rather than served as
-current. These are the outcomes that distinguish a *living dossier* from a growing *search history*.
+Success is measured by the quality and groundedness of the accumulated facts, not by any single
+report. **Operationalized (v1 targets, to refine in Feature Spec):** the share of an entity's facts
+that are *trusted* (vs. provisional) and whether it grows across runs; the share of facts backed by a
+profile-trusted source; conflicts between sources surfaced rather than silently merged; stale facts
+flagged rather than served as current. These distinguish a *living fact base* from a growing
+*search history*.
 
 ## 4. Principles
 
@@ -81,51 +95,66 @@ can mislead if presented as established. Defenses: (a) gating keeps unpromoted c
 as such*; (c) after-the-fact audit. The platform's value depends on that audit happening; where it
 doesn't, provisional claims remain visibly unverified rather than silently trusted.
 
-### P2 — Knowledge lives as run reports, a claim base, and a dossier view (linked)
+### P2 — Knowledge lives as a fact base, run reports, and a dossier view (linked)
 A research run produces an **immutable run report** (source-grounded prose, never rewritten) *and* a
-set of **claims** extracted from it. Claims **accumulate** across runs into the claim base. A
-**dossier view** renders the *current* state of a subject from the claim base on demand.
+set of **facts** extracted from it. A fact is a **triple — entity instance → property → value** —
+with a unit where applicable and full provenance. Facts **accumulate** across runs into the fact
+base. A **dossier view** renders the *current* factual state of an entity from the fact base on demand.
 
 These are linked, not ranked: run reports are the citable human record of *what a run found*; the
-claim base is the machine-auditable layer enabling provenance, confidence, conflict, and history;
-the dossier view is the current synthesis. We explicitly **do not** claim "the claims are the truth"
-nor that claims can *regenerate* a run report — extraction is lossy, so a claims-derived rendering is
-a *view*, not a reconstruction of the original prose. Claims are recorded, provenanced **assertions**.
+fact base is the machine-auditable layer enabling provenance, confidence, conflict, and history; the
+dossier view is the current factual picture. We explicitly **do not** claim a value is "the truth"
+nor that facts can *regenerate* a run report — extraction is lossy, so a fact-derived rendering is a
+*view*, not a reconstruction of the original prose. Facts are recorded, provenanced **assertions of
+value**.
+
+**The fact framing lowers a key risk.** Round-1 review flagged claim extraction (decomposing prose
+into atomic claims) as the single biggest threat. A *fact triple* is far more atomic and bounded than
+a free-form claim — "extract (instance, property, value, unit, source)" is a tighter, more verifiable
+target than "extract the atomic propositions." Extraction quality remains the top Architecture risk,
+but the surface is narrower and more checkable than the original framing.
 
 ### P3 — Every claim carries its provenance
 Each claim records which **source(s)** it derives from, **when**, and **which run**. (Reality check:
 today's pipeline only scrapes URLs from prose; binding a claim to the *specific* evidence for it is
 real work, deferred to Architecture. The principle stands; the mechanism is not assumed solved.)
 
-### P4 — Source trust and claim confidence are distinct axes — and both are heuristic
+### P4 — Source trust and fact confidence are distinct axes — and both are heuristic
 - **Source trust** is a domain-profile prior, **not uniform per source** (a source can be
-  authoritative for one claim type, unreliable for another). It is a prior, not a verdict.
-- **Claim confidence** is a *computed, heuristic* property from supporting-source trust, known
-  contradictions, and (as a *weak, non-authoritative* signal only) corroboration count.
+  authoritative for one property, unreliable for another — a statistics agency on population, not on
+  pharmacology). It is a prior, not a verdict.
+- **Fact confidence** is a *computed, heuristic* property from supporting-source trust, whether other
+  sources agree on the *value*, known conflicts, and (as a *weak, non-authoritative* signal only)
+  corroboration count.
 
-**Honest limitation:** corroboration count **cannot currently detect independence** (syndication,
-churnalism, shared upstream studies). It is therefore *displayed* but is **not** an input to trust
-*promotion* (P7) until independence detection exists (§8). We do not claim corroboration as an
-anti-gaming defense.
+**Honest limitation:** agreement-on-value still **cannot detect source independence** (syndication,
+churnalism, shared upstream datasets — e.g. five sites all restating one census figure). Corroboration
+is therefore *displayed* but is **not** an input to trust *promotion* (P7) until independence detection
+exists (§8). We do not claim corroboration as an anti-gaming defense.
 
 ### P5 — Disagreement is information; the platform never silently picks a winner
-When new research contradicts an existing claim, the platform **records both and marks the conflict**,
-and **surfaces it in the current state of the subject** — the dossier view. It never auto-arbitrates
-a winner. (A *run report* is an immutable snapshot of what one run found and the conflicts known *at
+When new research yields a **different value for the same entity-property** (e.g. France population
+68.2M from the UN vs. 67.9M from the World Bank), the platform **records both and marks the conflict**,
+and **surfaces it in the current state of the entity** — the dossier view. It never auto-arbitrates a
+winner or silently averages values. (A *run report* is an immutable snapshot of what one run found and the conflicts known *at
 that time*; newly discovered conflicts surface in the dossier view, which renders current state — we
 do not rewrite past reports. P2.) Crucially, gating does not silence disagreement: a contradicting
 claim is *surfaced* even while provisional — "excluded from synthesis" (P7) means **not asserted as
 established**, never **made invisible**. Interactive *adjudication* (resolve/override/triage) is
 deferred (§6); the read-only dossier view *shows* conflicts in v1.
 
-### P6 — Every claim has a history (data-model commitment)
-Each claim is an entity with an **append-only revision history**: what changed, when, the cause (new
-run, gate promotion/demotion, contradiction, staleness), and the why. Recorded and machine-queryable
-in v1; surfaced read-only in the dossier view. Two hard problems are acknowledged and deferred to
-Architecture: **claim identity** (proposition-level entity resolution, so revisions attach to the
-same claim rather than spawning duplicates — without it the dossier is a pile of fragments and
-corroboration cannot even be computed) and **extraction non-determinism** (re-extraction drift must
-be distinguished from genuine belief change).
+### P6 — Every fact has a history (data-model commitment)
+Each fact has an **append-only revision history**: what the value changed to, when, the cause (new
+run, gate promotion/demotion, conflict, staleness), and the why. Recorded and machine-queryable in
+v1; surfaced read-only in the dossier view.
+
+**The fact framing largely tames the round-1 "claim identity" risk.** A fact is keyed by
+**(instance, property)**, so a new run's value for *France → population* attaches to the same fact as
+a revision — no fuzzy proposition-level entity resolution required. The residual identity work is
+narrower: **resolving entity instances** (is "USA" = "United States"?) and **aligning property names**
+(is "pop." the *population* property?) — real, but far more bounded than the original problem, and
+deferred to Architecture. **Extraction non-determinism** (does a re-extracted value differ because the
+world changed or because the extractor drifted?) remains a deferred concern.
 
 ### P7 — Provisional by default; trusted by a defined rule; degraded synthesis when thin
 Every newly extracted claim enters **provisional**. It is promoted to **trusted** by an automatic,
@@ -158,26 +187,35 @@ waiting for the next user query, is a deferred mechanism — the "flywheel motor
 
 ## 5. The model (vision-level)
 
-- **Subject** — the canonical thing a dossier is about (exists today, keyed by slug).
-- **Run report** — immutable source-grounded prose for a run; never rewritten; linked to its claims.
-- **Claim** — an atomic, provenanced assertion in the claim base, *retaining the qualifiers (scope,
-  time, conditions) needed to be meaningful* — not context-stripped. Carries source(s), origin run,
-  admission status, lifecycle status, and computed confidence.
-- **Claim revision** — append-only history entry: what/when/cause/why (P6).
+- **Entity type** — a class of real-world thing the deployment tracks (*country*, *drug*, *method*).
+  Defines the **properties** worth gathering. Part of the domain profile.
+- **Entity instance** — a specific member of a type (*France*, *aspirin*, *ResNet-50*). **This is the
+  subject/dossier** (keyed by slug; the existing `subjects` notion, now typed).
+- **Property** — a named attribute of a type (*population*, *half-life*, *reported accuracy*), with an
+  expected value kind / unit. Properties may be predefined by the profile *and* discovered by research
+  (open question — §9).
+- **Fact** — a provenanced **(instance, property, value)** triple with unit where applicable. Carries
+  source(s), origin run, admission status, lifecycle status, and computed confidence. Retains the
+  qualifiers (as-of date, scope/conditions) needed to be meaningful.
+- **Fact revision** — append-only history entry: what/when/cause/why (P6).
+- **Run report** — immutable source-grounded prose for a run; never rewritten; linked to its facts.
 - **Source** — external reference with a domain-profile trust prior (P4).
-- **Conflict** — first-class link between contradicting claims, `open`/`resolved` (P5).
-- **Resolution** — adjudication record (deferred interactive workflow): chosen claim, rationale,
+- **Conflict** — first-class link between facts on the same instance+property with differing values,
+  `open`/`resolved` (P5).
+- **Resolution** — adjudication record (deferred interactive workflow): chosen value, rationale,
   who, when.
-- **Dossier view** — an on-demand rendering of a subject's *current* state from the claim base:
-  trusted claims, provisional claims (caveated), open conflicts, confidence and staleness. Read-only
-  in v1 (`dossier show <subject>`).
+- **Dossier view** — an on-demand rendering of an entity's *current* factual state: trusted facts,
+  provisional facts (caveated), open conflicts, confidence and staleness — a structured fact table.
+  Read-only in v1 (`dossier show <instance>`).
 
 ### Pipeline implication
-A **claim-extraction step** after `compress_research` (within/around `persist_research`): an LLM
-structured-output pass decomposes a run's citation-bearing findings into claims tagged with
-source(s). Preserves the core invariant — *the graph owns the agentic loop*. **Named risks:**
-extraction quality/granularity is the single biggest risk; structured output is brittle on the
-Gemini/Codex backends (which coerce JSON envelopes, per CLAUDE.md). Both deferred to Architecture.
+A **fact-extraction step** after `compress_research` (within/around `persist_research`): an LLM
+structured-output pass decomposes a run's citation-bearing findings into **(instance, property,
+value, unit, source)** facts. Preserves the core invariant — *the graph owns the agentic loop*.
+**Named risks:** extraction quality is still the top risk, but the fact-triple target is narrower
+and more checkable than free-form claims (P2); structured output remains brittle on the Gemini/Codex
+backends (which coerce JSON envelopes, per CLAUDE.md) — and a fixed fact schema is *easier* to coerce
+than open-ended claims. Both deferred to Architecture.
 
 ### Rendering contract
 A data-model invariant cannot by itself guarantee a presentation invariant. Therefore the renderer
@@ -190,44 +228,50 @@ is thereafter an immutable artifact, displayed as-written; it is not re-rendered
 ## 6. Scope and non-goals
 
 **In scope (v1):**
-- The **run report + claim base + dossier view** data model with provenance, confidence, conflicts,
-  history (P2–P6).
-- The **claim-extraction** pipeline step.
-- **Confidence-gated promotion** (ingestion is unconditional; *promotion* is gated) with the
-  defined promotion rule and **degraded synthesis** (P7).
-- **Conflict surfacing** inline in rendered output.
-- A **read-only dossier view** (`dossier show <subject>`) — the one surface that makes
+- The **entity-type / instance / property** schema and the **fact base + run report + dossier view**
+  data model with provenance, confidence, conflicts, history (P2–P6).
+- The **fact-extraction** pipeline step.
+- **Hybrid source space** — scholarly sources (for authoritative facts) *and* the open web (for
+  currency/coverage), distinguished by source-trust tiers (P4). This adds a scholarly-source
+  integration on top of today's open-web search.
+- **Confidence-gated promotion** (ingestion is unconditional; *promotion* is gated) with the defined
+  promotion rule and **degraded synthesis** (P7).
+- **Conflict surfacing** (value discrepancies) inline in rendered output.
+- A **read-only dossier view** (`dossier show <instance>`) — the structured fact table that makes
   conflict/confidence/history visible and the §7 wedge testable in session one.
-- Per-deployment **domain profile**.
+- Per-deployment **domain profile** (entity types, properties, trusted-source priors).
 
 **Out of scope / explicit non-goals (v1):**
 - **No interactive workflow UI.** No conflict-adjudication / resolve-override / triage-queue surface,
-  no history-editing UI. The data is captured (P5/P6) and *shown* read-only; *acting* on it
-  interactively is deferred. (This is narrower than v2's blanket "no UI": read-only rendering is now
-  in scope; interactive mutation of the knowledge state is not.)
-- No multi-user / collaboration / shared dossiers — single trusted researcher per deployment.
-- No backend re-architecture beyond what claim extraction requires (flagged: structured-output
-  coercion may hide real work).
+  no fact-editing UI. The data is captured (P5/P6) and *shown* read-only; *acting* on it interactively
+  is deferred. (Narrower than v2's blanket "no UI": read-only rendering is in scope; interactive
+  mutation of the fact base is not.)
+- No multi-user / collaboration / shared fact bases — single trusted researcher per deployment.
+- No backend re-architecture beyond what fact extraction and the scholarly-source integration require
+  (flagged: structured-output coercion and a new source connector are real, bounded work).
 
 ## 7. Competitive reality (why this, not the incumbents)
 
-The honest wedge: **local, owned, provenance-and-conflict-aware accumulation over the open web, with
-the cross-run conflict/confidence/history state that incumbents don't keep — now *visible* via the
-read-only dossier view.**
+The fact-base reframe *strengthens* the wedge — we no longer fight Elicit/NotebookLM on literature
+synthesis. The honest wedge: **an automatically-built, provenance-and-conflict-aware fact base over
+real-world entities — like a personal, auto-researched Wikidata that keeps, and shows, the
+disagreement and history that structured knowledge bases throw away.**
 
-- **Elicit** — best-in-class structured extraction + citations, but centered on academic papers and
-  hosted. This targets *open-web* domain research with a *local, owned* per-subject dossier.
-- **NotebookLM** — grounded answers over *user-supplied* sources; does not *go find and accumulate*
-  a growing dossier across runs, nor preserve cross-run conflict/confidence state.
-- **Obsidian / Zotero** — own the "knowledge you return to" habit but are manual; no auto-research,
-  extraction, confidence, or conflict.
-- **ChatGPT/Claude memory + projects** — low-effort recall, but opaque, ungrounded, no provenance or
-  conflict model, no local ownership.
+- **Wikidata / Wikipedia** — broad structured facts, but manually curated, single "consensus" value
+  per property (disagreement is hidden in talk pages / revision logs), and not built on demand for
+  *your* entity set. This keeps competing source values side by side, with provenance and confidence.
+- **Knowledge graphs / Diffbot-style extractors** — extract facts at scale but are hosted, opaque on
+  provenance per value, and don't preserve per-fact *conflict* or *confidence history*.
+- **ChatGPT/Claude (+ search/memory)** — will state a fact fast, but ungrounded, no per-value
+  provenance, no conflict model, no local ownership, no accumulation you can audit.
+- **Manual spreadsheets / Zotero** — what many fact-gatherers actually use today: total control, zero
+  automation, no conflict/confidence tracking. This automates the gathering while keeping the rigor.
 
-**Stated honestly:** the differentiator is the *visible cross-run conflict/confidence/history* layer.
-If that isn't compelling enough for a concrete target persona to switch, the vision is weaker than it
-looks — which is exactly why the read-only view is in v1 (to make the wedge testable, not asserted)
-and why naming the beachhead persona is a Feature-Spec gate.
+**Stated honestly:** the differentiator is the *visible per-fact provenance + cross-source conflict +
+confidence/history* layer over an auto-built fact base. If that isn't compelling enough for a concrete
+target persona to switch, the vision is weaker than it looks — which is why the read-only dossier view
+is in v1 (to make the wedge testable, not asserted) and why naming the beachhead persona is a
+Feature-Spec gate.
 
 ## 8. Required-coverage considerations
 
@@ -257,16 +301,19 @@ and why naming the beachhead persona is a Feature-Spec gate.
 
 ## 9. Open questions (deferred to Architecture)
 
-See `2026-06-12-deferred-living-dossier-platform.md`. Headlines: claim identity / entity resolution;
-extraction quality/granularity/non-determinism; provenance binding; independence/echo detection;
-the promotion "flywheel" (active re-research to earn trust vs. passive); degraded-synthesis caveat
-generation; canonical dossier-view rendering rules; temporal-validity/staleness; redaction-vs-
-append-only; structured-output brittleness; O(N) scaling and recompute-on-trust-change; beachhead
-persona; success metric refinement.
+See `2026-06-12-deferred-living-dossier-platform.md`. Headlines: **entity-instance resolution + property
+alignment** (the narrowed successor to "claim identity"); **property definition** — predefined per
+type vs. discovered by research vs. hybrid; fact-extraction quality/non-determinism; provenance
+binding; **scholarly-source integration** (which connectors; how value+unit are parsed); independence/
+echo detection; the promotion "flywheel" (active re-research vs. passive); degraded-synthesis caveat
+generation; canonical dossier-view (fact-table) rendering rules; temporal-validity/staleness (facts
+about the world change); redaction-vs-append-only; structured-output brittleness; O(N) conflict-check
+scaling and recompute-on-trust-change; beachhead persona; success-metric refinement.
 
 ---
 
-*Status: round-3 convergence check passed (no structural issues remain; v4 applied the residual
-precision fixes). Next step (per spec-driven methodology), on user confirmation: advance to the
-**Feature Spec** layer — scope v1, name the beachhead persona, write user stories and acceptance
-criteria — carrying the deferred-questions doc forward.*
+*Status: v6 reframes the platform as a **fact base over the physical world**, going back to the Vision
+layer (per the methodology's go-back protocol) after the Feature-Spec dialogue surfaced it. The
+principles survived the reframe intact and the fact-triple model **reduces** prior top risks
+(extraction, claim identity). Next step: a re-review of the reframe, then resume the **Feature Spec**
+layer (persona, v1 scope, user stories, success metrics).*
