@@ -87,3 +87,19 @@ ANOTHER ROUND
 Change the summarizing-adapter extraction bypass from "for the run" to per-source/per-adapter so mixed-tool runs do not discard valid facts.
 
 <!-- gemini arch4 exit=0 -->
+
+---
+## Round 5 — 2026-06-12 — Architecture v5 convergence check
+
+1. DID v5 CLOSE THE ROUND-4 ITEMS?
+- Run lifecycle / double-INSERT: CLOSED.
+- Mixed-adapter all-or-nothing: CLOSED.
+- Prune vs evidence: CLOSED.
+
+2. NEW CONTRADICTIONS
+- **Invisible skipped sources:** v5 states "sources from summarizing CLI/native adapters simply have no `run_source` row" and `extract_facts` "reads `run_source` by `run_id`". If summarizing adapters leave no row, `extract_facts` cannot know a source was skipped to trigger the flag ("When any source is skipped... the run is flagged `coverage_incomplete`"). The node must either read the graph state's total source list or require adapters to write a metadata stub to `run_source`.
+
+3. CONVERGENCE CALL
+ADVANCE
+
+<!-- gemini arch5 exit=0 -->

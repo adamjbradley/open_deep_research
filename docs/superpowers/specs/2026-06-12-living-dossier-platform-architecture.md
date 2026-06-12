@@ -2,9 +2,10 @@
 
 **Date:** 2026-06-12
 **Layer:** Architecture (spec-driven development)
-**Status:** Draft v5 — round-4 review (1 ADVANCE / 2 implementation-level). One authoritative run
-lifecycle (`status` + `finalize_research_run` UPDATE port + stale-run reaper); **per-source** extraction
-with a persisted coverage-incomplete marker; prune-vs-evidence guard. Pending round-5 convergence check.
+**Status:** Draft v6 — round-5 review (1 ADVANCE / 1 structural). `run_source` now records **every
+encountered source** with a `capture_status` + stable id that `evidence` FK-references (makes
+coverage-detection + evidence-aware pruning enforceable); reaper uses a **liveness heartbeat**, not a
+bare TTL. Pending round-6 convergence check.
 **Builds on:** Vision+Principles v8, Feature Spec v4.
 **Scope:** Digital Identity pillar × ~15–20 country cohort; per-country dossier + cross-country compare
 (read-only) + CSV/MD export.
@@ -69,6 +70,21 @@ with a persisted coverage-incomplete marker; prune-vs-evidence guard. Pending ro
 > field), so absence never reads as authoritative. **(c)** `run_source` gets `soft_deleted_at` in the
 > DDL, and the **prune policy refuses to drop any `run_source` row still referenced by live
 > `evidence`** (the span re-verification anchor), accounting for content-hash sharing across runs.
+>
+> **Revision note (v6).** Round-5 (1 ADVANCE / 1 structural): v5's `evidence` linked its source by URL
+> (not a stable id) and skipped summarizing-adapter sources had *no* record — so the prune guard wasn't
+> enforceable and `coverage_incomplete` wasn't detectable. v6 (one change resolves all three): **`run_source`
+> records *every encountered source*** with a stable `id`, a **`capture_status`** (`raw_text`/`summarized`/
+> `skipped`), `text` **nullable**, and `content_hash`; **`evidence.run_source_id` is an FK** to it.
+> Then `coverage_incomplete` is **derived** (any `run_source` row with `capture_status != raw_text`),
+> `extract_facts` runs on `raw_text` rows, and the prune guard is enforceable (don't drop a row with a
+> live `evidence.run_source_id`). Also: the **reaper uses a liveness heartbeat** (`last_heartbeat`;
+> only stale-heartbeat `running` rows are collected, so a slow-but-alive fan-out is never reaped);
+> `finalize_research_run` is **idempotent** and lives at the single `persist_research` node **both**
+> terminal paths already flow through (finalize guaranteed on every non-crash edge; reaper handles only
+> true crashes).
+
+## 1. Context, existing patterns, invariants
 Built inside `deep_researcher`. Reuses: stdlib `aiosqlite` on one DB (`get_db_path`); the
 `with_structured_output(PydanticModel)` node pattern (per-backend, CLAUDE.md); the **graph owns the
 loop** invariant (`allowed_tools=[]`, models never execute tools); subscription backends. `research_runs`
@@ -192,15 +208,19 @@ A **versioned migration framework** replaces the ad-hoc `executescript(_SCHEMA)`
 `schema_migrations(version)` table + ordered migration steps, so new tables land safely on a populated
 DB. A migration also adds **`research_runs.status`** (`running`/`completed`/`error`) +
 **`research_runs.coverage_incomplete`** (per the per-source skip/ceiling rule) to the existing table,
-finalized via `finalize_research_run`. New tables (indicative):
-`run_source(run_id, source_url, text, retrieved_at, content_hash, soft_deleted_at)` (the extraction
-input + evidence source, written at the tool layer; **prune refuses rows still referenced by live
-`evidence`**), `entity_type`,
+finalized via `finalize_research_run`; `research_runs.last_heartbeat` feeds the liveness reaper.
+`research_runs.coverage_incomplete` is **derived** (set true if any of the run's `run_source` rows has
+`capture_status != raw_text`). New tables (indicative):
+`run_source(id PK, run_id, source_url, capture_status[raw_text|summarized|skipped], text NULLABLE,
+content_hash, retrieved_at, soft_deleted_at)` — **every encountered source gets a row** (text is null
+for non-raw-text adapters); written at the tool layer; **prune refuses any row with a live
+`evidence.run_source_id` FK**. Then `entity_type`,
 `entity_instance(canonical_key, aliases_json)`,
 `unresolved_instance` (quarantine), `property_def(value_kind, identity_qualifiers, validation)`,
 `source(registry_version, tier, flags, soft_deleted_at)`, `fact(tuple_key, as_of, value, unit,
 admission, lifecycle, confidence, source_id, run_id, soft_deleted_at)`, `evidence(fact_id, quoted_span,
-source_url, doc_identity, retrieved_at)`, `fact_revision(fact_id, change, cause, why, created_at)`,
+run_source_id FK, doc_identity, retrieved_at)` (**stable FK to `run_source`, not a URL string**),
+`fact_revision(fact_id, change, cause, why, created_at)`,
 `conflict(tuple_key, as_of, status)`, `conflict_member`. **Soft-delete** columns make redaction/
 tombstoning (vision §8) real, not aspirational. **Retention:** evidence spans are bounded length and
 de-duplicated by `(source_url, hash(span))` to cap bloat; a prune policy is configurable.
@@ -262,5 +282,6 @@ Legacy `current_report`/`dossier_versions` prose **left as-is** (readable); fact
 
 ---
 
-*Next step: round-5 convergence check on this Architecture (confirming the run-lifecycle/per-source/
-prune fixes hold), then the implementation-plan layer (`writing-plans`), built TDD per §11.*
+*Next step: round-6 convergence check on this Architecture (confirming the run_source-record /
+evidence-FK / heartbeat fixes hold), then the implementation-plan layer (`writing-plans`), built TDD
+per §11.*

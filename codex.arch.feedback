@@ -103,3 +103,23 @@ Preallocate a durable run ID before research begins, and define a structured sou
 ANOTHER ROUND — specify one authoritative run lifecycle: migration fields, graph-start INSERT, `persist_research` UPDATE/finalization, failure cleanup, and a run-level extraction/coverage status that defines mixed-adapter behavior.
 
 <!-- codex arch4 exit=0 -->
+
+---
+## Round 5 — 2026-06-12 — Architecture v5 convergence check
+
+1. **Run lifecycle / double-INSERT — CLOSED.** “`preallocate_run` … INSERTs” and both paths use `finalize_research_run(run_id, …)` UPDATE.
+
+2. **Mixed-adapter all-or-nothing — PARTIAL.** Per-source extraction is fixed, but “sources from summarizing adapters … have no `run_source` row” leaves no defined mechanism to detect that “any source is skipped” and set `coverage_incomplete`.
+
+3. **Prune vs evidence — NOT-CLOSED.** The prune rule says `run_source` rows are “referenced by live `evidence`,” but `evidence(fact_id, quoted_span, source_url, doc_identity, retrieved_at)` has no stable reference to `run_source` or its `content_hash`. The guard, including cross-run hash sharing, is not enforceable from the stated schema.
+
+**NEW CONTRADICTIONS**
+
+- “Every fact has an `evidence` row” conflicts with evidence having no durable identity link to the retained text that validates it.
+- `coverage_incomplete` is promised for adapter skips while skipped adapter sources are deliberately absent from the only acquisition-side record.
+
+**CONVERGENCE CALL — ANOTHER ROUND**
+
+Blocking structural fix: model source acquisition explicitly so every encountered source has a persisted record, with capture/extraction status and a stable content identity referenced by `evidence`; raw text may remain optional. This simultaneously makes adapter-skip coverage and evidence-aware pruning enforceable.
+
+<!-- codex arch5 exit=0 -->

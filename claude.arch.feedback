@@ -150,3 +150,29 @@ called by both research + cache paths (one row per run); stale-running reaper; p
 (skip sources without a run_source row; mixed-adapter runs extract their raw-text sources);
 persisted research_runs.coverage_incomplete; run_source.soft_deleted_at + prune guard (don't drop rows
 referenced by live evidence). All implementation-level — convergence is near.
+
+---
+
+## Round 5 — 2026-06-12 — Architecture v5 convergence check
+
+Internal red team + CLIs. Tally: **1 ADVANCE / 3 ANOTHER ROUND** (all narrow; v6 incorporates).
+
+- **Integration realist — ADVANCE.** All prior blockers CLOSED with named ports/seams. Residual
+  (reaper/finalize idempotency vs long runs) is "a state-machine detail resolvable in the
+  implementation-plan layer — does not move a port boundary, node placement, or table."
+- **Resilience+Decoupling — ANOTHER ROUND.** Reaper TTL can delete run_source out from under a
+  slow-but-alive fan-out (no liveness signal); finalize must be guaranteed on every terminal edge.
+  Fix: liveness heartbeat (not bare TTL); idempotent finalize at the single node both paths flow through.
+- **codex — ANOTHER ROUND (sharpest, structural):** `evidence(fact_id, quoted_span, source_url, ...)`
+  links source by URL, not a stable id — so the prune guard isn't enforceable and cross-run content-hash
+  sharing can't be reasoned about; and skipped summarizing-adapter sources have NO record, so
+  `coverage_incomplete` isn't detectable. Fix: record every encountered source with capture/extraction
+  status + stable content identity that `evidence` references; raw text optional.
+- **gemini — (pending; 4 reviews decisive.)**
+
+### Disposition (v6 — one change resolves three things, per codex)
+`run_source(id PK, ..., capture_status[raw_text|summarized|skipped], text NULLABLE, content_hash)`
+records EVERY encountered source; `evidence.run_source_id` FK (stable, not URL). → coverage_incomplete
+derived (any capture_status != raw_text); extract_facts on raw_text rows; prune guard enforceable via
+the FK. Plus: reaper uses `research_runs.last_heartbeat` (only stale-heartbeat running rows collected);
+finalize_research_run idempotent at the single persist_research node both terminal paths flow through.
