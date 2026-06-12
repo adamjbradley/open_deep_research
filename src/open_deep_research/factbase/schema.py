@@ -123,4 +123,10 @@ STEPS: list[tuple[int, str]] = [
     ALTER TABLE research_runs ADD COLUMN coverage_incomplete INTEGER DEFAULT 0;
     ALTER TABLE research_runs ADD COLUMN last_heartbeat TEXT;
     """),
+    (3, """
+    ALTER TABLE fact ADD COLUMN instance_key TEXT;
+    ALTER TABLE fact ADD COLUMN property_name TEXT;
+    CREATE INDEX IF NOT EXISTS ix_fact_instance ON fact(instance_key);
+    CREATE INDEX IF NOT EXISTS ix_fact_property ON fact(property_name);
+    """),
 ]

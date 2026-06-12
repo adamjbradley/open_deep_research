@@ -62,6 +62,27 @@ def test_unresolved_instance_quarantined_not_a_fact():
     asyncio.run(run())
 
 
+def test_fact_row_stores_instance_property_and_qualifiers():
+    async def run():
+        async with aiosqlite.connect(":memory:") as conn:
+            await conn.executescript("CREATE TABLE research_runs (id INTEGER PRIMARY KEY, topic TEXT);")
+            await conn.commit()
+            await migrations.apply(conn, schema.STEPS)
+            ing = _setup(conn)
+            recs = [{"property": "id_coverage_pct", "instance_name": "India", "value": "99", "unit": "%", "as_of": "2024",
+                     "qualifiers": {"population_basis": "adults_15plus"},
+                     "source_url": "https://id4d.worldbank.org/x", "evidence_span": "99%"}]
+            await ing.ingest(run_id=1, records=recs)
+            conn.row_factory = aiosqlite.Row
+            cur = await conn.execute("SELECT instance_key, property_name, qualifiers_json FROM fact")
+            row = await cur.fetchone()
+            assert row["instance_key"] == "IND"
+            assert row["property_name"] == "id_coverage_pct"
+            import json
+            assert json.loads(row["qualifiers_json"]).get("population_basis") == "adults_15plus"
+    asyncio.run(run())
+
+
 def test_tuple_key_uses_stable_canonical_key():
     async def run():
         async with aiosqlite.connect(":memory:") as conn:

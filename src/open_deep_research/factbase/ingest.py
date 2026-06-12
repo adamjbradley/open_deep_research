@@ -23,7 +23,7 @@ class Ingestor:
     async def ingest(self, *, run_id: int, records: list[dict]) -> None:
         now = datetime.now(timezone.utc).isoformat()
         # Build candidate Facts (resolve + identity + registry); quarantine misses.
-        candidates = []  # (rec, Fact-without-id, source_id)
+        candidates = []  # (rec, Fact-without-id, source_id, instance_key, property_name, quals)
         await self._conn.execute("BEGIN")
         try:
             for rec in records:
@@ -51,15 +51,16 @@ class Ingestor:
                 f = model.Fact(fact_id=None, tuple_key=tk, as_of=as_of, value=rec["value"],
                                unit=rec.get("unit"), source_meets_bar=meets_bar,
                                has_unspecified_required=has_unspec)
-                candidates.append((rec, f, source_id))
+                candidates.append((rec, f, source_id, instance_key, pd.name, quals))
 
             # Group by (tuple_key, as_of), insert facts, then detect conflicts + promote.
             buckets: dict[tuple, list] = {}
-            for rec, f, sid in candidates:
-                buckets.setdefault((f.tuple_key, f.as_of), []).append((rec, f, sid))
+            for cand in candidates:
+                f = cand[1]
+                buckets.setdefault((f.tuple_key, f.as_of), []).append(cand)
 
             for (tk, as_of), items in buckets.items():
-                for rec, f, sid in items:
+                for rec, f, sid, instance_key, property_name, quals in items:
                     # dedup: same tuple/as_of/value/unit/source already present?
                     cur = await self._conn.execute(
                         "SELECT id FROM fact WHERE tuple_key=? AND IFNULL(as_of,-1)=IFNULL(?,-1) "
@@ -69,9 +70,11 @@ class Ingestor:
                     if await cur.fetchone():
                         continue
                     c = await self._conn.execute(
-                        "INSERT INTO fact (tuple_key, qualifiers_json, as_of, value, unit, source_id, "
-                        "admission, lifecycle, run_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                        (tk, json.dumps({}), as_of, f.value, f.unit, sid, "provisional", "current", run_id, now),
+                        "INSERT INTO fact (tuple_key, instance_key, property_name, qualifiers_json, as_of, "
+                        "value, unit, source_id, admission, lifecycle, run_id, created_at) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (tk, instance_key, property_name, json.dumps(quals), as_of, f.value, f.unit, sid,
+                         "provisional", "current", run_id, now),
                     )
                     f.fact_id = c.lastrowid
                     await self._conn.execute(
@@ -84,7 +87,7 @@ class Ingestor:
                     )
 
                 # Conflict detection over the bucket's freshly-inserted facts (run once).
-                bucket_facts = [f for _, f, _ in items if f.fact_id is not None]
+                bucket_facts = [item[1] for item in items if item[1].fact_id is not None]
                 intents = conflict.detect(bucket_facts)
                 for intent in intents:
                     if isinstance(intent, model.OpenConflict):
