@@ -22,6 +22,7 @@ from open_deep_research.configuration import (
     Configuration,
 )
 from open_deep_research.prompts import (
+    answer_from_dossier_prompt,
     clarify_with_user_instructions,
     compress_research_simple_human_message,
     compress_research_system_prompt,
@@ -51,6 +52,7 @@ from open_deep_research.storage import (
     get_db_path,
     get_subject_by_slug,
     get_subject_names,
+    log_research_run,
     save_run_and_upsert_subject,
     slugify,
 )
@@ -132,169 +134,175 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
         )
 
 
-async def write_research_brief(state: AgentState, config: RunnableConfig) -> Command[Literal["assess_knowledge"]]:
-    """Transform user messages into a structured research brief and initialize supervisor.
-    
-    This function analyzes the user's messages and generates a focused research brief
-    that will guide the research supervisor. It also sets up the initial supervisor
-    context with appropriate prompts and instructions.
-    
-    Args:
-        state: Current agent state containing user messages
-        config: Runtime configuration with model settings
-        
-    Returns:
-        Command to proceed to research supervisor with initialized context
-    """
-    # Step 1: Set up the research model for structured output
-    configurable = Configuration.from_runnable_config(config)
-    research_model_config = {
-        "model": configurable.research_model,
-        "max_tokens": configurable.research_model_max_tokens,
-        "api_key": get_api_key_for_model(configurable.research_model, config),
-        "tags": ["langsmith:nostream"]
-    }
-    
-    # Configure model for structured research question generation
-    research_model = (
-        configurable_model
-        .with_structured_output(ResearchQuestion)
-        .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
-        .with_config(research_model_config)
-    )
-    
-    # Step 2: Generate structured research brief from user messages
-    prompt_content = transform_messages_into_research_topic_prompt.format(
-        messages=get_buffer_string(state.get("messages", [])),
-        date=get_today_str()
-    )
-    response = await research_model.ainvoke([HumanMessage(content=prompt_content)])
-    
-    # Step 3: Initialize supervisor with research brief and instructions
-    supervisor_system_prompt = lead_researcher_prompt.format(
-        date=get_today_str(),
-        max_concurrent_research_units=configurable.max_concurrent_research_units,
-        max_researcher_iterations=configurable.max_researcher_iterations
-    )
-    
-    return Command(
-        goto="assess_knowledge",
-        update={
-            "research_brief": response.research_brief,
-            "supervisor_messages": {
-                "type": "override",
-                "value": [
-                    SystemMessage(content=supervisor_system_prompt),
-                    HumanMessage(content=response.research_brief)
-                ]
-            }
-        }
-    )
+async def assess_knowledge(state: AgentState, config: RunnableConfig) -> Command[Literal["answer_from_dossier", "write_research_brief", "clarify_with_user"]]:
+    """Entry node: match the question to a stored subject and decide how to handle it.
 
-
-async def assess_knowledge(state: AgentState, config: RunnableConfig) -> Command[Literal["research_supervisor"]]:
-    """Match the question to a stored subject and scope the research accordingly.
-
-    Sees whether the subject's existing dossier already answers the question. If it
-    does, the research is scoped to a verification pass (confirm/refresh the known
-    facts); if information is missing, the whole subject is re-researched. The
-    existing dossier is injected into the brief so the researcher confirms/updates
-    known facts rather than rediscovering them, and results are later merged back.
+    - The dossier already answers the question  -> answer straight from the cache.
+    - Partially covered (or a refresh is asked) -> research the gap and merge.
+    - A brand-new subject                       -> clarify scope (optional) then research.
 
     Args:
-        state: Current agent state with the research brief
+        state: Current agent state containing the user's messages
         config: Runtime configuration with knowledge-base settings
 
     Returns:
-        Command to proceed to the research supervisor with a (possibly reshaped) brief
+        Command routing to answer-from-cache, research, or clarification.
     """
     configurable = Configuration.from_runnable_config(config)
-    # When the knowledge base is disabled, behave exactly like before.
-    if not configurable.use_knowledge_base:
-        return Command(goto="research_supervisor")
+    question = get_buffer_string(state.get("messages", []))
 
-    research_brief = state.get("research_brief", "")
+    # Knowledge base disabled: preserve the original clarify -> research flow.
+    if not configurable.use_knowledge_base:
+        return Command(goto="clarify_with_user")
+
     db_path = get_db_path(config)
 
     # Step 1: Ensure the subject matches (reuse an existing subject when applicable).
     try:
         existing_names = await get_subject_names(db_path)
-        subject = await _resolve_subject(
-            research_brief, research_brief, existing_names, configurable, config
-        )
+        subject = await _resolve_subject(question, question, existing_names, configurable, config)
     except Exception as e:
         logger.warning("Subject match failed in assess_knowledge: %s", e)
-        return Command(goto="research_supervisor")
+        return Command(goto="clarify_with_user")
 
-    slug = slugify(subject)
-    existing = await get_subject_by_slug(db_path, slug)
+    existing = await get_subject_by_slug(db_path, slugify(subject))
     dossier = (existing or {}).get("current_report") if existing else None
 
-    # Step 2: If we have prior knowledge, assess whether it already answers the question.
+    # Step 2: New subject -> clarify scope (if enabled) then research.
+    if not dossier:
+        target = "clarify_with_user" if configurable.allow_clarification else "write_research_brief"
+        return Command(goto=target, update={"subject": subject})
+
+    # Step 3: We have prior knowledge -> does it already answer the question?
     is_answerable = False
     missing_information = ""
-    if dossier:
-        try:
-            assessment_model = (
-                configurable_model
-                .with_structured_output(KnowledgeAssessment)
-                .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
-                .with_config({
-                    "model": configurable.research_model,
-                    "max_tokens": configurable.research_model_max_tokens,
-                    "api_key": get_api_key_for_model(configurable.research_model, config),
-                    "tags": ["langsmith:nostream"],
-                })
-            )
-            assessment = await assessment_model.ainvoke([HumanMessage(content=knowledge_assessment_prompt.format(
-                subject=subject, date=get_today_str(),
-                research_brief=research_brief, dossier=dossier,
-            ))])
-            is_answerable = bool(assessment.is_answerable)
-            missing_information = assessment.missing_information or ""
-        except Exception as e:
-            logger.warning("Knowledge assessment failed, treating as a gap: %s", e)
+    try:
+        assessment_model = (
+            configurable_model
+            .with_structured_output(KnowledgeAssessment)
+            .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+            .with_config({
+                "model": configurable.research_model,
+                "max_tokens": configurable.research_model_max_tokens,
+                "api_key": get_api_key_for_model(configurable.research_model, config),
+                "tags": ["langsmith:nostream"],
+            })
+        )
+        assessment = await assessment_model.ainvoke([HumanMessage(content=knowledge_assessment_prompt.format(
+            subject=subject, date=get_today_str(), research_brief=question, dossier=dossier,
+        ))])
+        is_answerable = bool(assessment.is_answerable)
+        missing_information = assessment.missing_information or ""
+    except Exception as e:
+        logger.warning("Knowledge assessment failed, treating as a gap: %s", e)
 
-    # Step 3: Reshape the research brief based on what we already know.
-    if not dossier:
-        # New subject: full research with the original brief.
-        scoped_brief = research_brief
-    elif is_answerable:
-        # Cache hit: verify/refresh the known facts relevant to the question.
-        scoped_brief = (
-            f"Verify and update the existing knowledge about \"{subject}\" as it relates "
-            f"to this question:\n{research_brief}\n\nConfirm or correct each relevant fact "
-            f"against current sources and note anything that has changed.\n\n"
-            f"Existing knowledge to verify:\n{dossier}"
+    if is_answerable:
+        # Fully covered: answer directly from the stored dossier.
+        return Command(goto="answer_from_dossier", update={"subject": subject})
+    # Partial / refresh: research the gap (subject already known, skip clarification).
+    return Command(
+        goto="write_research_brief",
+        update={"subject": subject, "missing_information": missing_information},
+    )
+
+
+async def answer_from_dossier(state: AgentState, config: RunnableConfig) -> dict:
+    """Answer the question directly from the subject's stored dossier (no research)."""
+    configurable = Configuration.from_runnable_config(config)
+    subject = state.get("subject")
+    question = get_buffer_string(state.get("messages", []))
+    existing = await get_subject_by_slug(get_db_path(config), slugify(subject)) if subject else None
+    dossier = (existing or {}).get("current_report") if existing else ""
+    updated_at = (existing or {}).get("updated_at") or get_today_str()
+
+    answer_model = configurable_model.with_config({
+        "model": configurable.final_report_model,
+        "max_tokens": configurable.final_report_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.final_report_model, config),
+        "tags": ["langsmith:nostream"],
+    })
+    response = await answer_model.ainvoke([HumanMessage(content=answer_from_dossier_prompt.format(
+        subject=subject, question=question, updated_at=updated_at, dossier=dossier,
+    ))])
+    answer = str(response.content)
+    # Static edge to persist_research (logs the Q&A run; dossier is unchanged).
+    return {
+        "final_report": answer,
+        "messages": [AIMessage(content=answer)],
+        "answered_from_cache": True,
+        "subject": subject,
+    }
+
+
+async def write_research_brief(state: AgentState, config: RunnableConfig) -> dict:
+    """Build the research brief and initialize the supervisor.
+
+    If we already have a dossier for the resolved subject, the brief is gap-scoped
+    (research what's missing, verify the rest, include the dossier as context).
+    Otherwise it is generated from the user's messages as a fresh research question.
+
+    Args:
+        state: Current agent state containing user messages (and resolved subject)
+        config: Runtime configuration with model settings
+
+    Returns:
+        State update with the research brief and initialized supervisor messages
+    """
+    configurable = Configuration.from_runnable_config(config)
+    question = get_buffer_string(state.get("messages", []))
+    subject = state.get("subject")
+    missing_information = state.get("missing_information") or ""
+
+    # Load the dossier (if any) for the resolved subject to scope the research.
+    dossier = None
+    if subject:
+        existing = await get_subject_by_slug(get_db_path(config), slugify(subject))
+        dossier = (existing or {}).get("current_report") if existing else None
+
+    if dossier:
+        # Gap research: focus on what's missing, verify the rest, include the dossier.
+        research_brief = (
+            f"Research the subject \"{subject}\" to fully answer this question:\n{question}\n\n"
+            f"Focus in particular on the information that is currently missing: "
+            f"{missing_information or '(complete or refresh any out-of-date facts)'}\n\n"
+            f"Verify the existing facts below against current sources and extend them; "
+            f"do not merely repeat them:\n{dossier}"
         )
     else:
-        # Gap: re-research the whole subject, emphasizing what is missing.
-        scoped_brief = (
-            f"Comprehensively research the subject \"{subject}\", ensuring full coverage of "
-            f"the following question and the information it requires:\n{research_brief}\n\n"
-            f"Pay particular attention to what is currently missing: {missing_information}\n\n"
-            f"Existing knowledge (verify and extend, do not merely repeat):\n{dossier}"
+        # New subject: generate a focused research brief from the user's messages.
+        research_model = (
+            configurable_model
+            .with_structured_output(ResearchQuestion)
+            .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+            .with_config({
+                "model": configurable.research_model,
+                "max_tokens": configurable.research_model_max_tokens,
+                "api_key": get_api_key_for_model(configurable.research_model, config),
+                "tags": ["langsmith:nostream"],
+            })
         )
+        response = await research_model.ainvoke([HumanMessage(content=transform_messages_into_research_topic_prompt.format(
+            messages=question, date=get_today_str()
+        ))])
+        research_brief = response.research_brief
 
     supervisor_system_prompt = lead_researcher_prompt.format(
         date=get_today_str(),
         max_concurrent_research_units=configurable.max_concurrent_research_units,
-        max_researcher_iterations=configurable.max_researcher_iterations,
+        max_researcher_iterations=configurable.max_researcher_iterations
     )
-    return Command(
-        goto="research_supervisor",
-        update={
-            "research_brief": scoped_brief,
-            "subject": subject,
-            "supervisor_messages": {
-                "type": "override",
-                "value": [
-                    SystemMessage(content=supervisor_system_prompt),
-                    HumanMessage(content=scoped_brief),
-                ],
-            },
-        },
-    )
+    # Static edge to research_supervisor (see graph wiring).
+    return {
+        "research_brief": research_brief,
+        "subject": subject,
+        "supervisor_messages": {
+            "type": "override",
+            "value": [
+                SystemMessage(content=supervisor_system_prompt),
+                HumanMessage(content=research_brief)
+            ]
+        }
+    }
 
 
 async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[Literal["supervisor_tools"]]:
@@ -912,6 +920,12 @@ async def persist_research(state: AgentState, config: RunnableConfig):
         db_path = get_db_path(config)
         now = run["created_at"]
 
+        # Answered from the cache: log the Q&A run, but leave the dossier unchanged.
+        if state.get("answered_from_cache") and state.get("subject"):
+            run["status"] = "answered_from_cache"
+            run_id = await log_research_run(db_path, slugify(state["subject"]), run)
+            return {"report_id": run_id, "subject": state["subject"]}
+
         if configurable.accumulate_by_subject and final_report:
             # 1) Use the subject already matched by assess_knowledge, else resolve now.
             subject_name = state.get("subject")
@@ -980,15 +994,19 @@ deep_researcher_builder = StateGraph(
 )
 
 # Add main workflow nodes for the complete research process
+deep_researcher_builder.add_node("assess_knowledge", assess_knowledge)             # Entry: subject match + knowledge decision
+deep_researcher_builder.add_node("answer_from_dossier", answer_from_dossier)       # Answer directly from stored knowledge
 deep_researcher_builder.add_node("clarify_with_user", clarify_with_user)           # User clarification phase
 deep_researcher_builder.add_node("write_research_brief", write_research_brief)     # Research planning phase
-deep_researcher_builder.add_node("assess_knowledge", assess_knowledge)             # Subject match + knowledge assessment
 deep_researcher_builder.add_node("research_supervisor", supervisor_subgraph)       # Research execution phase
 deep_researcher_builder.add_node("final_report_generation", final_report_generation)  # Report generation phase
 deep_researcher_builder.add_node("persist_research", persist_research)             # Persist results to SQLite
 
-# Define main workflow edges for sequential execution
-deep_researcher_builder.add_edge(START, "clarify_with_user")                       # Entry point
+# Define main workflow edges. assess_knowledge (entry) branches via Command(goto)
+# to answer_from_dossier / write_research_brief / clarify_with_user.
+deep_researcher_builder.add_edge(START, "assess_knowledge")                         # Entry point: check the knowledge base first
+deep_researcher_builder.add_edge("answer_from_dossier", "persist_research")         # Cached answer -> log the run
+deep_researcher_builder.add_edge("write_research_brief", "research_supervisor")     # Brief to research
 deep_researcher_builder.add_edge("research_supervisor", "final_report_generation") # Research to report
 deep_researcher_builder.add_edge("final_report_generation", "persist_research")    # Report to persistence
 deep_researcher_builder.add_edge("persist_research", END)                          # Final exit point
