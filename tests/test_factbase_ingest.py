@@ -101,3 +101,33 @@ def test_tuple_key_uses_stable_canonical_key():
             )
             assert stored == expected
     asyncio.run(run())
+
+
+def test_promotes_with_required_qualifier_even_if_refinements_missing():
+    async def run():
+        async with aiosqlite.connect(":memory:") as conn:
+            await conn.executescript("CREATE TABLE research_runs (id INTEGER PRIMARY KEY, topic TEXT);")
+            await conn.commit()
+            await migrations.apply(conn, schema.STEPS)
+            ing = _setup(conn)
+            recs = [{"property":"id_coverage_pct","instance_name":"India","value":"99","unit":"%","as_of":"2024",
+                     "qualifiers":{"population_basis":"adults_15plus"},
+                     "source_url":"https://id4d.worldbank.org/x","evidence_span":"99%"}]
+            await ing.ingest(run_id=1, records=recs)
+            cur = await conn.execute("SELECT admission FROM fact"); assert (await cur.fetchone())[0] == "trusted"
+    asyncio.run(run())
+
+
+def test_no_promote_when_required_qualifier_missing():
+    async def run():
+        async with aiosqlite.connect(":memory:") as conn:
+            await conn.executescript("CREATE TABLE research_runs (id INTEGER PRIMARY KEY, topic TEXT);")
+            await conn.commit()
+            await migrations.apply(conn, schema.STEPS)
+            ing = _setup(conn)
+            recs = [{"property":"id_coverage_pct","instance_name":"India","value":"99","unit":"%","as_of":"2024",
+                     "qualifiers":{"coverage_kind":"enrolled"},
+                     "source_url":"https://id4d.worldbank.org/x","evidence_span":"99%"}]
+            await ing.ingest(run_id=1, records=recs)
+            cur = await conn.execute("SELECT admission FROM fact"); assert (await cur.fetchone())[0] == "provisional"
+    asyncio.run(run())

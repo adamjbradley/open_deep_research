@@ -9,6 +9,7 @@ class PropertyDef:
     name: str
     value_kind: str
     identity_qualifiers: list[str] = field(default_factory=list)
+    required_qualifiers: list[str] = field(default_factory=list)
     qualifier_enums: dict[str, list[str]] = field(default_factory=dict)
     value_enum: list[str] | None = None
     trust_threshold: str = "reputable"

@@ -14,3 +14,8 @@ def test_validation_rejects_out_of_range_percentage():
     cov = profile.load("country_digital_identity").property("id_coverage_pct")
     assert cov.validate("412") is False
     assert cov.validate("87") is True
+
+
+def test_coverage_required_qualifiers_is_population_basis_only():
+    cov = profile.load("country_digital_identity").property("id_coverage_pct")
+    assert cov.required_qualifiers == ["population_basis"]
