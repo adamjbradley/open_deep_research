@@ -1,0 +1,30 @@
+# gemini.fs.feedback
+## Round 1 — 2026-06-12 — Feature Spec v1 (DPI / Digital Identity)
+
+**1. SCOPE CREEP**
+*   **Unit Normalization:** "value-equality (tolerance/unit-normalized)" (AC3.1). Defer to v2. Normalizing disparate units from unstructured web sources is a massive rabbit hole. In v1, exact string match or it's a conflict.
+*   **Historical State:** "prior remains in history as `superseded`" (AC6.1). Maintaining per-fact temporal history adds severe state management complexity. Defer; v1 should only hold the most recently discovered facts or treat different dates as open conflicts.
+*   **Dynamic Trust Tiers:** "trust tiers: authoritative... > reputable... > open web" (2.2). Programmatically classifying arbitrary URLs into qualitative tiers during an LLM run is a distinct, complex product. Defer to v2; treat all extracted sources equally.
+
+**2. VAGUE ACCEPTANCE CRITERIA**
+*   **AC1.1:** "produces facts for ≥1 property in §2.1". Untestable. Does the agent stop after finding one fact? What constitutes a complete vs. failed run?
+*   **AC2.4:** "older than a profile threshold". Ambiguous. What is the specific threshold, and where is it configured?
+*   **AC5.1:** "whose source meets the profile (type, property) trust bar". Untestable. How is this "trust bar" defined, quantified, and evaluated programmatically against a scraped URL?
+
+**3. HIDDEN DEPENDENCIES**
+*   **Entity Resolution:** Using "ISO 3166" (Edge cases) to bound country naming implies an unlisted dependency on an entity resolution layer or LLM step to accurately map fuzzy extractions ("Ivory Coast", "Türkiye") to canonical keys.
+*   **Blob Storage:** AC1.3 requires an "immutable run report (prose) linked to the facts", necessitating a blob storage and relational mapping system not specified in the data model.
+
+**4. MISSING STORIES / JOURNEYS**
+*   **Export for Briefings:** Maya creates "briefings, country profiles, and cross-country comparisons". She cannot put a CLI standard output table into a report. She needs a journey to export data (e.g., `dossier compare --format csv`).
+*   **Batch Execution:** The scope explicitly targets "all countries" (§2), but US-1 only covers asking the platform to research "a country". There is no story for how Maya initiates or manages a bulk global run.
+
+**5. FEASIBILITY**
+*   **Automated Source Classification:** "reputable (academic, established orgs) > open web" (2.2). Reliably classifying the tier of an arbitrary URL discovered by an LLM in real-time is 10x harder than implied without a massive, pre-existing reputation database.
+*   **Reliable Value-Equality:** Implementing "tolerance" (AC3.1) for LLM-extracted numbers across hybrid global sources (where formats wildly vary) is highly prone to false positives/negatives without rigid, property-specific deterministic code.
+
+**6. CONVERGENCE CALL**
+**ANOTHER ROUND**
+The single most important fix: Strip out automated trust tiering, unit normalization, and `superseded` historical states. V1 must be a brutally simple, flat extraction layer that treats all sources equally and surfaces *any* discrepancy as a conflict for the user to interpret.
+
+<!-- gemini fs exit=0 -->
