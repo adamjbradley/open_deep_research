@@ -1,0 +1,942 @@
+"""CLI-driven (subscription/login) LLM + search backends for all LLM activity.
+
+This module lets Open Deep Research run every LLM call through a local agent CLI
+so usage bills against a subscription/login rather than per-token API credits:
+
+- ``ClaudeAgentChat`` -- Claude Code via the ``claude_agent_sdk`` (Claude Pro/Max).
+- ``GeminiCLIChat`` -- Google's ``gemini`` CLI (Google login / free tier).
+- ``CodexCLIChat`` -- OpenAI's ``codex`` CLI (ChatGPT login).
+
+Backend is selected per role by a provider prefix on the model string
+("claude:opus", "gemini:2.5-pro", "codex:gpt-5") via ``build_chat_model`` /
+``parse_backend``. Claude has a first-class SDK with native structured output;
+the Gemini/Codex CLIs lack that, so structured output and tool-call emission are
+coerced by asking the CLI for the JSON tool-selection envelope and parsing it
+back -- the same ``AIMessage.tool_calls`` contract across all three.
+
+Core exports:
+
+- ``ClaudeAgentChat`` -- a ``BaseChatModel`` that wraps ``claude_agent_sdk.query``.
+  It supports plain-text generation, structured output (via ``with_structured_output``),
+  and tool-call emission (via ``bind_tools``). The graph keeps ownership of the
+  agentic loop: we always run the SDK with ``allowed_tools=[]`` so it never
+  executes tools itself; instead it *selects* a tool and we hand the resulting
+  ``AIMessage.tool_calls`` back to LangGraph for execution.
+
+- ``configurable_claude_model`` -- a drop-in replacement for the
+  ``init_chat_model(configurable_fields=...)`` model used in deep_researcher.py.
+  It mimics the small slice of ``_ConfigurableModel`` behaviour the codebase
+  relies on: the flat ``with_config({"model": ..., "max_tokens": ..., "api_key": ...})``
+  pattern, plus declarative ``with_structured_output`` / ``bind_tools`` /
+  ``with_retry`` chaining that is replayed against the real model at invoke time.
+
+Design notes
+------------
+* ``with_structured_output`` (LangChain base impl, ``method="function_calling"``)
+  calls ``bind_tools([schema])`` then parses the emitted tool call. Because our
+  ``bind_tools`` produces a real ``AIMessage`` with ``tool_calls``, structured
+  output "just works" on top of the same mechanism as supervisor/researcher tools.
+* Tool selection is forced via the SDK ``output_format`` (a JSON-schema "envelope"
+  listing the available tool names); the tool catalog + schemas are also injected
+  into the system prompt so arguments conform.
+* Per-call ``max_tokens`` has no SDK equivalent and is accepted-but-ignored.
+* Model selection is mapped to a family / model id the SDK understands
+  (``opus`` / ``sonnet`` / ``haiku`` / full ``claude-*`` id).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import uuid
+from typing import Any, Optional, Sequence
+
+import claude_agent_sdk as cas
+from langchain_core.callbacks import (
+    AsyncCallbackManagerForLLMRun,
+    CallbackManagerForLLMRun,
+)
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.utils.function_calling import convert_to_openai_tool
+
+# Limit concurrent SDK subprocesses. The subscription tier throttles around a
+# handful of simultaneous sessions, and the app fans out parallel researchers.
+_MAX_CONCURRENCY = int(os.getenv("CLAUDE_SDK_MAX_CONCURRENCY", "4"))
+_SEMAPHORE: Optional[asyncio.Semaphore] = None
+
+
+def _semaphore() -> asyncio.Semaphore:
+    """Lazily build the semaphore so it binds to the running event loop."""
+    global _SEMAPHORE
+    if _SEMAPHORE is None:
+        _SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENCY)
+    return _SEMAPHORE
+
+
+def use_subscription() -> bool:
+    """Whether to bill against the Claude subscription (vs. ANTHROPIC_API_KEY)."""
+    return os.getenv("CLAUDE_USE_SUBSCRIPTION", "true").lower() == "true"
+
+
+_CLI_CWD: Optional[str] = None
+
+
+def _cli_cwd() -> str:
+    """A neutral empty working directory for CLI backends.
+
+    Agent CLIs (gemini, codex) ingest the working directory as project context
+    and switch to coding-agent mode. Running them in an empty dir keeps them
+    behaving as plain LLMs that answer the prompt.
+    """
+    global _CLI_CWD
+    if _CLI_CWD is None or not os.path.isdir(_CLI_CWD):
+        import tempfile
+
+        _CLI_CWD = tempfile.mkdtemp(prefix="odr_cli_cwd_")
+    return _CLI_CWD
+
+
+def to_claude_model(model_name: Optional[str]) -> str:
+    """Map a configured model string to something the Agent SDK understands.
+
+    Accepts SDK families ("opus"/"sonnet"/"haiku"), full ids ("claude-opus-4-8"),
+    "anthropic:claude-..." prefixes, and tolerates legacy "openai:gpt-4.1"-style
+    values by falling back to a sensible Claude family.
+    """
+    if not model_name:
+        return "sonnet"
+    s = model_name.strip()
+    low = s.lower()
+    # Explicit Claude id / family, optionally prefixed with a provider.
+    if low.startswith("anthropic:"):
+        s = s.split(":", 1)[1]
+        low = s.lower()
+    if low.startswith("claude") or low in {"opus", "sonnet", "haiku"}:
+        return s
+    # Keyword fallback for any other provider string.
+    if "haiku" in low:
+        return "haiku"
+    if "opus" in low:
+        return "opus"
+    if "sonnet" in low:
+        return "sonnet"
+    return "sonnet"
+
+
+def to_gemini_model(model_name: Optional[str]) -> str:
+    """Map a configured model string to a Gemini CLI model id.
+
+    Accepts "gemini-2.5-pro"-style ids (passed through), the "gemini:"/"google:"
+    prefix, and tolerates Claude families ("haiku"->flash, others->pro).
+    """
+    if not model_name:
+        return "gemini-2.5-flash"
+    s = model_name.strip()
+    low = s.lower()
+    if low.startswith(("gemini:", "google:")):
+        s = s.split(":", 1)[1]
+        low = s.lower()
+    if low.startswith("gemini-"):
+        return s
+    if "flash" in low or "haiku" in low:
+        return "gemini-2.5-flash"
+    return "gemini-2.5-pro"
+
+
+def to_codex_model(model_name: Optional[str]) -> str:
+    """Map a configured model string to a Codex CLI model id.
+
+    Accepts "gpt-*"/"o*" ids (passed through) and the "codex:"/"openai:" prefix.
+
+    Returns "" (empty) to mean "let codex use its config.toml default model".
+    This is the safest default because ChatGPT-account logins only allow the
+    model(s) your plan provides -- e.g. "gpt-5"/"gpt-5-codex" are rejected, while
+    the configured "gpt-5.5" works. Set CODEX_DEFAULT_MODEL to force one.
+    """
+    default = os.getenv("CODEX_DEFAULT_MODEL", "")
+    if not model_name:
+        return default
+    s = model_name.strip()
+    low = s.lower()
+    if low in {"codex", "openai"}:
+        return default
+    if low.startswith(("codex:", "openai:")):
+        s = s.split(":", 1)[1]
+        low = s.lower()
+    if low.startswith(("gpt", "o1", "o3", "o4")):
+        return s
+    return default
+
+
+# Instructions appended to the system prompt when tools are bound, telling the
+# model to respond by selecting a tool through the structured output envelope.
+_TOOL_PROTOCOL = """
+
+## Tool selection protocol
+You do NOT execute tools yourself. Respond with ONLY a single JSON object and no
+other text whatsoever -- no markdown fences, no explanation, no preamble. The object
+MUST have a "tool_calls" array where each element is
+{{"name": <one of the tool names below>, "arguments": <object matching that tool's input schema>}}.
+
+Example of the exact required format:
+{{"tool_calls": [{{"name": "<tool_name>", "arguments": {{"some_arg": "value"}}}}]}}
+
+Available tools:
+{tool_catalog}
+"""
+
+
+def _tool_catalog(openai_tools: list[dict]) -> str:
+    lines = []
+    for t in openai_tools:
+        fn = t["function"]
+        params = json.dumps(fn.get("parameters", {"type": "object", "properties": {}}))
+        lines.append(
+            f"- {fn['name']}: {fn.get('description', '').strip()}\n  input schema: {params}"
+        )
+    return "\n".join(lines)
+
+
+def _tool_envelope_schema(openai_tools: list[dict]) -> dict:
+    """JSON schema forcing the model to select one or more bound tools."""
+    tool_names = [t["function"]["name"] for t in openai_tools]
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "tool_calls": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "name": {"type": "string", "enum": tool_names},
+                        "arguments": {"type": "object"},
+                    },
+                    "required": ["name", "arguments"],
+                },
+            }
+        },
+        "required": ["tool_calls"],
+    }
+
+
+def _envelope_to_tool_calls(data: dict) -> list[dict]:
+    """Convert a parsed tool-selection envelope into LangChain tool_calls."""
+    tool_calls = []
+    for call in (data or {}).get("tool_calls", []):
+        if not isinstance(call, dict) or "name" not in call:
+            continue
+        tool_calls.append(
+            {
+                "name": call["name"],
+                "args": call.get("arguments") or {},
+                "id": f"call_{uuid.uuid4().hex[:24]}",
+                "type": "tool_call",
+            }
+        )
+    return tool_calls
+
+
+def _extract_json(text: str) -> Optional[dict]:
+    """Best-effort extraction of a single JSON object from CLI text output.
+
+    Handles markdown fences and surrounding prose by scanning for the first
+    balanced ``{...}`` block. Returns None if nothing parses.
+    """
+    if not text:
+        return None
+    stripped = text.strip()
+    # Fast path: whole output is JSON.
+    try:
+        obj = json.loads(stripped)
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        pass
+    # Strip markdown code fences if present.
+    if "```" in stripped:
+        import re
+
+        for block in re.findall(r"```(?:json)?\s*(.*?)```", stripped, re.S):
+            try:
+                obj = json.loads(block.strip())
+                if isinstance(obj, dict):
+                    return obj
+            except Exception:
+                continue
+    # Scan for the first balanced top-level object.
+    start = stripped.find("{")
+    while start != -1:
+        depth = 0
+        for i in range(start, len(stripped)):
+            c = stripped[i]
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = stripped[start : i + 1]
+                    try:
+                        obj = json.loads(candidate)
+                        if isinstance(obj, dict):
+                            return obj
+                    except Exception:
+                        break
+        start = stripped.find("{", start + 1)
+    return None
+
+
+async def _run_cli(
+    cmd: list[str],
+    env: Optional[dict] = None,
+    stdin: Optional[str] = None,
+    timeout: int = 600,
+    cwd: Optional[str] = None,
+) -> str:
+    """Run a CLI subprocess and return stdout, raising on failure/timeout.
+
+    Resolves the binary via PATH and, on Windows, runs ``.cmd``/``.bat`` shims
+    (e.g. npm-installed ``gemini.cmd``) through ``cmd /c`` so they execute. Runs
+    in a neutral empty cwd by default so agent CLIs don't load project context.
+    """
+    import shutil
+    import sys
+
+    resolved = shutil.which(cmd[0]) or cmd[0]
+    argv = [resolved, *cmd[1:]]
+    if sys.platform == "win32" and resolved.lower().endswith((".cmd", ".bat")):
+        argv = ["cmd", "/c", *argv]
+
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        # Close stdin (DEVNULL) when none is supplied so CLIs that "read
+        # additional input from stdin" (e.g. codex exec) don't block forever.
+        stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+        cwd=cwd or _cli_cwd(),
+    )
+    try:
+        out, err = await asyncio.wait_for(
+            proc.communicate(input=stdin.encode() if stdin is not None else None),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise RuntimeError(f"CLI timed out after {timeout}s: {cmd[0]}")
+    if proc.returncode != 0:
+        detail = (err or b"").decode(errors="replace")[:800]
+        raise RuntimeError(f"CLI {cmd[0]} failed (exit {proc.returncode}): {detail}")
+    return (out or b"").decode(errors="replace")
+
+
+def _render_messages(messages: Sequence[BaseMessage]) -> tuple[str, str]:
+    """Split messages into (system_prompt, prompt transcript).
+
+    The Agent SDK takes a single ``prompt`` string plus a ``system_prompt``. We
+    concatenate all SystemMessages into the system prompt and render the rest of
+    the conversation as a labelled transcript. Prior assistant tool calls and
+    tool results are flattened to text (the graph owns real tool execution).
+    """
+    system_parts: list[str] = []
+    convo: list[str] = []
+    for m in messages:
+        if isinstance(m, SystemMessage):
+            system_parts.append(_content_str(m.content))
+        elif isinstance(m, HumanMessage):
+            convo.append(f"[USER]\n{_content_str(m.content)}")
+        elif isinstance(m, AIMessage):
+            text = _content_str(m.content)
+            if getattr(m, "tool_calls", None):
+                calls = "; ".join(
+                    f"{tc['name']}({json.dumps(tc.get('args', {}))})"
+                    for tc in m.tool_calls
+                )
+                text = (text + f"\n[assistant called tools: {calls}]").strip()
+            convo.append(f"[ASSISTANT]\n{text}")
+        elif isinstance(m, ToolMessage):
+            convo.append(f"[TOOL RESULT name={m.name}]\n{_content_str(m.content)}")
+        else:  # pragma: no cover - defensive
+            convo.append(_content_str(getattr(m, "content", str(m))))
+    prompt = "\n\n".join(p for p in convo if p).strip() or " "
+    return "\n\n".join(p for p in system_parts if p).strip(), prompt
+
+
+def _content_str(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(block.get("text", json.dumps(block)))
+            else:
+                parts.append(str(block))
+        return "\n".join(parts)
+    return str(content)
+
+
+class ClaudeAgentChat(BaseChatModel):
+    """A ``BaseChatModel`` backed by the Claude Agent SDK (Claude Code)."""
+
+    model: str = "sonnet"
+    max_tokens: Optional[int] = None  # accepted for compatibility; SDK has no equivalent
+    subscription: bool = True
+    max_turns: Optional[int] = None
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    @property
+    def _llm_type(self) -> str:
+        return "claude-agent-sdk"
+
+    # -- tool binding -------------------------------------------------------
+    def bind_tools(self, tools: Sequence[Any], *, tool_choice: Any = None, **kwargs: Any):
+        """Bind tools so the model EMITS tool calls for the graph to execute.
+
+        ``tool_choice`` and other structured-output kwargs from the base
+        ``with_structured_output`` are accepted and ignored.
+        """
+        openai_tools = [convert_to_openai_tool(t) for t in tools]
+        return self.bind(claude_tools=openai_tools)
+
+    # -- generation ---------------------------------------------------------
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: Optional[list[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        raise NotImplementedError(
+            "ClaudeAgentChat is async-only; use ainvoke()/astream()."
+        )
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: Optional[list[str]] = None,
+        run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        openai_tools: list[dict] = kwargs.get("claude_tools") or []
+        system_prompt, prompt = _render_messages(messages)
+
+        output_format = None
+        if openai_tools:
+            system_prompt = (system_prompt + _TOOL_PROTOCOL.format(
+                tool_catalog=_tool_catalog(openai_tools)
+            )).strip()
+            output_format = {
+                "type": "json_schema",
+                "schema": _tool_envelope_schema(openai_tools),
+            }
+
+        message = await self._run_query(prompt, system_prompt, output_format)
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+    async def _run_query(
+        self,
+        prompt: str,
+        system_prompt: str,
+        output_format: Optional[dict],
+    ) -> AIMessage:
+        # In subscription mode, ensure the subprocess does not see an API key
+        # (its presence forces pay-per-token API billing).
+        if self.subscription:
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+
+        options = cas.ClaudeAgentOptions(
+            allowed_tools=[],
+            disallowed_tools=[],
+            mcp_servers={},
+            max_turns=self.max_turns,
+            permission_mode="bypassPermissions",
+            system_prompt=system_prompt or None,
+            output_format=output_format,
+            model=self.model,
+        )
+
+        text = ""
+        structured: Optional[dict] = None
+        result_text: Optional[str] = None
+        usage: Any = None
+        is_error = False
+        async with _semaphore():
+            async for msg in cas.query(prompt=prompt, options=options):
+                if isinstance(msg, cas.AssistantMessage):
+                    for block in msg.content:
+                        if isinstance(block, cas.TextBlock):
+                            text += block.text
+                elif isinstance(msg, cas.ResultMessage):
+                    structured = msg.structured_output
+                    result_text = msg.result
+                    usage = msg.usage
+                    is_error = bool(msg.is_error)
+
+        if is_error:
+            raise RuntimeError(f"Claude Agent SDK returned an error: {result_text!r}")
+
+        response_metadata = {"model": self.model}
+        if usage is not None:
+            response_metadata["usage"] = usage
+
+        if output_format is not None and structured is not None:
+            return AIMessage(
+                content="",
+                tool_calls=_envelope_to_tool_calls(structured),
+                response_metadata=response_metadata,
+            )
+
+        return AIMessage(
+            content=text or (result_text or ""),
+            response_metadata=response_metadata,
+        )
+
+
+def _combine_system_prompt(system_prompt: str, prompt: str) -> str:
+    if not system_prompt:
+        return prompt
+    return f"<system>\n{system_prompt}\n</system>\n\n{prompt}"
+
+
+class _CLIJsonChat(BaseChatModel):
+    """Shared base for CLI-driven LLM backends without the Claude SDK.
+
+    Subclasses (Gemini CLI, Codex CLI) shell out to a local agent CLI in
+    non-interactive mode. Structured output and tool-call emission use the JSON
+    tool-selection envelope, which we parse back into ``AIMessage.tool_calls`` --
+    the same contract as the Claude backend, so ``with_structured_output`` /
+    ``bind_tools`` work uniformly. Codex enforces the schema natively
+    (``--output-schema``); Gemini coerces it via the prompt.
+    """
+
+    model: str = ""
+    max_tokens: Optional[int] = None
+    subscription: bool = True
+    timeout_s: int = int(os.getenv("CLI_BACKEND_TIMEOUT", "600"))
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    _backend_name: str = "cli"
+
+    # Subclass hook: run the CLI for one turn and return (text, parsed_json).
+    async def _backend_generate(
+        self, system_prompt: str, prompt: str, schema: Optional[dict]
+    ) -> tuple[str, Optional[dict]]:  # pragma: no cover - abstract
+        raise NotImplementedError
+
+    def _subprocess_env(self) -> dict:
+        return dict(os.environ)
+
+    async def _invoke(self, cmd: list[str], stdin: Optional[str] = None) -> str:
+        async with _semaphore():
+            return await _run_cli(
+                cmd, env=self._subprocess_env(), stdin=stdin, timeout=self.timeout_s
+            )
+
+    # BaseChatModel plumbing ----------------------------------------------
+    @property
+    def _llm_type(self) -> str:
+        return self._backend_name
+
+    def bind_tools(self, tools: Sequence[Any], *, tool_choice: Any = None, **kwargs: Any):
+        openai_tools = [convert_to_openai_tool(t) for t in tools]
+        return self.bind(claude_tools=openai_tools)
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: Optional[list[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        raise NotImplementedError(f"{self._backend_name} is async-only; use ainvoke().")
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: Optional[list[str]] = None,
+        run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        openai_tools: list[dict] = kwargs.get("claude_tools") or []
+        system_prompt, prompt = _render_messages(messages)
+
+        if openai_tools:
+            # Tool/structured call: coerce the JSON envelope. CLI models without
+            # native schema enforcement occasionally answer in prose instead of
+            # JSON, so retry a few times until a valid envelope parses (the graph
+            # treats empty tool_calls as "done", which would misbehave silently).
+            system_prompt = (system_prompt + _TOOL_PROTOCOL.format(
+                tool_catalog=_tool_catalog(openai_tools)
+            )).strip()
+            schema = _tool_envelope_schema(openai_tools)
+            attempts = max(1, int(os.getenv("CLI_TOOL_RETRIES", "3")))
+            tool_calls: list[dict] = []
+            for _ in range(attempts):
+                text, parsed = await self._backend_generate(system_prompt, prompt, schema)
+                data = parsed if parsed is not None else (_extract_json(text) or {})
+                tool_calls = _envelope_to_tool_calls(data)
+                if tool_calls:
+                    break
+            message = AIMessage(
+                content="",
+                tool_calls=tool_calls,
+                response_metadata={"model": self.model},
+            )
+        else:
+            text, _ = await self._backend_generate(system_prompt, prompt, None)
+            message = AIMessage(
+                content=text.strip(),
+                response_metadata={"model": self.model},
+            )
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+
+class GeminiCLIChat(_CLIJsonChat):
+    """LLM backend driven by Google's ``gemini`` CLI (Google login / free tier).
+
+    Gemini has no schema-enforcement flag, so structured output is coerced by
+    appending the envelope schema to the prompt and parsing the JSON back.
+    """
+
+    _backend_name = "gemini-cli"
+
+    def _subprocess_env(self) -> dict:
+        env = dict(os.environ)
+        if self.subscription:
+            # Force OAuth/free-tier login instead of API-key (paid) billing.
+            for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"):
+                env.pop(key, None)
+        return env
+
+    async def _backend_generate(self, system_prompt, prompt, schema):
+        if schema is not None:
+            prompt = (
+                prompt
+                + "\n\nReturn ONLY a single JSON object matching this schema "
+                "(no markdown fences, no commentary):\n"
+                + json.dumps(schema)
+            )
+        full = _combine_system_prompt(system_prompt, prompt)
+        bin_ = os.getenv("GEMINI_CLI_BIN", "gemini")
+        extra = os.getenv("GEMINI_CLI_ARGS", "").split()
+        # Pass the prompt via STDIN (not -p): on Windows `gemini` is a .cmd shim
+        # run through `cmd /c`, which would mangle a prompt arg containing
+        # newlines or <, >, {, }, ". Stdin is a binary-safe pipe. Omitting -p and
+        # piping the prompt runs gemini in non-interactive mode.
+        cmd = [bin_, "-m", self.model, *extra]
+        raw = await self._invoke(cmd, stdin=full)
+        return raw, None
+
+
+class CodexCLIChat(_CLIJsonChat):
+    """LLM backend driven by OpenAI's ``codex`` CLI (ChatGPT login).
+
+    Uses ``--output-last-message`` to capture just the final agent message
+    (codex exec otherwise prints a header + transcript). Structured output /
+    tool selection is coerced via the prompt and parsed back: codex's
+    ``--output-schema`` enforces OpenAI *strict* JSON-schema, which cannot
+    express the tool envelope (heterogeneous per-tool ``arguments`` and
+    ``minItems`` are disallowed in strict mode), so we don't use it.
+
+    Notes: ``gpt-5``/``gpt-5-codex`` are rejected on ChatGPT-account logins;
+    by default no ``-m`` is passed so codex uses its config.toml model.
+    """
+
+    _backend_name = "codex-cli"
+
+    def _subprocess_env(self) -> dict:
+        env = dict(os.environ)
+        if self.subscription:
+            # Force ChatGPT login instead of API-key (paid) billing.
+            env.pop("OPENAI_API_KEY", None)
+        return env
+
+    async def _backend_generate(self, system_prompt, prompt, schema):
+        import tempfile
+
+        if schema is not None:
+            prompt = (
+                prompt
+                + "\n\nReturn ONLY a single JSON object matching this schema "
+                "(no markdown fences, no commentary):\n"
+                + json.dumps(schema)
+            )
+        full = _combine_system_prompt(system_prompt, prompt)
+        bin_ = os.getenv("CODEX_CLI_BIN", "codex")
+        extra = os.getenv("CODEX_CLI_ARGS", "--skip-git-repo-check").split()
+
+        out_fd, out_path = tempfile.mkstemp(suffix=".txt", prefix="codex_out_")
+        os.close(out_fd)
+        try:
+            model_args = ["-m", self.model] if self.model else []
+            cmd = [bin_, "exec", *model_args, *extra,
+                   "--output-last-message", out_path, full]
+            await self._invoke(cmd)
+            try:
+                with open(out_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except OSError:
+                content = ""
+        finally:
+            try:
+                os.unlink(out_path)
+            except OSError:
+                pass
+        parsed = _extract_json(content) if schema is not None else None
+        return content, parsed
+
+
+async def run_search_agent(
+    queries: Sequence[str],
+    model: str = "haiku",
+    max_results: int = 5,
+    max_turns: int = 8,
+) -> str:
+    """Run Claude Code's native web search over a set of queries.
+
+    Spins up a Claude Agent SDK session with the built-in ``WebSearch`` and
+    ``WebFetch`` tools ENABLED, lets it actually search and read the web, and
+    returns its compiled findings (with source URLs). This is how the researcher
+    performs real search instead of answering from pretrained knowledge.
+    """
+    if use_subscription():
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+
+    prompt = (
+        "Research the following queries using the WebSearch tool (use WebFetch to "
+        "read a promising page when helpful). For each query, find current, factual "
+        "information and compile concise notes grouped by query. Always include the "
+        "source URL for every fact.\n\nQueries:\n"
+        + "\n".join(f"- {q}" for q in queries)
+    )
+    options = cas.ClaudeAgentOptions(
+        allowed_tools=["WebSearch", "WebFetch"],
+        disallowed_tools=[],
+        mcp_servers={},
+        max_turns=max_turns,
+        permission_mode="bypassPermissions",
+        system_prompt=(
+            "You are a meticulous web research assistant. Use WebSearch to find "
+            "current, factual information and always cite source URLs. Be concise."
+        ),
+        model=model,
+    )
+
+    text = ""
+    result_text: Optional[str] = None
+    is_error = False
+    async with _semaphore():
+        async for msg in cas.query(prompt=prompt, options=options):
+            if isinstance(msg, cas.AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, cas.TextBlock):
+                        text += block.text
+            elif isinstance(msg, cas.ResultMessage):
+                result_text = msg.result
+                is_error = bool(msg.is_error)
+
+    if is_error and not text:
+        return f"Error performing Claude Code web search: {result_text!r}"
+    return text or result_text or "No search results found."
+
+
+def _search_prompt(queries: Sequence[str], tool_hint: str) -> str:
+    return (
+        f"{tool_hint} For each query, find current, factual information and compile "
+        "concise notes grouped by query. Always include the source URL for every "
+        "fact.\n\nQueries:\n" + "\n".join(f"- {q}" for q in queries)
+    )
+
+
+async def run_gemini_search(
+    queries: Sequence[str],
+    model: str = "gemini-2.5-flash",
+    max_results: int = 5,
+) -> str:
+    """Web search via the Gemini CLI's built-in Google Search grounding."""
+    bin_ = os.getenv("GEMINI_CLI_BIN", "gemini")
+    # -y / --yolo auto-approves the search tool in non-interactive mode.
+    extra = os.getenv("GEMINI_SEARCH_ARGS", "-y").split()
+    prompt = _search_prompt(queries, "Use Google Search to research the following queries.")
+    # Prompt via STDIN (see GeminiCLIChat) to survive the Windows cmd /c shim.
+    cmd = [bin_, "-m", model, *extra]
+    env = dict(os.environ)
+    for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"):
+        env.pop(key, None)
+    async with _semaphore():
+        try:
+            return await _run_cli(
+                cmd, env=env, stdin=prompt, timeout=int(os.getenv("CLI_BACKEND_TIMEOUT", "600"))
+            )
+        except Exception as e:  # surface as tool output rather than crashing the loop
+            return f"Error performing Gemini web search: {e}"
+
+
+async def run_codex_search(
+    queries: Sequence[str],
+    model: str = "",
+    max_results: int = 5,
+) -> str:
+    """Web search via the Codex CLI's web-search tool (``features.web_search_request``).
+
+    Codex attempts a WebSocket transport first and auto-falls-back to HTTPS when
+    WebSockets are blocked; the final agent message is captured cleanly via
+    ``--output-last-message`` (codex exec otherwise prints a header + transcript).
+    """
+    import tempfile
+
+    bin_ = os.getenv("CODEX_CLI_BIN", "codex")
+    extra = os.getenv(
+        "CODEX_SEARCH_ARGS", "--skip-git-repo-check --enable web_search_request"
+    ).split()
+    prompt = _search_prompt(queries, "Use web search to research the following queries.")
+    out_fd, out_path = tempfile.mkstemp(suffix=".txt", prefix="codex_search_")
+    os.close(out_fd)
+    model_args = ["-m", model] if model else []
+    cmd = [bin_, "exec", *model_args, *extra, "--output-last-message", out_path, prompt]
+    env = dict(os.environ)
+    env.pop("OPENAI_API_KEY", None)
+    try:
+        async with _semaphore():
+            await _run_cli(cmd, env=env, timeout=int(os.getenv("CLI_BACKEND_TIMEOUT", "600")))
+        with open(out_path, "r", encoding="utf-8") as f:
+            return f.read().strip() or "No search results found."
+    except Exception as e:
+        return f"Error performing Codex web search: {e}"
+    finally:
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
+
+
+# Map a provider-prefixed model string to a concrete backend + bare model id.
+_BACKEND_PREFIXES = {
+    "claude": "claude",
+    "anthropic": "claude",
+    "gemini": "gemini",
+    "google": "gemini",
+    "codex": "codex",
+    "openai": "codex",
+}
+
+
+def parse_backend(model_string: Optional[str]) -> tuple[str, str]:
+    """Resolve (backend, model) from a model string.
+
+    A provider prefix selects the backend per role, e.g. "gemini:2.5-pro",
+    "codex:gpt-5", "claude:opus". Bare values are routed by keyword, defaulting
+    to the Claude backend.
+    """
+    s = (model_string or "").strip()
+    low = s.lower()
+    if ":" in low:
+        prefix = low.split(":", 1)[0]
+        if prefix in _BACKEND_PREFIXES:
+            return _BACKEND_PREFIXES[prefix], s.split(":", 1)[1]
+    if low in {"opus", "sonnet", "haiku"} or low.startswith("claude"):
+        return "claude", s
+    if low == "gemini" or low.startswith("gemini"):
+        return "gemini", s
+    if low == "codex" or low.startswith(("gpt", "o1", "o3", "o4")):
+        return "codex", s
+    return "claude", s
+
+
+def build_chat_model(model_string: Optional[str], max_tokens: Optional[int] = None) -> BaseChatModel:
+    """Construct the right CLI-backed chat model for a (possibly prefixed) string."""
+    backend, model = parse_backend(model_string)
+    subscription = use_subscription()
+    if backend == "gemini":
+        return GeminiCLIChat(model=to_gemini_model(model), max_tokens=max_tokens, subscription=subscription)
+    if backend == "codex":
+        return CodexCLIChat(model=to_codex_model(model), max_tokens=max_tokens, subscription=subscription)
+    return ClaudeAgentChat(model=to_claude_model(model), max_tokens=max_tokens, subscription=subscription)
+
+
+class configurable_claude_model(Runnable):
+    """Drop-in replacement for the ``init_chat_model`` configurable model.
+
+    Records declarative operations (``with_structured_output`` / ``bind_tools`` /
+    ``with_retry``) and the flat ``with_config`` model settings, then materialises
+    a real :class:`ClaudeAgentChat` and replays the operations at invoke time --
+    mirroring how the LangChain ``_ConfigurableModel`` behaves, but for the
+    Claude Agent SDK backend.
+    """
+
+    def __init__(
+        self,
+        default_config: Optional[dict] = None,
+        queue: Optional[list] = None,
+    ) -> None:
+        self._default_config = dict(default_config or {})
+        self._queue = list(queue or [])
+
+    # -- declarative chaining (all return new copies) -----------------------
+    def _copy(self, default_config=None, queue=None) -> "configurable_claude_model":
+        return configurable_claude_model(
+            default_config if default_config is not None else self._default_config,
+            queue if queue is not None else self._queue,
+        )
+
+    def with_config(self, config: Optional[dict] = None, **kwargs: Any):
+        merged = dict(self._default_config)
+        source = dict(config or {})
+        source.update(kwargs)
+        # Capture the flat model settings the codebase passes in.
+        for key in ("model", "max_tokens", "api_key"):
+            if key in source:
+                merged[key] = source[key]
+        configurable = source.get("configurable") or {}
+        for key in ("model", "max_tokens", "api_key"):
+            if key in configurable:
+                merged[key] = configurable[key]
+        return self._copy(default_config=merged)
+
+    def with_structured_output(self, *args: Any, **kwargs: Any):
+        return self._copy(queue=self._queue + [("with_structured_output", args, kwargs)])
+
+    def bind_tools(self, *args: Any, **kwargs: Any):
+        return self._copy(queue=self._queue + [("bind_tools", args, kwargs)])
+
+    def with_retry(self, *args: Any, **kwargs: Any):
+        return self._copy(queue=self._queue + [("with_retry", args, kwargs)])
+
+    # -- materialisation ----------------------------------------------------
+    def _materialize(self, config: Optional[RunnableConfig] = None) -> Runnable:
+        cfg = dict(self._default_config)
+        if config:
+            configurable = config.get("configurable") or {}
+            for key in ("model", "max_tokens", "api_key"):
+                if key in configurable:
+                    cfg[key] = configurable[key]
+        model: Runnable = build_chat_model(cfg.get("model"), cfg.get("max_tokens"))
+        for name, args, kwargs in self._queue:
+            model = getattr(model, name)(*args, **kwargs)
+        return model
+
+    # -- Runnable interface -------------------------------------------------
+    async def ainvoke(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
+        return await self._materialize(config).ainvoke(input, config, **kwargs)
+
+    def invoke(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
+        return self._materialize(config).invoke(input, config, **kwargs)
+
+    async def astream(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
+        async for chunk in self._materialize(config).astream(input, config, **kwargs):
+            yield chunk

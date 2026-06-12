@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
 import aiohttp
-from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
@@ -29,6 +28,16 @@ from langgraph.config import get_store
 from mcp import McpError
 from tavily import AsyncTavilyClient
 
+from open_deep_research.claude_agent_chat import (
+    ClaudeAgentChat,
+    run_codex_search,
+    run_gemini_search,
+    run_search_agent,
+    to_claude_model,
+    to_codex_model,
+    to_gemini_model,
+    use_subscription,
+)
 from open_deep_research.configuration import Configuration, SearchAPI
 from open_deep_research.prompts import summarize_webpage_prompt
 from open_deep_research.state import ResearchComplete, Summary
@@ -81,13 +90,11 @@ async def tavily_search(
     # Character limit to stay within model token limits (configurable)
     max_char_to_include = configurable.max_content_length
     
-    # Initialize summarization model with retry logic
-    model_api_key = get_api_key_for_model(configurable.summarization_model, config)
-    summarization_model = init_chat_model(
-        model=configurable.summarization_model,
+    # Initialize summarization model with retry logic (Claude Agent SDK backend)
+    summarization_model = ClaudeAgentChat(
+        model=to_claude_model(configurable.summarization_model),
         max_tokens=configurable.summarization_model_max_tokens,
-        api_key=model_api_key,
-        tags=["langsmith:nostream"]
+        subscription=use_subscription(),
     ).with_structured_output(Summary).with_retry(
         stop_after_attempt=configurable.max_structured_output_retries
     )
@@ -525,6 +532,74 @@ async def load_mcp_tools(
 
 
 ##########################
+# Claude Code Web Search Tool
+##########################
+CLAUDE_SEARCH_DESCRIPTION = (
+    "Search the web using Claude Code's native web search. Useful for when you need "
+    "to answer questions about current events or find up-to-date information online."
+)
+@tool(description=CLAUDE_SEARCH_DESCRIPTION)
+async def claude_web_search(
+    queries: List[str],
+    max_results: Annotated[int, InjectedToolArg] = 5,
+    topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
+    config: RunnableConfig = None
+) -> str:
+    """Search the web via Claude Code's built-in WebSearch/WebFetch tools.
+
+    The model supplies the queries; Claude Code performs the actual searching and
+    returns compiled findings with source URLs (no separate summarization pass or
+    third-party search key required).
+
+    Args:
+        queries: List of search queries to execute
+        max_results: Maximum number of results to consider per query
+        topic: Topic hint for the search (general, news, or finance)
+        config: Runtime configuration for model selection
+
+    Returns:
+        Formatted string containing search findings with sources
+    """
+    configurable = Configuration.from_runnable_config(config)
+    search_model = to_claude_model(configurable.summarization_model)
+    return await run_search_agent(queries, model=search_model, max_results=max_results)
+
+
+GEMINI_SEARCH_DESCRIPTION = (
+    "Search the web using Gemini's built-in Google Search. Useful for when you need "
+    "to answer questions about current events or find up-to-date information online."
+)
+@tool(description=GEMINI_SEARCH_DESCRIPTION)
+async def gemini_web_search(
+    queries: List[str],
+    max_results: Annotated[int, InjectedToolArg] = 5,
+    topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
+    config: RunnableConfig = None
+) -> str:
+    """Search the web via the Gemini CLI's Google Search grounding."""
+    configurable = Configuration.from_runnable_config(config)
+    search_model = to_gemini_model(configurable.summarization_model)
+    return await run_gemini_search(queries, model=search_model, max_results=max_results)
+
+
+CODEX_SEARCH_DESCRIPTION = (
+    "Search the web using Codex's web search tool. Useful for when you need to "
+    "answer questions about current events or find up-to-date information online."
+)
+@tool(description=CODEX_SEARCH_DESCRIPTION)
+async def codex_web_search(
+    queries: List[str],
+    max_results: Annotated[int, InjectedToolArg] = 5,
+    topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
+    config: RunnableConfig = None
+) -> str:
+    """Search the web via the Codex CLI's web search tool."""
+    configurable = Configuration.from_runnable_config(config)
+    search_model = to_codex_model(configurable.summarization_model)
+    return await run_codex_search(queries, model=search_model, max_results=max_results)
+
+
+##########################
 # Tool Utils
 ##########################
 
@@ -537,11 +612,25 @@ async def get_search_tool(search_api: SearchAPI):
     Returns:
         List of configured search tool objects for the specified provider
     """
-    if search_api == SearchAPI.ANTHROPIC:
+    if search_api in (SearchAPI.CLAUDE, SearchAPI.GEMINI, SearchAPI.CODEX):
+        # CLI-backed web search (executed by the graph via the tool).
+        search_tool = {
+            SearchAPI.CLAUDE: claude_web_search,
+            SearchAPI.GEMINI: gemini_web_search,
+            SearchAPI.CODEX: codex_web_search,
+        }[search_api]
+        search_tool.metadata = {
+            **(search_tool.metadata or {}),
+            "type": "search",
+            "name": "web_search"
+        }
+        return [search_tool]
+
+    elif search_api == SearchAPI.ANTHROPIC:
         # Anthropic's native web search with usage limits
         return [{
-            "type": "web_search_20250305", 
-            "name": "web_search", 
+            "type": "web_search_20250305",
+            "name": "web_search",
             "max_uses": 5
         }]
         
@@ -891,6 +980,11 @@ def get_config_value(value):
 
 def get_api_key_for_model(model_name: str, config: RunnableConfig):
     """Get API key for a specific model from environment or config."""
+    # In Claude subscription mode all LLM calls go through the Claude Agent SDK,
+    # which authenticates via the logged-in Claude Code CLI. Returning no key keeps
+    # ANTHROPIC_API_KEY out of the path so usage bills against the subscription.
+    if use_subscription():
+        return None
     should_get_from_config = os.getenv("GET_API_KEYS_FROM_CONFIG", "false")
     model_name = model_name.lower()
     if should_get_from_config.lower() == "true":
