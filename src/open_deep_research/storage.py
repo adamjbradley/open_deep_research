@@ -339,3 +339,16 @@ async def finalize_research_run(db_path: str, run_id: int, fields: dict) -> None
     async with aiosqlite.connect(db_path) as conn:
         await conn.execute(f"UPDATE research_runs SET {cols} WHERE id=?", (*sets.values(), run_id))
         await conn.commit()
+
+
+async def reap_stale_running(db_path: str, older_than_iso: str) -> int:
+    """Mark stale 'running' runs (last_heartbeat < cutoff) as 'error'. Returns rows changed."""
+    async with aiosqlite.connect(db_path) as conn:
+        await _ensure_schema(conn)
+        cur = await conn.execute(
+            "UPDATE research_runs SET status='error', error='reaped: stale running run' "
+            "WHERE status='running' AND last_heartbeat IS NOT NULL AND last_heartbeat < ?",
+            (older_than_iso,),
+        )
+        await conn.commit()
+        return cur.rowcount
