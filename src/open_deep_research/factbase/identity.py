@@ -15,7 +15,7 @@ def values_equal(a_value: str, a_unit: str | None, b_value: str, b_unit: str | N
     return canonicalize(a_value, a_unit) == canonicalize(b_value, b_unit)
 
 
-def tuple_key(instance_id: int, property_name: str, qualifiers: dict[str, str | None]) -> str:
+def tuple_key(instance_id: int | str, property_name: str, qualifiers: dict[str, str | None]) -> str:
     """Hash of (instance, property, sorted non-temporal qualifiers).
     as_of is the version axis and is deliberately NOT a parameter. A None qualifier
     value renders as the literal 'unspecified' so such a fact gets its own tuple."""

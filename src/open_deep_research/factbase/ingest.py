@@ -36,7 +36,7 @@ class Ingestor:
                     )
                     continue
                 quals = {q: rec.get("qualifiers", {}).get(q) for q in pd.identity_qualifiers}
-                tk = identity.tuple_key(abs(hash(instance_key)) % (10**9), pd.name, quals)
+                tk = identity.tuple_key(instance_key, pd.name, quals)
                 url = rec.get("source_url", "")
                 source_id = await self._source_id(url, now)
                 meets_bar = self._registry.meets_bar(url, _trusted_threshold(pd))

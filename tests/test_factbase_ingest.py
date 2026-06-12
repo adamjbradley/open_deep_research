@@ -2,7 +2,7 @@ import asyncio
 
 import aiosqlite
 
-from open_deep_research.factbase import entities, ingest, migrations, profile, registry, schema
+from open_deep_research.factbase import entities, identity, ingest, migrations, profile, registry, schema
 
 DI = profile.load("country_digital_identity")
 
@@ -59,4 +59,24 @@ def test_unresolved_instance_quarantined_not_a_fact():
             await ing.ingest(run_id=1, records=recs)
             cur = await conn.execute("SELECT COUNT(*) FROM fact"); assert (await cur.fetchone())[0] == 0
             cur = await conn.execute("SELECT COUNT(*) FROM unresolved_instance"); assert (await cur.fetchone())[0] == 1
+    asyncio.run(run())
+
+
+def test_tuple_key_uses_stable_canonical_key():
+    async def run():
+        async with aiosqlite.connect(":memory:") as conn:
+            await conn.executescript("CREATE TABLE research_runs (id INTEGER PRIMARY KEY, topic TEXT);")
+            await conn.commit()
+            await migrations.apply(conn, schema.STEPS)
+            ing = _setup(conn)
+            recs = [{"property": "id_coverage_pct", "instance_name": "India", "value": "99", "unit": "%", "as_of": "2024",
+                     "qualifiers": {"population_basis": "adults_15plus"}, "source_url": "https://id4d.worldbank.org/x", "evidence_span": "99%"}]
+            await ing.ingest(run_id=1, records=recs)
+            cur = await conn.execute("SELECT tuple_key FROM fact")
+            stored = (await cur.fetchone())[0]
+            expected = identity.tuple_key(
+                "IND", "id_coverage_pct",
+                {"population_basis": "adults_15plus", "coverage_kind": None, "measured_modeled": None},
+            )
+            assert stored == expected
     asyncio.run(run())
