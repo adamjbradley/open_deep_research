@@ -79,11 +79,11 @@ class Configuration(BaseModel):
     )
     # Research Configuration
     search_api: SearchAPI = Field(
-        default=SearchAPI.CLAUDE,
+        default=SearchAPI.TAVILY,
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "claude",
+                "default": "tavily",
                 "description": "Search API to use for research. NOTE: Make sure your Researcher Model supports the selected search API.",
                 "options": [
                     {"label": "Claude Code Web Search", "value": SearchAPI.CLAUDE.value},
@@ -125,11 +125,11 @@ class Configuration(BaseModel):
     )
     # Model Configuration
     summarization_model: str = Field(
-        default="haiku",
+        default="gemini:gemini-2.0-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "haiku",
+                "default": "gemini:gemini-2.0-flash",
                 "description": "Model for summarizing research results from Tavily search results. With the Claude Agent SDK backend, use a family ('haiku'/'sonnet'/'opus') or a full 'claude-*' id."
             }
         }
@@ -156,17 +156,27 @@ class Configuration(BaseModel):
             }
         }
     )
-    research_model: str = Field(
-        default="sonnet",
+    supervisor_model: str = Field(
+        default="codex:gpt-5.5",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "sonnet",
-                "description": "Model for conducting research. Backend is chosen per role by an optional provider prefix: 'claude:opus' (Claude Code), 'gemini:2.5-pro' (Gemini CLI), 'codex:gpt-5' (Codex CLI). No prefix = Claude family ('opus'/'sonnet'/'haiku')."
+                "default": "codex:gpt-5.5",
+                "description": "Model for the Research Supervisor (planning and strategy). Backend is chosen per role by an optional provider prefix: 'claude:opus' (Claude Code), 'gemini:2.5-pro' (Gemini CLI), 'codex:gpt-5' (Codex CLI). No prefix = Claude family."
             }
         }
     )
-    research_model_max_tokens: int = Field(
+    researcher_model: str = Field(
+        default="gemini:gemini-2.0-flash",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "text",
+                "default": "gemini:gemini-2.0-flash",
+                "description": "Model for individual Researchers (tool execution). Backend is chosen per role by an optional provider prefix: 'claude:opus' (Claude Code), 'gemini:2.5-pro' (Gemini CLI), 'codex:gpt-5' (Codex CLI). No prefix = Claude family."
+            }
+        }
+    )
+    researcher_model_max_tokens: int = Field(
         default=10000,
         metadata={
             "x_oap_ui_config": {
@@ -177,11 +187,11 @@ class Configuration(BaseModel):
         }
     )
     compression_model: str = Field(
-        default="sonnet",
+        default="gemini:gemini-2.0-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "sonnet",
+                "default": "gemini:gemini-2.0-flash",
                 "description": "Model for compressing research findings from sub-agents (Claude Agent SDK family or 'claude-*' id)."
             }
         }
@@ -197,11 +207,11 @@ class Configuration(BaseModel):
         }
     )
     final_report_model: str = Field(
-        default="opus",
+        default="codex:gpt-5.5",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "opus",
+                "default": "codex:gpt-5.5",
                 "description": "Model for writing the final report from all research findings (Claude Agent SDK family or 'claude-*' id)."
             }
         }

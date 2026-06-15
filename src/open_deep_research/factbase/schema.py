@@ -129,4 +129,7 @@ STEPS: list[tuple[int, str]] = [
     CREATE INDEX IF NOT EXISTS ix_fact_instance ON fact(instance_key);
     CREATE INDEX IF NOT EXISTS ix_fact_property ON fact(property_name);
     """),
+    (4, """
+    ALTER TABLE run_source ADD COLUMN reason TEXT;
+    """),
 ]
