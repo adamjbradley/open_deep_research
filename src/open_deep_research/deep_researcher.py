@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from langchain_core.messages import (
@@ -55,6 +55,7 @@ from open_deep_research.storage import (
     get_subject_names,
     log_research_run,
     preallocate_run as preallocate_run_storage,
+    reap_stale_running,
     save_run_and_upsert_subject,
     slugify,
 )
@@ -1181,8 +1182,22 @@ async def preallocate_run(state: AgentState, config: RunnableConfig) -> dict:
     if not configurable.persist_results:
         return {}
     thread_id = (config.get("configurable") or {}).get("thread_id")
+    db_path = get_db_path(config)
+    # Reap abandoned runs: any row still 'running' past the staleness window belongs to a
+    # crashed/killed prior run (the in-memory graph state is gone, so it will never finalize).
+    # Sweep them to status='error' here, at each run's start, so the history stays honest.
+    # The window is generous relative to a normal run's wall-clock, so live runs are safe.
     try:
-        run_id = await preallocate_run_storage(get_db_path(config), str(thread_id))
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(minutes=configurable.run_staleness_minutes)
+        ).isoformat()
+        reaped = await reap_stale_running(db_path, cutoff)
+        if reaped:
+            logger.info("Reaped %d stale 'running' research run(s) older than %s", reaped, cutoff)
+    except Exception as e:
+        logger.warning("reap_stale_running failed (non-fatal): %s", e)
+    try:
+        run_id = await preallocate_run_storage(db_path, str(thread_id))
         return {"prealloc_run_id": run_id}
     except Exception as e:
         logger.warning("preallocate_run failed (non-fatal): %s", e)
