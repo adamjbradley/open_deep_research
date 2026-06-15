@@ -74,6 +74,22 @@ from open_deep_research.utils import (
 logger = logging.getLogger(__name__)
 
 
+def recommended_recursion_limit(
+    max_researcher_iterations: int, max_concurrent_research_units: int = 1
+) -> int:
+    """A LangGraph ``recursion_limit`` (super-step budget) that covers a full run.
+
+    The supervisor loop is ~2 super-steps per turn and runs up to
+    ``max_researcher_iterations + 1`` turns; add the linear parent chain
+    (clarify -> brief -> preallocate -> assess -> supervisor -> report -> extract ->
+    persist) plus headroom. LangGraph's default of 25 can be exceeded by a legitimate
+    high-iteration run, crashing mid-research with ``GraphRecursionError``. Callers that
+    own the invocation should pass this via ``config={"recursion_limit": ...}``.
+    (The hosted Studio/dev server sets its own limit; this only governs our own invokes.)
+    """
+    return 4 * max(1, max_researcher_iterations) + 25
+
+
 from open_deep_research.factbase import fetch as _fb_fetch
 
 
@@ -108,9 +124,9 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
     # Step 2: Prepare the model for structured clarification analysis
     messages = state["messages"]
     model_config = {
-        "model": configurable.research_model,
-        "max_tokens": configurable.research_model_max_tokens,
-        "api_key": get_api_key_for_model(configurable.research_model, config),
+        "model": configurable.supervisor_model,
+        "max_tokens": configurable.researcher_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.supervisor_model, config),
         "tags": ["langsmith:nostream"]
     }
     
@@ -192,9 +208,9 @@ async def assess_knowledge(state: AgentState, config: RunnableConfig) -> Command
             .with_structured_output(KnowledgeAssessment)
             .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
             .with_config({
-                "model": configurable.research_model,
-                "max_tokens": configurable.research_model_max_tokens,
-                "api_key": get_api_key_for_model(configurable.research_model, config),
+                "model": configurable.supervisor_model,
+                "max_tokens": configurable.researcher_model_max_tokens,
+                "api_key": get_api_key_for_model(configurable.supervisor_model, config),
                 "tags": ["langsmith:nostream"],
             })
         )
@@ -280,18 +296,18 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
         )
     else:
         # New subject: generate a focused research brief from the user's messages.
-        research_model = (
+        supervisor_model = (
             configurable_model
             .with_structured_output(ResearchQuestion)
             .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
             .with_config({
-                "model": configurable.research_model,
-                "max_tokens": configurable.research_model_max_tokens,
-                "api_key": get_api_key_for_model(configurable.research_model, config),
+                "model": configurable.supervisor_model,
+                "max_tokens": configurable.researcher_model_max_tokens,
+                "api_key": get_api_key_for_model(configurable.supervisor_model, config),
                 "tags": ["langsmith:nostream"],
             })
         )
-        response = await research_model.ainvoke([HumanMessage(content=transform_messages_into_research_topic_prompt.format(
+        response = await supervisor_model.ainvoke([HumanMessage(content=transform_messages_into_research_topic_prompt.format(
             messages=question, date=get_today_str()
         ))])
         research_brief = response.research_brief
@@ -348,10 +364,10 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
     """
     # Step 1: Configure the supervisor model with available tools
     configurable = Configuration.from_runnable_config(config)
-    research_model_config = {
-        "model": configurable.research_model,
-        "max_tokens": configurable.research_model_max_tokens,
-        "api_key": get_api_key_for_model(configurable.research_model, config),
+    supervisor_model_config = {
+        "model": configurable.supervisor_model,
+        "max_tokens": configurable.researcher_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.supervisor_model, config),
         "tags": ["langsmith:nostream"]
     }
     
@@ -366,15 +382,15 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
     lead_researcher_tools = _lead_researcher_tools(conducted_research)
 
     # Configure model with tools, retry logic, and model settings
-    research_model = (
+    supervisor_model = (
         configurable_model
         .bind_tools(lead_researcher_tools)
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
-        .with_config(research_model_config)
+        .with_config(supervisor_model_config)
     )
 
     # Step 3: Generate supervisor response based on current context
-    response = await research_model.ainvoke(supervisor_messages)
+    response = await supervisor_model.ainvoke(supervisor_messages)
     
     # Step 4: Update state and proceed to tool execution
     return Command(
@@ -523,16 +539,32 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
                 for tool_call in allowed_conduct_research_calls
             ]
             
-            tool_results = await asyncio.gather(*research_tasks)
-            
-            # Create tool messages with research results
+            # return_exceptions=True so one researcher failing does NOT cancel the others
+            # and discard their completed work -- each failure is isolated per-unit below.
+            tool_results = await asyncio.gather(*research_tasks, return_exceptions=True)
+
+            # Create tool messages with research results. A failed unit becomes an error
+            # ToolMessage for THAT topic (the supervisor sees it and can react) rather than
+            # aborting the whole batch.
             for observation, tool_call in zip(tool_results, allowed_conduct_research_calls):
+                if isinstance(observation, BaseException):
+                    logger.error(
+                        "Research unit failed for topic %r: %s",
+                        tool_call["args"].get("research_topic"), observation,
+                        exc_info=observation,
+                    )
+                    all_tool_messages.append(ToolMessage(
+                        content=f"Error: this research unit failed and produced no findings: {observation}",
+                        name=tool_call["name"],
+                        tool_call_id=tool_call["id"]
+                    ))
+                    continue
                 all_tool_messages.append(ToolMessage(
                     content=observation.get("compressed_research", "Error synthesizing research report: Maximum retries exceeded"),
                     name=tool_call["name"],
                     tool_call_id=tool_call["id"]
                 ))
-            
+
             # Handle overflow research calls with error messages
             for overflow_call in overflow_conduct_research_calls:
                 all_tool_messages.append(ToolMessage(
@@ -540,20 +572,24 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
                     name="ConductResearch",
                     tool_call_id=overflow_call["id"]
                 ))
-            
-            # Aggregate raw notes from all research results
+
+            # Aggregate raw notes from the SUCCESSFUL research results only.
             raw_notes_concat = "\n".join([
-                "\n".join(observation.get("raw_notes", [])) 
+                "\n".join(observation.get("raw_notes", []))
                 for observation in tool_results
+                if not isinstance(observation, BaseException)
             ])
-            
+
             if raw_notes_concat:
                 update_payload["raw_notes"] = [raw_notes_concat]
-                
+
         except Exception as e:
-            # Handle research execution errors
-            if is_token_limit_exceeded(e, configurable.research_model) or True:
-                # Token limit exceeded or other error - end research phase
+            # Per-unit researcher failures are handled above (return_exceptions=True), so
+            # anything reaching here is either a genuine token-limit (end gracefully) or an
+            # unexpected bug in the dispatch/aggregation code (surface it -- do not pretend
+            # it was a clean completion, which silently truncates research).
+            if is_token_limit_exceeded(e, configurable.supervisor_model):
+                logger.warning("Supervisor research hit a token limit; ending research phase: %s", e)
                 return Command(
                     goto=END,
                     update={
@@ -561,6 +597,8 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
                         "research_brief": state.get("research_brief", "")
                     }
                 )
+            logger.error("Research dispatch failed unexpectedly: %s", e, exc_info=True)
+            raise
     
     # Step 3: Return command with all tool results
     update_payload["supervisor_messages"] = all_tool_messages
@@ -610,10 +648,10 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
         )
     
     # Step 2: Configure the researcher model with tools
-    research_model_config = {
-        "model": configurable.research_model,
-        "max_tokens": configurable.research_model_max_tokens,
-        "api_key": get_api_key_for_model(configurable.research_model, config),
+    researcher_model_config = {
+        "model": configurable.researcher_model,
+        "max_tokens": configurable.researcher_model_max_tokens,
+        "api_key": get_api_key_for_model(configurable.researcher_model, config),
         "tags": ["langsmith:nostream"]
     }
     
@@ -624,16 +662,16 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
     )
     
     # Configure model with tools, retry logic, and settings
-    research_model = (
+    researcher_model = (
         configurable_model
         .bind_tools(tools)
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
-        .with_config(research_model_config)
+        .with_config(researcher_model_config)
     )
     
     # Step 3: Generate researcher response with system context
     messages = [SystemMessage(content=researcher_prompt)] + researcher_messages
-    response = await research_model.ainvoke(messages)
+    response = await researcher_model.ainvoke(messages)
     
     # Step 4: Update state and proceed to tool execution
     return Command(
@@ -787,7 +825,7 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
             synthesis_attempts += 1
             
             # Handle token limit exceeded by removing older messages
-            if is_token_limit_exceeded(e, configurable.research_model):
+            if is_token_limit_exceeded(e, configurable.researcher_model):
                 researcher_messages = remove_up_to_last_ai_message(researcher_messages)
                 continue
             
@@ -1123,9 +1161,9 @@ def _make_fact_model_call(configurable, config):
                 .with_structured_output(ExtractionResult)
                 .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
                 .with_config({
-                    "model": configurable.research_model,
-                    "max_tokens": configurable.research_model_max_tokens,
-                    "api_key": get_api_key_for_model(configurable.research_model, config),
+                    "model": configurable.researcher_model,
+                    "max_tokens": configurable.researcher_model_max_tokens,
+                    "api_key": get_api_key_for_model(configurable.researcher_model, config),
                     "tags": ["langsmith:nostream"],
                 })
             )
@@ -1158,7 +1196,10 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
         return {}
     thread_id = (config.get("configurable") or {}).get("thread_id")
     if not thread_id:
+        logger.warning("No thread_id found in config, skipping fact extraction.")
         return {}
+    
+    logger.info("Starting fact extraction for thread %s", thread_id)
     try:
         import aiosqlite
         from open_deep_research.factbase import (
@@ -1174,30 +1215,69 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
         prof = fbprofile.load("country_digital_identity")
         reg = fbregistry.SourceRegistry.load("di_source_registry")
         model_call = _make_fact_model_call(configurable, config)
+        # _make_fact_model_call is normally a sync factory returning an async model_call,
+        # but tests (and any async factory) may return a coroutine -- await it if so.
         if asyncio.iscoroutine(model_call):
             model_call = await model_call
+
         run_id = state.get("prealloc_run_id")
         async with aiosqlite.connect(get_db_path(config)) as conn:
             await fbmig.apply(conn, fbschema.STEPS)
             from open_deep_research.factbase import backfill as _fb_backfill
             from open_deep_research.storage import extract_sources as _extract_sources
+            
+            # 1. Backfill any cited sources that weren't captured during search
             cited = _extract_sources(state.get("final_report", "") or "", *(state.get("raw_notes", []) or []))
             if cited:
+                logger.info("Backfilling %d cited sources for thread %s", len(cited), thread_id)
                 await _fb_backfill.backfill_run_sources(
                     fbstore.RunSourceStore(conn), str(thread_id), cited, _fact_fetch_text)
+            
+            # 2. Read all captured sources
             sources = await fbstore.RunSourceStore(conn).read(str(thread_id))
-            if run_id and any(s["capture_status"] != "raw_text" for s in sources):
-                from open_deep_research.storage import set_coverage_incomplete
-                await set_coverage_incomplete(get_db_path(config), run_id, True)
+            logger.info("Found %d sources for thread %s", len(sources), thread_id)
+            
+            if run_id:
+                # Update coverage status
+                best_status = {}
+                for s in sources:
+                    u, st = s["source_url"], s["capture_status"]
+                    if st == "raw_text" or u not in best_status:
+                        best_status[u] = st
+                if any(st != "raw_text" for st in best_status.values()):
+                    from open_deep_research.storage import set_coverage_incomplete
+                    await set_coverage_incomplete(get_db_path(config), run_id, True)
+
+            # 3. Extract facts from all 'raw_text' sources in parallel
+            valid_sources = [s for s in sources if s["capture_status"] == "raw_text" and s["text"]]
+            if not valid_sources:
+                logger.info("No raw_text sources available for fact extraction in thread %s", thread_id)
+                return {}
+
+            logger.info("Extracting facts from %d sources in parallel...", len(valid_sources))
+            
+            async def _extract_one(s):
+                try:
+                    recs = await fbextractor.extract(s["text"], prof, model_call)
+                    for r in recs:
+                        r.setdefault("source_url", s["source_url"])
+                    return recs
+                except Exception as e:
+                    logger.warning("Extraction failed for %s: %s", s["source_url"], e)
+                    return []
+
+            extraction_tasks = [_extract_one(s) for s in valid_sources]
+            task_results = await asyncio.gather(*extraction_tasks)
+            
             all_records = []
-            for s in sources:
-                if s["capture_status"] != "raw_text" or not s["text"]:
-                    continue
-                recs = await fbextractor.extract(s["text"], prof, model_call)
-                for r in recs:
-                    r.setdefault("source_url", s["source_url"])
+            for recs in task_results:
                 all_records.extend(recs)
+            
+            logger.info("Extracted %d total facts from %d sources.", len(all_records), len(valid_sources))
+            
+            # 4. Ingest extracted facts into the factbase
             if all_records and run_id:
+                logger.info("Ingesting %d facts into factbase for run %d", len(all_records), run_id)
                 await fbingest.Ingestor(
                     conn,
                     profile=prof,
@@ -1206,6 +1286,8 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                 ).ingest(run_id=run_id, records=all_records)
     except Exception as e:
         logger.warning("extract_facts failed (non-fatal): %s", e)
+        import traceback
+        logger.debug(traceback.format_exc())
     return {}
 
 

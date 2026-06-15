@@ -52,6 +52,7 @@ import os
 import sys
 import uuid
 from typing import Any, Callable, Optional, Sequence
+from weakref import WeakKeyDictionary
 
 import claude_agent_sdk as cas
 from langchain_core.callbacks import (
@@ -73,15 +74,23 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 # Limit concurrent SDK subprocesses. The subscription tier throttles around a
 # handful of simultaneous sessions, and the app fans out parallel researchers.
 _MAX_CONCURRENCY = int(os.getenv("CLAUDE_SDK_MAX_CONCURRENCY", "4"))
-_SEMAPHORE: Optional[asyncio.Semaphore] = None
+# One semaphore PER event loop. A single module-global Semaphore binds to whichever
+# loop first awaits it and is never rebound; under langgraph dev (worker-thread
+# Proactor loops via _offload_subprocess, or per-request loops) a later acquire from a
+# different loop raises "RuntimeError: <Semaphore> is bound to a different event loop"
+# -- a hard, non-retryable model-call failure. Keying by the running loop avoids that;
+# WeakKeyDictionary lets entries drop when a loop is garbage-collected.
+_SEMAPHORES: "WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = WeakKeyDictionary()
 
 
 def _semaphore() -> asyncio.Semaphore:
-    """Lazily build the semaphore so it binds to the running event loop."""
-    global _SEMAPHORE
-    if _SEMAPHORE is None:
-        _SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENCY)
-    return _SEMAPHORE
+    """Return the concurrency semaphore bound to the currently-running event loop."""
+    loop = asyncio.get_running_loop()
+    sem = _SEMAPHORES.get(loop)
+    if sem is None:
+        sem = asyncio.Semaphore(_MAX_CONCURRENCY)
+        _SEMAPHORES[loop] = sem
+    return sem
 
 
 # How long to wait for a single SDK query (model turn or web-search session) before
@@ -216,11 +225,11 @@ def to_claude_model(model_name: Optional[str]) -> str:
 def to_gemini_model(model_name: Optional[str]) -> str:
     """Map a configured model string to a Gemini CLI model id.
 
-    Accepts "gemini-2.5-pro"-style ids (passed through), the "gemini:"/"google:"
+    Accepts "gemini-2.0-flash"-style ids (passed through), the "gemini:"/"google:"
     prefix, and tolerates Claude families ("haiku"->flash, others->pro).
     """
     if not model_name:
-        return "gemini-2.5-flash"
+        return "gemini-2.0-flash"
     s = model_name.strip()
     low = s.lower()
     if low.startswith(("gemini:", "google:")):
@@ -229,8 +238,8 @@ def to_gemini_model(model_name: Optional[str]) -> str:
     if low.startswith("gemini-"):
         return s
     if "flash" in low or "haiku" in low:
-        return "gemini-2.5-flash"
-    return "gemini-2.5-pro"
+        return "gemini-2.0-flash"
+    return "gemini-2.0-pro"
 
 
 def to_codex_model(model_name: Optional[str]) -> str:
@@ -748,7 +757,7 @@ class _CLIJsonChat(BaseChatModel):
 
 
 class GeminiCLIChat(_CLIJsonChat):
-    """LLM backend driven by Google's ``gemini`` CLI (Google login / free tier).
+    """LLM backend driven by Google's ``agy`` CLI (replacement for ``gemini``).
 
     Gemini has no schema-enforcement flag, so structured output is coerced by
     appending the envelope schema to the prompt and parsing the JSON back.
@@ -773,14 +782,15 @@ class GeminiCLIChat(_CLIJsonChat):
                 + json.dumps(schema)
             )
         full = _combine_system_prompt(system_prompt, prompt)
-        bin_ = os.getenv("GEMINI_CLI_BIN", "gemini")
-        extra = os.getenv("GEMINI_CLI_ARGS", "").split()
-        # Pass the prompt via STDIN (not -p): on Windows `gemini` is a .cmd shim
-        # run through `cmd /c`, which would mangle a prompt arg containing
-        # newlines or <, >, {, }, ". Stdin is a binary-safe pipe. Omitting -p and
-        # piping the prompt runs gemini in non-interactive mode.
-        cmd = [bin_, "-m", self.model, *extra]
+        bin_ = os.getenv("GEMINI_CLI_BIN", "agy")
+        # agy uses --dangerously-skip-permissions to approve tools non-interactively.
+        extra = os.getenv("GEMINI_CLI_ARGS", "--dangerously-skip-permissions").split()
+        # Pass the prompt via STDIN to survive the Windows cmd /c shim.
+        cmd = [bin_, "--model", self.model, *extra]
         raw = await self._invoke(cmd, stdin=full)
+        # agy occasionally appends a "### Summary" section to prose; strip it.
+        if "### Summary" in raw:
+            raw = raw.split("### Summary")[0].strip()
         return raw, None
 
 
@@ -819,7 +829,8 @@ class CodexCLIChat(_CLIJsonChat):
             )
         full = _combine_system_prompt(system_prompt, prompt)
         bin_ = os.getenv("CODEX_CLI_BIN", "codex")
-        extra = os.getenv("CODEX_CLI_ARGS", "--skip-git-repo-check").split()
+        # --dangerously-bypass-approvals-and-sandbox for non-interactive tool auto-approval.
+        extra = os.getenv("CODEX_CLI_ARGS", "--skip-git-repo-check --dangerously-bypass-approvals-and-sandbox").split()
 
         out_fd, out_path = tempfile.mkstemp(suffix=".txt", prefix="codex_out_")
         os.close(out_fd)
@@ -923,12 +934,12 @@ async def run_gemini_search(
     max_results: int = 5,
 ) -> str:
     """Web search via the Gemini CLI's built-in Google Search grounding."""
-    bin_ = os.getenv("GEMINI_CLI_BIN", "gemini")
-    # -y / --yolo auto-approves the search tool in non-interactive mode.
-    extra = os.getenv("GEMINI_SEARCH_ARGS", "-y").split()
+    bin_ = os.getenv("GEMINI_CLI_BIN", "agy")
+    # agy uses --dangerously-skip-permissions to approve tools non-interactively.
+    extra = os.getenv("GEMINI_SEARCH_ARGS", "--dangerously-skip-permissions").split()
     prompt = _search_prompt(queries, "Use Google Search to research the following queries.")
     # Prompt via STDIN (see GeminiCLIChat) to survive the Windows cmd /c shim.
-    cmd = [bin_, "-m", model, *extra]
+    cmd = [bin_, "--model", model, *extra]
     env = dict(os.environ)
     for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"):
         env.pop(key, None)
@@ -955,19 +966,25 @@ async def run_codex_search(
     import tempfile
 
     bin_ = os.getenv("CODEX_CLI_BIN", "codex")
-    extra = os.getenv(
-        "CODEX_SEARCH_ARGS", "--skip-git-repo-check --enable web_search_request"
+    # --search is a global flag; --skip-git-repo-check and --dangerously-bypass-approvals-and-sandbox are subcommand flags.
+    extra_global = ["--search"]
+    extra_exec = os.getenv(
+        "CODEX_SEARCH_ARGS", "--skip-git-repo-check --dangerously-bypass-approvals-and-sandbox"
     ).split()
     prompt = _search_prompt(queries, "Use web search to research the following queries.")
     out_fd, out_path = tempfile.mkstemp(suffix=".txt", prefix="codex_search_")
     os.close(out_fd)
     model_args = ["-m", model] if model else []
-    cmd = [bin_, "exec", *model_args, *extra, "--output-last-message", out_path, prompt]
+    cmd = [bin_, *extra_global, "exec", *model_args, *extra_exec, "--output-last-message", out_path, prompt]
     env = dict(os.environ)
     env.pop("OPENAI_API_KEY", None)
-    try:
+
+    async def _attempt():
         async with _semaphore():
             await _run_cli(cmd, env=env, timeout=int(os.getenv("CLI_BACKEND_TIMEOUT", "600")))
+
+    try:
+        await _run_with_retry(_attempt, max_attempts=_SDK_MAX_ATTEMPTS, backoff_s=_SDK_RETRY_BACKOFF_S)
         with open(out_path, "r", encoding="utf-8") as f:
             return f.read().strip() or "No search results found."
     except Exception as e:
@@ -1094,3 +1111,4 @@ class configurable_claude_model(Runnable):
     async def astream(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
         async for chunk in self._materialize(config).astream(input, config, **kwargs):
             yield chunk
+

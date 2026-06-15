@@ -55,9 +55,16 @@ async def main(args: argparse.Namespace) -> None:
     )
 
     print(f"Prompt: {args.prompt}\nRunning (in-process)...\n", flush=True)
+    # Scale the super-step budget to the iteration cap so a long run doesn't crash with
+    # GraphRecursionError (LangGraph's default is 25; the supervisor loop alone can exceed it).
+    from open_deep_research.deep_researcher import recommended_recursion_limit
+    recursion_limit = recommended_recursion_limit(
+        configurable.get("max_researcher_iterations", 6),
+        configurable.get("max_concurrent_research_units", 1),
+    )
     result = await deep_researcher.ainvoke(
         {"messages": [HumanMessage(content=args.prompt)]},
-        config={"configurable": configurable},
+        config={"configurable": configurable, "recursion_limit": recursion_limit},
     )
 
     print("=" * 60)

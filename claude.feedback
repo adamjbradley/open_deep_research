@@ -184,3 +184,58 @@ assertion, so a qualified key carries multiple competing source-assertions (the 
 dossier presents one *resolved current* value. Clarified revision (one source over time) vs. conflict
 (different sources), and intrinsic multi-valued properties vs. cross-source disagreement; sharpened
 P7's over-promotion dependency to name qualifier under-/over-matching (gemini). **Reframe converged.**
+
+---
+
+## Round — 2026-06-16 — LangGraph graph implementation audit (post-build)
+
+Code-level review of the live `deep_researcher` graph on `main` (after the supervisor
+force-ConductResearch fix, PR #9, and the SDK timeout+retry fix, PR #10). Three parallel
+internal reviewers: control-flow/termination, state/concurrency, error-handling/silent-failures.
+Strong convergence; findings ranked by severity with confidence.
+
+### 🔴 Top tier — fix now
+1. **`if is_token_limit_exceeded(e, …) or True:`** (`deep_researcher.py` ~555, conf 98, all 3 reviewers).
+   The `or True` makes the supervisor's research-dispatch `except` fire on EVERY exception, end the
+   research phase, and proceed to report generation with whatever partial notes exist — masquerading
+   as a token-limit. A real researcher bug is indistinguishable from a clean finish. Worst issue.
+   Fix: drop `or True`; handle token-limit vs. unexpected distinctly (log/re-raise/mark status=error).
+2. **Supervisor `gather` has no `return_exceptions`** (`~526`, conf 92). One parallel researcher
+   raising cancels the others and discards all their completed work, then #1 swallows it.
+   Fix: `return_exceptions=True`; convert failures to per-unit error ToolMessages, keep successes.
+3. **No `recursion_limit` set** (conf 88). LangGraph default 25 super-steps; supervisor loop
+   (~2 steps/turn, up to 11 turns at max config ≈ 23) + parent chain can crash a *valid* long run
+   with `GraphRecursionError`. Fix: set recursion_limit scaled to caps (~`4*max_researcher_iterations+25`)
+   in the invocation paths we own; document the Studio limitation.
+4. **Module-global semaphore pinned to first event loop** (`claude_agent_chat.py:76-84`, conf 85).
+   `_SEMAPHORE` binds to whichever loop first awaits it, never reset → under langgraph dev's
+   worker-thread / per-request loops, later calls raise `RuntimeError: bound to a different event loop`
+   (hard, non-retryable). Fix: per-loop `WeakKeyDictionary[loop, Semaphore]`.
+
+### 🟠 Second tier — knowledge-base integrity
+5. **Error-sentinel reports persisted as `status="completed"` and merged into the dossier** (conf 90).
+   `compress_research`'s "Error synthesizing research report: Maximum retries exceeded" flows into
+   notes→findings→final_report; persist stores it completed and merges into the subject dossier, so
+   future cache-answers read poisoned data. Fix: detect all-error/empty findings → status=error; don't
+   merge error prose into the dossier.
+6. **Persistence failure swallowed at `warning`, user never told** (`~1076`, conf 85). Best-effort is
+   right, but for a KB product a silent dossier-save failure breaks the value prop. Fix: log at error
+   w/ exc_info; mark the preallocated row status=error; surface persist_error to the user.
+
+### 🟡 Third tier — robustness
+- SQLite `busy_timeout` missing on `finalize_research_run`/`set_coverage_incomplete` (skip
+  `_ensure_schema`) → silent `database is locked` under concurrent writes (conf 80).
+- `compress_research` mutates the state-held `researcher_messages` list in place (`~756`) (conf 70).
+- Unguarded `tools_by_name[tool_call["name"]]` (`~697`) → KeyError on unknown tool name (conf 88, low likelihood).
+- `execute_tool_safely` returns tool errors as LLM-readable strings with NO operator log — a dead
+  search key / down MCP fails invisibly (conf 80).
+- Off-by-one: `research_iterations > max_researcher_iterations` runs max+1 supervisor turns (harmless).
+
+### Verified clean (not issues)
+Goto targets all resolve; `prealloc_run_id` is race-free (sequential top-level nodes); state list
+reducers (`override_reducer`/`operator.add`) correct; hot SQLite paths get WAL + 5s busy_timeout;
+researcher loop terminates correctly; cache-hit and clarify-skip routing sound.
+
+### Disposition
+Fixing #1–#4 as one TDD PR (approved), then #5–#6 as a second. #1+#2 are the same ~15-line region and
+together explain silent thin-research runs. Wiring a GitHub Copilot CLI backend to follow.
