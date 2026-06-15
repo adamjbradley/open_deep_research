@@ -267,25 +267,6 @@ def to_codex_model(model_name: Optional[str]) -> str:
     return default
 
 
-def to_copilot_model(model_name: Optional[str]) -> str:
-    """Map a configured model string to a GitHub Copilot CLI model id.
-
-    Accepts the "copilot:"/"github:" prefix and passes through whatever model id
-    follows (e.g. "gpt-4.1", "claude-sonnet-4.5"). Returns "" to mean "let the
-    Copilot CLI use its default model"; set COPILOT_DEFAULT_MODEL to force one.
-    """
-    default = os.getenv("COPILOT_DEFAULT_MODEL", "")
-    if not model_name:
-        return default
-    s = model_name.strip()
-    low = s.lower()
-    if low in {"copilot", "github"}:
-        return default
-    if low.startswith(("copilot:", "github:")):
-        s = s.split(":", 1)[1]
-    return s
-
-
 # Instructions appended to the system prompt when tools are bound, telling the
 # model to respond by selecting a tool through the structured output envelope.
 _TOOL_PROTOCOL = """
@@ -872,52 +853,6 @@ class CodexCLIChat(_CLIJsonChat):
         return content, parsed
 
 
-class CopilotCLIChat(_CLIJsonChat):
-    """LLM backend driven by GitHub's agentic ``copilot`` CLI (Copilot subscription).
-
-    Targets the standalone GitHub Copilot CLI (``@github/copilot``; command ``copilot``)
-    -- NOT the ``gh copilot`` suggest/explain extension, which only proposes shell
-    commands and cannot serve as a general chat backend. Like the Gemini backend it has
-    no schema-enforcement flag, so structured output / tool selection is coerced via the
-    JSON envelope appended to the prompt and parsed back. The CLI authenticates against
-    the Copilot subscription via ``gh auth`` (no API key). Because the CLI's
-    non-interactive interface is still evolving, the binary and flags are env-configurable
-    (COPILOT_CLI_BIN / COPILOT_CLI_ARGS); the prompt is delivered over STDIN to survive
-    the Windows ``cmd /c`` shim (as with the Gemini backend).
-    """
-
-    _backend_name = "copilot-cli"
-
-    def _subprocess_env(self) -> dict:
-        # Copilot authenticates via `gh auth` (Copilot subscription); leave GITHUB_TOKEN
-        # intact. Drop a Models/PAT API key only if explicitly designated, so a stray
-        # key can't silently switch billing away from the subscription.
-        env = dict(os.environ)
-        if self.subscription:
-            env.pop("COPILOT_API_KEY", None)
-        return env
-
-    async def _backend_generate(self, system_prompt, prompt, schema):
-        if schema is not None:
-            prompt = (
-                prompt
-                + "\n\nReturn ONLY a single JSON object matching this schema "
-                "(no markdown fences, no commentary):\n"
-                + json.dumps(schema)
-            )
-        full = _combine_system_prompt(system_prompt, prompt)
-        bin_ = os.getenv("COPILOT_CLI_BIN", "copilot")
-        # Non-interactive flags. Default to the print/prompt-from-stdin mode; tools are
-        # NOT enabled (the graph owns tool execution -- the model only answers / selects
-        # via the envelope). Override via COPILOT_CLI_ARGS for your installed CLI.
-        extra = os.getenv("COPILOT_CLI_ARGS", "").split()
-        cmd = [bin_, *extra]
-        if self.model:
-            cmd += ["--model", self.model]
-        raw = await self._invoke(cmd, stdin=full)
-        return raw, None
-
-
 async def run_search_agent(
     queries: Sequence[str],
     model: str = "haiku",
@@ -1061,39 +996,6 @@ async def run_codex_search(
             pass
 
 
-async def run_copilot_search(
-    queries: Sequence[str],
-    model: str = "",
-    max_results: int = 5,
-) -> str:
-    """Web search via the GitHub Copilot CLI's agentic web tools (Copilot subscription).
-
-    Uses the standalone ``copilot`` CLI (not the ``gh copilot`` extension). Binary and
-    flags are env-configurable (COPILOT_CLI_BIN / COPILOT_SEARCH_ARGS); the prompt is
-    delivered over STDIN. Errors are returned as tool output so a search failure does
-    not crash the research loop.
-    """
-    bin_ = os.getenv("COPILOT_CLI_BIN", "copilot")
-    extra = os.getenv("COPILOT_SEARCH_ARGS", "").split()
-    prompt = _search_prompt(queries, "Use web search to research the following queries.")
-    cmd = [bin_, *extra]
-    if model:
-        cmd += ["--model", model]
-    env = dict(os.environ)
-    env.pop("COPILOT_API_KEY", None)
-
-    async def _attempt():
-        async with _semaphore():
-            return await _run_cli(
-                cmd, env=env, stdin=prompt, timeout=int(os.getenv("CLI_BACKEND_TIMEOUT", "600"))
-            )
-
-    try:
-        return await _run_with_retry(_attempt, max_attempts=_SDK_MAX_ATTEMPTS, backoff_s=_SDK_RETRY_BACKOFF_S)
-    except Exception as e:  # surface as tool output rather than crashing the loop
-        return f"Error performing Copilot web search: {e}"
-
-
 # Map a provider-prefixed model string to a concrete backend + bare model id.
 _BACKEND_PREFIXES = {
     "claude": "claude",
@@ -1102,8 +1004,6 @@ _BACKEND_PREFIXES = {
     "google": "gemini",
     "codex": "codex",
     "openai": "codex",
-    "copilot": "copilot",
-    "github": "copilot",
 }
 
 
@@ -1124,8 +1024,6 @@ def parse_backend(model_string: Optional[str]) -> tuple[str, str]:
         return "claude", s
     if low == "gemini" or low.startswith("gemini"):
         return "gemini", s
-    if low == "copilot" or low == "github":
-        return "copilot", s
     if low == "codex" or low.startswith(("gpt", "o1", "o3", "o4")):
         return "codex", s
     return "claude", s
@@ -1139,8 +1037,6 @@ def build_chat_model(model_string: Optional[str], max_tokens: Optional[int] = No
         return GeminiCLIChat(model=to_gemini_model(model), max_tokens=max_tokens, subscription=subscription)
     if backend == "codex":
         return CodexCLIChat(model=to_codex_model(model), max_tokens=max_tokens, subscription=subscription)
-    if backend == "copilot":
-        return CopilotCLIChat(model=to_copilot_model(model), max_tokens=max_tokens, subscription=subscription)
     return ClaudeAgentChat(model=to_claude_model(model), max_tokens=max_tokens, subscription=subscription)
 
 

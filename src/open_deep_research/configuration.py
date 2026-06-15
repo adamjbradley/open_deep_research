@@ -14,7 +14,6 @@ class SearchAPI(Enum):
     CLAUDE = "claude"
     GEMINI = "gemini"
     CODEX = "codex"
-    COPILOT = "copilot"
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
     TAVILY = "tavily"
