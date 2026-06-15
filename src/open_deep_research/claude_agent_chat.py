@@ -84,6 +84,85 @@ def _semaphore() -> asyncio.Semaphore:
     return _SEMAPHORE
 
 
+# How long to wait for a single SDK query (model turn or web-search session) before
+# treating the subprocess as hung. Without this a stuck ``claude.exe`` blocks the
+# consume forever, which freezes the graph's un-timed ``asyncio.gather`` and leaves
+# the whole run wedged. Shares the CLI backend's budget so all backends behave alike.
+_SDK_TIMEOUT_S = int(os.getenv("CLI_BACKEND_TIMEOUT", "600"))
+# Bounded retry for transient/spurious SDK & CLI failures (see _is_transient_sdk_error).
+_SDK_MAX_ATTEMPTS = max(1, int(os.getenv("CLAUDE_SDK_MAX_ATTEMPTS", "3")))
+_SDK_RETRY_BACKOFF_S = float(os.getenv("CLAUDE_SDK_RETRY_BACKOFF", "1.5"))
+
+# Substrings that mark a failure as transient -- worth retrying rather than surfacing.
+# "error result: success" is the contradictory envelope the CLI emits under load
+# (is_error=true with subtype "success" and no error detail, then a non-zero exit);
+# it carries no actionable information, so a retry is the right response.
+_TRANSIENT_ERROR_MARKERS = (
+    "error result: success",
+    "error result: unknown error",
+    "overloaded",
+    "rate limit",
+    "rate_limit",
+    " 429",
+    "failed (exit ",  # matches _run_cli's "CLI <bin> failed (exit <code>)" message
+    "process error",
+    "processerror",
+    "connection reset",
+    "connection error",
+    "broken pipe",
+    "timed out",
+    "timeout",
+)
+
+
+def _is_transient_sdk_error(exc: BaseException) -> bool:
+    """Whether a failure from the SDK/CLI path is transient and worth retrying.
+
+    Timeouts are always transient. Otherwise we match known overload/connection/
+    contradictory-envelope signatures in the message. Genuine errors (schema
+    mismatches, missing keys, config problems) are NOT transient -- they must
+    surface immediately so real bugs aren't masked by retries.
+    """
+    # Keep both: on Python 3.10 asyncio.TimeoutError is a distinct class (merged with
+    # the builtin in 3.11). PEP-604 union keeps the linter happy on 3.10+.
+    if isinstance(exc, asyncio.TimeoutError | TimeoutError):
+        return True
+    text = str(exc).lower()
+    return any(marker in text for marker in _TRANSIENT_ERROR_MARKERS)
+
+
+async def _run_with_retry(attempt, *, max_attempts: int, backoff_s: float):
+    """Run ``attempt()`` with bounded retries on transient failures only.
+
+    Retries with exponential backoff while ``_is_transient_sdk_error`` holds and
+    attempts remain; re-raises non-transient errors immediately and the last
+    transient error once attempts are exhausted.
+    """
+    max_attempts = max(1, max_attempts)  # always attempt once; never fall through to None
+    for i in range(max_attempts):
+        try:
+            return await attempt()
+        except Exception as exc:  # noqa: BLE001 - re-raised below unless transient
+            if not _is_transient_sdk_error(exc) or i >= max_attempts - 1:
+                raise
+            if backoff_s:
+                await asyncio.sleep(backoff_s * (2 ** i))
+
+
+async def _drain_query_with_timeout(prompt, options, handler, timeout_s: float) -> None:
+    """Consume ``cas.query`` feeding each message to ``handler``, bounded by a timeout.
+
+    The timeout wraps the ``async for`` itself so it runs in the same event loop
+    that owns the CLI subprocess -- cancelling on timeout therefore tears the
+    query (and its subprocess) down rather than leaking a hung process.
+    """
+    async def _drain() -> None:
+        async for msg in cas.query(prompt=prompt, options=options):
+            handler(msg)
+
+    await asyncio.wait_for(_drain(), timeout=timeout_s)
+
+
 def use_subscription() -> bool:
     """Whether to bill against the Claude subscription (vs. ANTHROPIC_API_KEY)."""
     return os.getenv("CLAUDE_USE_SUBSCRIPTION", "true").lower() == "true"
@@ -513,7 +592,8 @@ class ClaudeAgentChat(BaseChatModel):
 
         async def _consume() -> dict:
             data = {"text": "", "structured": None, "result_text": None, "usage": None, "is_error": False}
-            async for msg in cas.query(prompt=prompt, options=options):
+
+            def _handle(msg) -> None:
                 if isinstance(msg, cas.AssistantMessage):
                     for block in msg.content:
                         if isinstance(block, cas.TextBlock):
@@ -523,18 +603,32 @@ class ClaudeAgentChat(BaseChatModel):
                     data["result_text"] = msg.result
                     data["usage"] = msg.usage
                     data["is_error"] = bool(msg.is_error)
+
+            await _drain_query_with_timeout(prompt, options, _handle, _SDK_TIMEOUT_S)
+            # Raise inside the retried unit (not after it) so an error result the SDK
+            # reports *gracefully* (is_error flag, no exception) is still classified by
+            # _is_transient_sdk_error and retried when transient.
+            if data["is_error"]:
+                # Plain (not !r) interpolation so a transient result string ("success",
+                # "overloaded", ...) is still matched by _is_transient_sdk_error.
+                raise RuntimeError(
+                    f"Claude Agent SDK returned an error result: {data['result_text']}"
+                )
             return data
 
-        async with _semaphore():
-            data = await _offload_subprocess(_consume)
+        async def _attempt() -> dict:
+            async with _semaphore():
+                return await _offload_subprocess(_consume)
+
+        # Retry transient/spurious failures (hung subprocess -> timeout, overload, the
+        # contradictory "error result: success" envelope) instead of failing the turn.
+        data = await _run_with_retry(
+            _attempt, max_attempts=_SDK_MAX_ATTEMPTS, backoff_s=_SDK_RETRY_BACKOFF_S
+        )
         text = data["text"]
         structured = data["structured"]
         result_text = data["result_text"]
         usage = data["usage"]
-        is_error = data["is_error"]
-
-        if is_error:
-            raise RuntimeError(f"Claude Agent SDK returned an error: {result_text!r}")
 
         response_metadata = {"model": self.model}
         if usage is not None:
@@ -786,7 +880,8 @@ async def run_search_agent(
 
     async def _consume() -> dict:
         data = {"text": "", "result_text": None, "is_error": False}
-        async for msg in cas.query(prompt=prompt, options=options):
+
+        def _handle(msg) -> None:
             if isinstance(msg, cas.AssistantMessage):
                 for block in msg.content:
                     if isinstance(block, cas.TextBlock):
@@ -794,10 +889,19 @@ async def run_search_agent(
             elif isinstance(msg, cas.ResultMessage):
                 data["result_text"] = msg.result
                 data["is_error"] = bool(msg.is_error)
+
+        await _drain_query_with_timeout(prompt, options, _handle, _SDK_TIMEOUT_S)
         return data
 
-    async with _semaphore():
-        data = await _offload_subprocess(_consume)
+    async def _attempt() -> dict:
+        async with _semaphore():
+            return await _offload_subprocess(_consume)
+
+    # A hung or overloaded web-search subprocess is the most likely stall point;
+    # bound it with a timeout and retry transient failures rather than wedging the run.
+    data = await _run_with_retry(
+        _attempt, max_attempts=_SDK_MAX_ATTEMPTS, backoff_s=_SDK_RETRY_BACKOFF_S
+    )
     text, result_text, is_error = data["text"], data["result_text"], data["is_error"]
 
     if is_error and not text:
