@@ -1122,6 +1122,9 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
         async with aiosqlite.connect(get_db_path(config)) as conn:
             await fbmig.apply(conn, fbschema.STEPS)
             sources = await fbstore.RunSourceStore(conn).read(str(thread_id))
+            if run_id and any(s["capture_status"] != "raw_text" for s in sources):
+                from open_deep_research.storage import set_coverage_incomplete
+                await set_coverage_incomplete(get_db_path(config), run_id, True)
             all_records = []
             for s in sources:
                 if s["capture_status"] != "raw_text" or not s["text"]:

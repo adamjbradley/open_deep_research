@@ -352,3 +352,10 @@ async def reap_stale_running(db_path: str, older_than_iso: str) -> int:
         )
         await conn.commit()
         return cur.rowcount
+
+
+async def set_coverage_incomplete(db_path: str, run_id: int, value: bool) -> None:
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.execute("UPDATE research_runs SET coverage_incomplete=? WHERE id=?",
+                           (1 if value else 0, run_id))
+        await conn.commit()
