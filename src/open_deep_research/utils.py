@@ -36,10 +36,12 @@ from open_deep_research.claude_agent_chat import (
     ClaudeAgentChat,
     configurable_claude_model,
     run_codex_search,
+    run_copilot_search,
     run_gemini_search,
     run_search_agent,
     to_claude_model,
     to_codex_model,
+    to_copilot_model,
     to_gemini_model,
     use_subscription,
 )
@@ -641,6 +643,23 @@ async def codex_web_search(
     return await run_codex_search(queries, model=search_model, max_results=max_results)
 
 
+COPILOT_SEARCH_DESCRIPTION = (
+    "Search the web using GitHub Copilot's web search. Useful for when you need to "
+    "answer questions about current events or find up-to-date information online."
+)
+@tool(description=COPILOT_SEARCH_DESCRIPTION)
+async def copilot_web_search(
+    queries: List[str],
+    max_results: Annotated[int, InjectedToolArg] = 5,
+    topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
+    config: RunnableConfig = None
+) -> str:
+    """Search the web via the GitHub Copilot CLI's web search."""
+    configurable = Configuration.from_runnable_config(config)
+    search_model = to_copilot_model(configurable.summarization_model)
+    return await run_copilot_search(queries, model=search_model, max_results=max_results)
+
+
 ##########################
 # Tool Utils
 ##########################
@@ -654,12 +673,13 @@ async def get_search_tool(search_api: SearchAPI):
     Returns:
         List of configured search tool objects for the specified provider
     """
-    if search_api in (SearchAPI.CLAUDE, SearchAPI.GEMINI, SearchAPI.CODEX):
+    if search_api in (SearchAPI.CLAUDE, SearchAPI.GEMINI, SearchAPI.CODEX, SearchAPI.COPILOT):
         # CLI-backed web search (executed by the graph via the tool).
         search_tool = {
             SearchAPI.CLAUDE: claude_web_search,
             SearchAPI.GEMINI: gemini_web_search,
             SearchAPI.CODEX: codex_web_search,
+            SearchAPI.COPILOT: copilot_web_search,
         }[search_api]
         search_tool.metadata = {
             **(search_tool.metadata or {}),
