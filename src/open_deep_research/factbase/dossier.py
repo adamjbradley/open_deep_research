@@ -6,7 +6,7 @@ import asyncio
 
 import aiosqlite
 
-from . import query as _query, render as _render
+from . import metrics as _metrics, query as _query, render as _render
 from .entities import CountryResolver
 from open_deep_research.storage import get_db_path
 
@@ -22,6 +22,8 @@ def _parser() -> argparse.ArgumentParser:
     compare = sub.add_parser("compare", help="Compare a property across all instances.")
     compare.add_argument("property")
     compare.add_argument("--format", choices=["text", "md", "csv"], default="text")
+
+    sub.add_parser("stats", help="Fact-base health metrics")
 
     return parser
 
@@ -40,6 +42,9 @@ async def run(argv, db_path=None) -> str:
         if args.command == "compare":
             rows = await q.compare(args.property)
             return _render.render(rows, fmt=args.format)
+        if args.command == "stats":
+            m = await _metrics.compute(conn)
+            return "\n".join(f"{k}: {v}" for k, v in m.items())
     raise ValueError(f"unknown command: {args.command!r}")
 
 

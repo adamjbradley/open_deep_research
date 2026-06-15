@@ -10,6 +10,7 @@ PROFILE = Profile(
             "scheme_status",
             "enum",
             identity_qualifiers=["basis"],
+            required_qualifiers=["basis"],
             qualifier_enums={"basis": ["de_jure", "de_facto"]},
             value_enum=["announced", "piloting", "operational", "mandatory"],
         ),
@@ -17,6 +18,7 @@ PROFILE = Profile(
             "id_coverage_pct",
             "percentage",
             identity_qualifiers=["population_basis", "coverage_kind", "measured_modeled"],
+            required_qualifiers=["population_basis"],
             qualifier_enums={
                 "population_basis": ["adults_15plus", "total_pop", "births", "registered_holders"],
                 "coverage_kind": ["enrolled", "issued", "active"],
@@ -32,6 +34,7 @@ PROFILE = Profile(
             "data_protection_law",
             "boolean",
             identity_qualifiers=["jurisdiction", "stage", "scope"],
+            required_qualifiers=["stage"],
             qualifier_enums={
                 "stage": ["enacted", "in_force"],
                 "scope": ["comprehensive", "sectoral"],

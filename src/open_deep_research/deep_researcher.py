@@ -958,7 +958,9 @@ async def persist_research(state: AgentState, config: RunnableConfig):
         # Answered from the cache: log the Q&A run, but leave the dossier unchanged.
         if state.get("answered_from_cache") and state.get("subject"):
             run["status"] = "answered_from_cache"
-            run_id = await log_research_run(db_path, slugify(state["subject"]), run)
+            run_id = await log_research_run(
+                db_path, slugify(state["subject"]), run, run_id=state.get("prealloc_run_id")
+            )
             return {"report_id": run_id, "subject": state["subject"]}
 
         if configurable.accumulate_by_subject and final_report:
@@ -1012,6 +1014,7 @@ async def persist_research(state: AgentState, config: RunnableConfig):
             sources_union=sources_union,
             run=run,
             now=now,
+            run_id=state.get("prealloc_run_id"),
         )
         return {"report_id": run_id, "subject": subject_name}
     except Exception as e:
@@ -1119,6 +1122,9 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
         async with aiosqlite.connect(get_db_path(config)) as conn:
             await fbmig.apply(conn, fbschema.STEPS)
             sources = await fbstore.RunSourceStore(conn).read(str(thread_id))
+            if run_id and any(s["capture_status"] != "raw_text" for s in sources):
+                from open_deep_research.storage import set_coverage_incomplete
+                await set_coverage_incomplete(get_db_path(config), run_id, True)
             all_records = []
             for s in sources:
                 if s["capture_status"] != "raw_text" or not s["text"]:

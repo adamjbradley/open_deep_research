@@ -40,12 +40,13 @@ class Ingestor:
                 url = rec.get("source_url", "")
                 source_id = await self._source_id(url, now)
                 meets_bar = self._registry.meets_bar(url, _trusted_threshold(pd))
-                # A fact is "unspecified-required" only when the property defines
-                # identity qualifiers yet the record supplied none of them — i.e. the
-                # model abstained on identity entirely. Supplying at least one primary
-                # qualifier (the others defaulting to unspecified) is promotable.
-                has_unspec = bool(pd.identity_qualifiers) and all(
-                    quals.get(q) is None for q in pd.identity_qualifiers
+                # A fact is "unspecified-required" only when a REQUIRED qualifier is
+                # missing. Non-required identity qualifiers may default to unspecified
+                # without blocking promotion.
+                req = getattr(pd, "required_qualifiers", []) or []
+                has_unspec = any(
+                    (quals.get(q) if q in quals else rec.get("qualifiers", {}).get(q)) is None
+                    for q in req
                 )
                 as_of = int(rec["as_of"]) if str(rec.get("as_of", "")).isdigit() else None
                 f = model.Fact(fact_id=None, tuple_key=tk, as_of=as_of, value=rec["value"],
