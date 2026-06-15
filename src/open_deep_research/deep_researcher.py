@@ -73,6 +73,14 @@ from open_deep_research.utils import (
 
 logger = logging.getLogger(__name__)
 
+
+from open_deep_research.factbase import fetch as _fb_fetch
+
+
+async def _fact_fetch_text(url, **kw):
+    return await _fb_fetch.fetch_text(url, **kw)
+
+
 # Initialize a configurable model that we will use throughout the agent.
 # Backed by the Claude Agent SDK (Claude Code) so all LLM activity bills against
 # a Claude subscription rather than per-token API credits. See claude_agent_chat.py.
@@ -1118,9 +1126,17 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
         prof = fbprofile.load("country_digital_identity")
         reg = fbregistry.SourceRegistry.load("di_source_registry")
         model_call = _make_fact_model_call(configurable, config)
+        if asyncio.iscoroutine(model_call):
+            model_call = await model_call
         run_id = state.get("prealloc_run_id")
         async with aiosqlite.connect(get_db_path(config)) as conn:
             await fbmig.apply(conn, fbschema.STEPS)
+            from open_deep_research.factbase import backfill as _fb_backfill
+            from open_deep_research.storage import extract_sources as _extract_sources
+            cited = _extract_sources(state.get("final_report", "") or "", *(state.get("raw_notes", []) or []))
+            if cited:
+                await _fb_backfill.backfill_run_sources(
+                    fbstore.RunSourceStore(conn), str(thread_id), cited, _fact_fetch_text)
             sources = await fbstore.RunSourceStore(conn).read(str(thread_id))
             if run_id and any(s["capture_status"] != "raw_text" for s in sources):
                 from open_deep_research.storage import set_coverage_incomplete
