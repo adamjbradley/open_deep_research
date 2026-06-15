@@ -1,0 +1,104 @@
+
+---
+## Round 2 — 2026-06-12 — review of v2 revision
+
+**ADVERSARIAL REVIEW: ROUND 2**
+
+**1. DID THE FIXES HOLD?**
+*   **The "Write-Only" Purgatory (A/C):** While deferring workflow surfaces (Fork A) is "honest," combining it with confidence-gating (P7) creates a structural dead-end. P7 states that claims are promoted to "trusted" only if there is "no open contradiction." Because adjudication is deferred, any contradictory noise—regardless of quality—permanently locks both claims in "provisional" status. In v1, the "trusted" base will inevitably shrink toward zero as the dossier grows and encounters naturally occurring variance.
+*   **Subordination Masquerading as Equality (B):** P2 claims prose and claims are "co-canonical," but then asserts "prose can be regenerated from claims." If Prose = $f$(Claims), then Claims are the primary representation and Prose is a derivative view. v2 papers over this hierarchy to avoid the "claims are the truth" label, but the functional description contradicts the principle.
+*   **The "Auto-Merge" Illusion (A/C):** P1 promises "auto-merges... with no human approval gate," but P7's gate is the functional equivalent of an approval gate. If the gate logic is automated and "unvetted material" is kept out of reports, the "auto-merge" into the "provisional" pile is a distinction without a difference for the end-user who only sees synthesized reports.
+*   **The Circularity of Synthesis (B/C):** P2 says a run produces "prose and a set of structured claims." P7 says "Report synthesis draws from trusted claims." This creates a temporal paradox: a run's prose cannot be "dual-canonical" with its claims if the prose is synthesized from the "trusted" base, because the run's own claims are "provisional" until the run is complete and the gate is cleared.
+
+**2. NEW CONTRADICTIONS FROM THE CHANGES**
+*   **Gating vs. Semantic Honesty:** P1 defines the gate as the "primary defense against auto-merge contamination," but P5 mandates that the platform "never silently picks a winner." An automated gate that excludes provisional claims from synthesis *is* silently picking a winner (the status quo/trusted base) by silencing the new evidence.
+*   **Domain Profile vs. Auditable Logic:** Section 2 admits domain profiles encode "bias... made explicit," yet P4 describes confidence as a "computed, heuristic property." This creates a tension where the "machine-auditable" layer is actually just a black-box projection of the profile's priors. The platform claims to provide "truth through traceability," but the "truth" is pre-baked into the profile configuration.
+*   **Knowledge-as-Product vs. Assertion-as-Data:** Section 1 says the "product is the accumulating knowledge," but P2 admits "claims are recorded, provenanced assertions." If the platform treats claims as assertions but reports require "Trusted" knowledge, there is a hidden "Truth" layer that the principles refuse to define, leading to architectural ambiguity on how "assertions" become "knowledge."
+
+**3. REMAINING STRUCTURAL ISSUES**
+*   **Semantic Fragmentation:** By deferring "claim identity" to Architecture (P6), the Vision accepts a state where the dossier is a pile of near-duplicate fragments. Without entity resolution, "corroboration" (P4) can never be computed because the system cannot recognize that Run A and Run B are talking about the same fact. The "living dossier" is currently just a "search history."
+*   **The "Dark Data" Liability:** Deferring the UI (Fork A) while building an "append-only history" (P6) creates a "Dark Knowledge Store." The platform accumulates contradictions and provisional data that it has no way to discharge or resolve. This is not a "living dossier"; it is a growing archive of unresolved cognitive labor.
+*   **Synthesis Inconsistency:** The document fails to define if a "Report" is a snapshot of a run or a view of the dossier. If it’s a view of the dossier, P2’s "linked prose and claims" requirement fails whenever the dossier contains claims that weren't in the original run's prose.
+
+**4. CONVERGENCE CALL**
+**NO.** The vision is not structurally sound because it relies on an automated "Trusted" gate that—without the deferred adjudication UI—will functionally lobotomize the platform as soon as it encounters its first contradiction.
+
+**Required Change:** Define a "Degraded Synthesis" mode. If "Trusted" claims are insufficient to generate a report, the system must have a principled way to utilize "Provisional" data with explicit, machine-generated caveats, rather than simply excluding it. This prevents the "purgatory" problem created by Fork A.
+
+<!-- gemini r2 exit=0 -->
+
+---
+## Round 3 — 2026-06-12 — convergence check on v3
+
+**1. ARE THE ROUND-2 COLLISIONS RESOLVED?**
+*   **Degraded Synthesis:** RESOLVED. P7 now mandates fallback to provisional claims with "explicit, machine-generated caveats" to avoid the cold-start dead-end.
+*   **Concrete Promotion Rule:** RESOLVED. P7 defines a specific, non-circular rule (source-trust + no-contradiction) and explicitly excludes corroboration per P4.
+*   **Reframed Data Model + Read-Only View:** RESOLVED. Section 5 clearly defines the triad (Run Report, Claim Base, Dossier View) and P7 successfully decouples admission status from lifecycle status.
+
+**2. NEW CONTRADICTIONS INTRODUCED BY v3**
+*   **None identified.** The integration of the "Rendering Contract" in Section 5 effectively binds the disparate data types into a unified output strategy without creating new logical loops.
+
+**3. CONVERGENCE CALL**
+**ADVANCE.** The document is structurally sound and the previously conflicting requirements for synthesis, trust, and data modeling have been successfully reconciled into a coherent vision.
+
+<!-- gemini r3 exit=0 -->
+
+---
+## Round 4 — 2026-06-12 — final verification of v4
+
+**1. DO THE v4 FIXES (a)-(e) HOLD?**
+(a) **HOLDS.** P5/P2 clearly separate immutable "snapshots of what one run found" from the live "dossier view" which surfaces newly discovered conflicts.
+(b) **HOLDS.** §5 Rendering Contract is explicitly "scoped to claim-derived rendering" at creation/view time; "stored run report is thereafter an immutable artifact, displayed as-written."
+(c) **HOLDS.** Terminology corrected in P1 and §6: "ingestion is unconditional; the gate is an automatic promotion policy."
+(d) **HOLDS.** P7 adds the "Honest dependency" clause, admitting the "no open contradiction" check is "only as good as contradiction detection" and committing to caveats/audit backstops.
+(e) **HOLDS.** §3 operationalizes success as the ratio of "trusted vs. provisional claims" and its growth over time, removing the v3 tautology.
+
+**2. DID ANY v4 FIX REOPEN A PRIOR ISSUE or create a new contradiction?**
+No. The precision fixes resolve the remaining collisions between immutability and live state.
+
+**3. FINAL CALL**
+**ADVANCE.** The document has reached structural and terminology convergence; remaining risks (claim identity, extraction quality) are properly deferred to the Feature/Architecture layers.
+
+<!-- gemini r4 exit=0 -->
+
+---
+## Round 5 — 2026-06-12 — re-review of the v6 fact-base reframe
+
+### 1. DOES THE REFRAME HOLD?
+1. **P5 (Disagreement-held) is conceptually strained.** The document defines conflict as a "different value for the same entity-property." This assumes real-world conflicts are clean, scalar collisions (e.g., 68.2M vs. 67.9M). In scientific research, disagreement is rarely a pure value collision; it stems from differing definitions, methodologies, or conditions. Treating it as a simple "value discrepancy" flattens reality.
+2. **P7 (Degraded synthesis) feels vestigial.** The document pivots the core view to a "structured fact table" but retains heavy focus on fallback synthesis in "source-grounded prose." Mixing a strict knowledge-graph schema with generative prose synthesis creates an awkward hybrid where the legacy literature-review DNA fights the new database reality.
+
+### 2. ARE THE TWO RISK-REDUCTION CLAIMS TRUE?
+1. **Extraction risk is lowered: REFUTED.** The claim that "A *fact triple* is far more atomic... which **lowers** the round-1 extraction-quality risk" is categorically false. Forcing complex, highly contextual academic prose into a rigid `(instance, property, value, unit)` schema demands aggressive semantic coercion. This vastly increases the risk of hallucination and loss of critical context compared to extracting self-contained prose claims.
+2. **Claim-identity is tamed: REFUTED.** The document claims "(instance, property) keying largely tames the round-1 'claim identity' risk." It merely relocates it. Instead of comparing propositions, the system must now map infinite linguistic variations of concepts into strict, aligned "property names" and "entity instances" across different sources. The semantic ambiguity is not reduced; it is just pushed into the ontology mapping.
+
+### 3. NEW PROBLEMS THE REFRAME INTRODUCES
+1. **The Context/Atomic Contradiction.** The document claims triples are "more atomic," yet admits a fact "Retains the qualifiers (as-of date, scope/conditions) needed to be meaningful." A fact bound by endless methodological qualifiers is not atomic. If the extractor must parse and attach all conditions that make a scientific value true, the complexity is higher than v5, not lower.
+2. **Loss of Qualitative Utility.** By pivoting strictly to "verifiable questions of fact, not scholarly argument," the platform abandons any domain where research involves mechanisms, theoretical frameworks, causal relationships, or qualitative outcomes. It is no longer deep research; it is automated data entry. 
+3. **Ontological Rigidity.** Relying on an "Entity type" that "Defines the properties worth gathering" demands a massive, rigid taxonomy. While the document waves at "discovered" properties, a structured fact table shatters if properties aren't strictly predefined and aligned, making the system highly brittle to novel research vectors.
+
+### 4. CONVERGENCE CALL
+ANOTHER ROUND
+
+**Blocker:** The rigid fact-triple model is fatally naive for domain research; it either strips the methodological qualifiers required to make physical-world values meaningful, or it includes them, instantly destroying the claim that this reframe reduces extraction complexity.
+
+<!-- gemini r5 exit=0 -->
+
+---
+## Round 6 — 2026-06-12 — re-convergence check on v7
+
+1. DID v7 CLOSE THE ROUND-5 BLOCKERS (1)-(5)?
+* **(1) FALSE CONFLICTS:** CLOSED. Fixes the schema by making facts "qualifier-aware" where "differing qualifiers do not make a conflict" (P5).
+* **(2) OVERCLAIMED RISK REDUCTION:** CLOSED. Explicitly retracts the claim: "does not lower the semantic-fidelity risk... relocated, not removed" (P2). 
+* **(3) "PHYSICAL WORLD" FRAMING:** CLOSED. Broadens scope to "things in the world and their attributes" while deliberately carving out "mechanism / causal / qualitative synthesis" (Sec 1).
+* **(4) DEMAND CHALLENGE:** CLOSED. Narrows persona to high-stakes "regulatory / compliance, due-diligence, scientific reference-data" where conflict resolution is mandatory (Sec 2).
+* **(5) DEFERRED PRIMITIVES:** CLOSED. Explicitly defers "value-equality with tolerance and unit normalization" (P5) and "multi-valued, time-series, and relationship facts" (Sec 5).
+
+2. NEW CONTRADICTIONS
+* **Qualifier-aware identity neuters P7 gating:** P7 auto-promotes if "there is no open conflict for that (instance, property, qualifiers)." Because LLM extraction is "lossy" (P2) and "qualifier alignment" is deferred (§9), the platform will rarely generate exact qualifier matches across runs. Conflicts will be artificially rare, causing systemic over-promotion that functionally breaks the P1 "Trust through... gating" mandate.
+* **Single-valued constraint forces false conflicts on lists:** Section 5 declares "v1 assumes a single value per (instance, property, qualifiers)." For properties that genuinely possess multiple concurrent values (e.g., a drug's multiple target receptors, a country's multiple official languages), P5's rigid rule ("different value... = conflict") will automatically classify these valid lists as disagreements, directly violating Section 5's promise that multi-valued facts are "not handled by pretending they are conflicts."
+
+3. CONVERGENCE CALL
+ADVANCE. (The fact-base reframe is now structurally sound and honest about its massive deferred risks; resume Feature Spec to resolve the qualifier-matching and multi-value constraints in user stories.)
+
+<!-- gemini r6 exit=0 -->

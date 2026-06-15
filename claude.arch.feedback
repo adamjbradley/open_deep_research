@@ -1,0 +1,178 @@
+# claude.arch.feedback
+## Round 1 — 2026-06-12 — Architecture v1
+
+Internal red team (decoupling, resilience, codebase-integration realist) + CLIs. Tally: **1 ADVANCE / 4 ANOTHER ROUND**.
+
+## Decoupling reviewer — ADVANCE (with fix)
+- persist_research is a "god-aggregator" (maps/validates/hashes/looks-up/hands-off inline) → introduce
+  an ingestion/application service; keep the graph node a thin caller.
+- tuple_key + canonicalize + value-equality are split across FactStore (column) and ConflictPolicy
+  (pure fn) → **extract a `FactIdentity` service** both consume. (Single most important fix.)
+- "Pure" policy writing `lifecycle=superseded` couples policy to store columns. FactStore interface
+  too broad (persist+query+conflict+evidence) — SQLite-shaped.
+- No port for entity/alias resolution; `canonicalize` is an un-ported seam; `confidence` has no owner.
+
+## Resilience reviewer — ANOTHER ROUND
+- **No transaction boundary** across fact+evidence+fact_revision+conflict writes → partial write =
+  provenance-less facts (violates "every fact has evidence", P3). **The single most important fix.**
+- No per-fact isolation: a malformed qualifier dict throwing during tuple_key hashing loses the whole
+  run's facts (and persist_research "must never crash a completed run").
+- Alias miss behavior undefined → phantom entities (silent under-coverage) or dropped facts; need
+  quarantine, never auto-create canonical.
+- Validation can silently drop 100% of a property → need a drop-rate guardrail.
+- Spurious conflicts persist & block promotion with no auto-close; as_of null ordering undefined;
+  no recompute when a registry tier changes; re-run dedup/idempotency undefined.
+
+## Codebase-integration realist — ANOTHER ROUND (code-verified)
+- **THE BLOCKER:** "emit facts into ResearcherState, aggregate in persist_research" does NOT survive
+  the graph. Researcher subgraph compiles with `output=ResearcherOutputState` (deep_researcher.py:754)
+  = only {compressed_research, raw_notes} (state.py:123-127); supervisor_tools flattens
+  compressed_research into a ToolMessage and concatenates raw_notes (string). No structured channel
+  carries typed facts up. AgentState has no fact field; persist_research reads only raw_notes/
+  final_report. → must thread a typed reducer field through ResearcherState→ResearcherOutputState→
+  SupervisorState→AgentState + rewrite the supervisor fan-in, OR relocate extraction post-supervisor.
+- **Evidence spans aspirational:** compress_research emits LLM prose (str-join, :716-726); no per-claim
+  source binding survives; spans can be hallucinated. "no span→no fact" unenforceable without
+  substring-verification against a retained, source-addressable note segment.
+- Nested `qualifiers:{}` object-list schema is the HARD case for Gemini/Codex envelope coercion;
+  existing structured outputs (KnowledgeAssessment, SubjectResolution) are flat scalars. Truncated
+  list = invalid JSON, not "fewer facts".
+- Underestimated: no migration framework (executescript ad hoc, :94-97); **no CLI entry point exists
+  at all** (everything under `langgraph dev`) — dossier show/compare/export is a net-new program.
+
+## codex (CLI) — ANOTHER ROUND
+- Echoes: ingestion/application service; FactStore too broad; transaction/idempotency contract for
+  insert+evidence+conflict+promotion+lifecycle+revision; per-fact validation + retry limits; SQLite
+  single-writer + busy_timeout + bounded retry; evidence must be validated exact substring of a
+  retained note; nested qualifiers not a real closed enum (validate each item post-coercion); new
+  egress (model call ships source material — provider retention); no soft-delete despite "schema-ready";
+  registry version + deterministic recompute.
+
+## gemini (CLI) — ANOTHER ROUND
+- **Single fix: define a formal `EntityResolver` port + adapter** — tuple_key depends on instance_id;
+  undefined alias→canonical mapping makes conflict detection (the core value) unreliable.
+- SQLite write contention under concurrency; "no span→no fact" degrades to "fails-to-coerce→dropped"
+  silent data loss on Gemini/Codex; injecting the whole property_def enum per prompt may exceed
+  context; evidence-store bloat (no retention/pruning).
+
+### Convergence: ANOTHER ROUND (4/5). Consensus fixes for v2 below.
+
+---
+
+## Round 2 — 2026-06-12 — Architecture v2 convergence check
+
+Internal red team + CLIs. Tally: **3 ADVANCE / 1 ANOTHER ROUND (integration realist) / gemini pending.**
+
+- **Decoupling — ADVANCE.** FactIdentity / pure-intents / writer-query split / ingestion service all
+  CLOSED. Fold-in: pure policies must receive the current tuple's stored facts as INPUT and emit
+  fully-resolved intents (Supersede/auto-close), so FactWriter only persists, never re-decides.
+- **Resilience — ADVANCE.** Atomic tx + per-fact isolation + alias-quarantine + auto-close + null
+  ordering + recompute + dedup all CLOSED. Fold-in: the registry-bump **recompute pass needs the same
+  atomic-tx + per-tuple isolation + resumable-on-registry_version** contract (the one mutating path not
+  yet covered); source-tagged-notes drop = unrecoverable-in-run (detectable via drop-rate).
+- **codex — ADVANCE.** All 6 closed. Fold-ins: (1) cost is `sources × properties`, NOT "cohort×6" —
+  needs a per-run extraction ceiling/batching; (2) dedup must key on **canonical(value,unit)**, not raw
+  value; (3) clarify no-op/deduped reruns write **no** fact_revision.
+- **integration realist — ANOTHER ROUND (code-verified):**
+  - **Placement bug:** `extract_facts` is placed after `final_report_generation`, which **clears
+    `notes`→[]** (final report node). So read **`raw_notes`** (survives), or insert before
+    final_report_generation. Also note `persist_research` has TWO in-edges (answer_from_dossier +
+    final_report_generation) — extraction wires only on the research path.
+  - **THE re-opened blocker:** "source-tagged notes" is NOT a small compression tweak. `raw_notes` is
+    `list[str]` joined at compress_research and **re-joined at the supervisor fan-in (deep_researcher.py
+    :487-490 `"\n".join`)**, destroying structure. Carrying `{source_url,text}` requires changing the
+    type/reducer at ResearcherState + ResearcherOutputState + the supervisor flatten + AgentState — the
+    exact round-1 boundary. And tool results aren't source-tagged at that point (extract_sources greps
+    URLs post-hoc) — so a structured per-source carry from the search tools is needed. Span-verification
+    (§4) has no verbatim text to verify against until this survives line 488. **The round-1 blocker is
+    open, not closed.**
+
+### Convergence: ANOTHER ROUND. Real decision: how source-attributed text reaches extract_facts.
+
+---
+
+## Round 3 — 2026-06-12 — Architecture v3 convergence check
+
+Internal red team + CLIs. Tally: **2 ADVANCE / 2 ANOTHER ROUND** (two code-verified blockers, fixed in v4).
+
+- **Resilience+Decoupling — ADVANCE.** Both round-2 fold-ins CLOSED (recompute atomic/resumable;
+  policies receive stored facts, writer never re-decides). Fold-ins: run_source is a concurrent fan-out
+  write table (not covered by the fact-writes single-writer claim) → needs WAL/busy_timeout + retention/
+  soft-delete + content-hash dedup; run_source write needs a port (not direct aiosqlite in tools);
+  policies should read via a FactQuery DTO.
+- **gemini — ADVANCE.** Boundary blocker resolved; remaining (provenance pollution from extracting over
+  discarded sources; density of one-call-per-source over many properties; storage redundancy) manageable
+  at impl/prompt layer.
+- **Integration realist — ANOTHER ROUND (code-verified):** (1) **run_id doesn't exist at the tool
+  layer** — it's `lastrowid` from the persist_research INSERT (storage.py:159,218), minted AFTER tools
+  run; only thread_id is in state (:940). Fix: preallocate run_id (or key by thread_id, reconcile).
+  (2) **Only Tavily keeps per-source {url, raw_text}** (utils.py:84,120-131); CLI/native search return
+  summarized prose → run_source empty/low-fidelity, span-verification fails. Fix: per-adapter capture
+  contract; unsupported adapters disable fact extraction.
+- **codex — ANOTHER ROUND:** same two blockers (run_id lifecycle inversion; per-adapter source capture).
+  Plus: same-run conflicting facts won't see each other unless candidates are staged cumulatively before
+  the batch write; the source ceiling must be deterministic + record incomplete-coverage (omitted
+  sources mustn't make absence look authoritative).
+
+### Disposition (v4 — all incorporated, no user decision)
+(a) Preallocate run_id at graph start (research_runs row status=running, finalized at persist).
+(b) Per-adapter source capture: only raw-text adapters (Tavily-class) feed run_source; summarizing
+adapters disable fact extraction (report still produced). (c) Cumulative same-run candidate staging —
+ingestion evaluates each tuple against stored facts AND the run's other candidates. (d) Deterministic
+source ceiling + coverage-incomplete marker. (e) run_source via RunSourceStore write port, content-hash
+dedup, soft-delete + prune, WAL+busy_timeout. (f) Policies read via FactQuery DTO. Provenance-pollution
++ density noted as impl/prompt concerns.
+
+---
+
+## Round 4 — 2026-06-12 — Architecture v4 convergence check
+
+Internal red team + CLIs. Tally: **1 ADVANCE / 2 ANOTHER ROUND** (implementation-level seams; fixed in v5).
+
+- **Resilience+Decoupling — ADVANCE.** run_source write port + concurrency + FactQuery DTO CLOSED.
+  Fold-ins: prune policy must not drop run_source still referenced by live evidence; stale-`running`
+  orphan rows need a reaper; put soft_deleted_at on run_source DDL.
+- **Integration realist — ANOTHER ROUND (code-verified):** preallocation needs a **finalize UPDATE
+  port** — `save_run_and_upsert_subject`/`log_research_run` both INSERT complete rows (storage.py:197,
+  138-159), so "finalized in persist_research" would create a 2nd row; need finalize_research_run(run_id)
+  called by both research + cache paths. Entry is `assess_knowledge` (START edge :1040) which branches
+  to the cache path, so a dedicated `preallocate_run` node on START→assess_knowledge is cleaner;
+  subject_id NULL until finalize. **Per-run disable is wrong** — get_all_tools can mix Tavily+CLI search;
+  must be **per-source** (extract sources with a run_source row, skip others) + mark run coverage-incomplete.
+- **codex — ANOTHER ROUND:** same — one authoritative run lifecycle (status field, graph-start INSERT,
+  persist UPDATE/finalize, failure cleanup) + run-level extraction/coverage status defining mixed-adapter
+  behavior; persisted coverage-incomplete marker; source ceiling marker not in §7.
+- **gemini — (pending; 4 reviews decisive.)**
+
+### Disposition (v5 — all incorporated, no user decision)
+preallocate_run node on START→assess_knowledge (status='running'); finalize_research_run UPDATE port
+called by both research + cache paths (one row per run); stale-running reaper; per-SOURCE extraction
+(skip sources without a run_source row; mixed-adapter runs extract their raw-text sources);
+persisted research_runs.coverage_incomplete; run_source.soft_deleted_at + prune guard (don't drop rows
+referenced by live evidence). All implementation-level — convergence is near.
+
+---
+
+## Round 5 — 2026-06-12 — Architecture v5 convergence check
+
+Internal red team + CLIs. Tally: **1 ADVANCE / 3 ANOTHER ROUND** (all narrow; v6 incorporates).
+
+- **Integration realist — ADVANCE.** All prior blockers CLOSED with named ports/seams. Residual
+  (reaper/finalize idempotency vs long runs) is "a state-machine detail resolvable in the
+  implementation-plan layer — does not move a port boundary, node placement, or table."
+- **Resilience+Decoupling — ANOTHER ROUND.** Reaper TTL can delete run_source out from under a
+  slow-but-alive fan-out (no liveness signal); finalize must be guaranteed on every terminal edge.
+  Fix: liveness heartbeat (not bare TTL); idempotent finalize at the single node both paths flow through.
+- **codex — ANOTHER ROUND (sharpest, structural):** `evidence(fact_id, quoted_span, source_url, ...)`
+  links source by URL, not a stable id — so the prune guard isn't enforceable and cross-run content-hash
+  sharing can't be reasoned about; and skipped summarizing-adapter sources have NO record, so
+  `coverage_incomplete` isn't detectable. Fix: record every encountered source with capture/extraction
+  status + stable content identity that `evidence` references; raw text optional.
+- **gemini — (pending; 4 reviews decisive.)**
+
+### Disposition (v6 — one change resolves three things, per codex)
+`run_source(id PK, ..., capture_status[raw_text|summarized|skipped], text NULLABLE, content_hash)`
+records EVERY encountered source; `evidence.run_source_id` FK (stable, not URL). → coverage_incomplete
+derived (any capture_status != raw_text); extract_facts on raw_text rows; prune guard enforceable via
+the FK. Plus: reaper uses `research_runs.last_heartbeat` (only stale-heartbeat running rows collected);
+finalize_research_run idempotent at the single persist_research node both terminal paths flow through.

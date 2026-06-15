@@ -1,0 +1,74 @@
+# gemini.fs.feedback
+## Round 1 — 2026-06-12 — Feature Spec v1 (DPI / Digital Identity)
+
+**1. SCOPE CREEP**
+*   **Unit Normalization:** "value-equality (tolerance/unit-normalized)" (AC3.1). Defer to v2. Normalizing disparate units from unstructured web sources is a massive rabbit hole. In v1, exact string match or it's a conflict.
+*   **Historical State:** "prior remains in history as `superseded`" (AC6.1). Maintaining per-fact temporal history adds severe state management complexity. Defer; v1 should only hold the most recently discovered facts or treat different dates as open conflicts.
+*   **Dynamic Trust Tiers:** "trust tiers: authoritative... > reputable... > open web" (2.2). Programmatically classifying arbitrary URLs into qualitative tiers during an LLM run is a distinct, complex product. Defer to v2; treat all extracted sources equally.
+
+**2. VAGUE ACCEPTANCE CRITERIA**
+*   **AC1.1:** "produces facts for ≥1 property in §2.1". Untestable. Does the agent stop after finding one fact? What constitutes a complete vs. failed run?
+*   **AC2.4:** "older than a profile threshold". Ambiguous. What is the specific threshold, and where is it configured?
+*   **AC5.1:** "whose source meets the profile (type, property) trust bar". Untestable. How is this "trust bar" defined, quantified, and evaluated programmatically against a scraped URL?
+
+**3. HIDDEN DEPENDENCIES**
+*   **Entity Resolution:** Using "ISO 3166" (Edge cases) to bound country naming implies an unlisted dependency on an entity resolution layer or LLM step to accurately map fuzzy extractions ("Ivory Coast", "Türkiye") to canonical keys.
+*   **Blob Storage:** AC1.3 requires an "immutable run report (prose) linked to the facts", necessitating a blob storage and relational mapping system not specified in the data model.
+
+**4. MISSING STORIES / JOURNEYS**
+*   **Export for Briefings:** Maya creates "briefings, country profiles, and cross-country comparisons". She cannot put a CLI standard output table into a report. She needs a journey to export data (e.g., `dossier compare --format csv`).
+*   **Batch Execution:** The scope explicitly targets "all countries" (§2), but US-1 only covers asking the platform to research "a country". There is no story for how Maya initiates or manages a bulk global run.
+
+**5. FEASIBILITY**
+*   **Automated Source Classification:** "reputable (academic, established orgs) > open web" (2.2). Reliably classifying the tier of an arbitrary URL discovered by an LLM in real-time is 10x harder than implied without a massive, pre-existing reputation database.
+*   **Reliable Value-Equality:** Implementing "tolerance" (AC3.1) for LLM-extracted numbers across hybrid global sources (where formats wildly vary) is highly prone to false positives/negatives without rigid, property-specific deterministic code.
+
+**6. CONVERGENCE CALL**
+**ANOTHER ROUND**
+The single most important fix: Strip out automated trust tiering, unit normalization, and `superseded` historical states. V1 must be a brutally simple, flat extraction layer that treats all sources equally and surfaces *any* discrepancy as a conflict for the user to interpret.
+
+<!-- gemini fs exit=0 -->
+
+---
+## Round 2 — 2026-06-12 — Feature Spec v2 convergence check
+
+**1. DID v2 CLOSE ROUND-1 BLOCKERS (1)-(6)?**
+(1) **CLOSED.** §2.1 and AC3.2 establish a qualifier-complete conflict key.
+(2) **PARTIAL.** Mandate was EXACT-match + DEFERRED normalization; v2 §2.2 and §5 introduce "trivial format canonicalization" (68.2M = 68,200,000).
+(3) **CLOSED.** §2 cohort and §2.1 property list are appropriately trimmed.
+(4) **CLOSED.** §2.2 curated registry replaces infeasible automated classification.
+(5) **CLOSED.** Evidence records (quote/source/timestamp) are detailed in §2.2 and AC5.1.
+(6) **CLOSED.** Stories for export, refresh, and cohort management added (US-6, US-7, US-8).
+
+**2. NEW CONTRADICTIONS introduced by v2**
+1. **The Normalization Paradox:** AC3.1 mandates `"values unequal under exact-match are linked as an open conflict"` while §5 claims `"68,200,000" = "68.2M"`. Since unit normalization is explicitly deferred in §2.2, any non-identical string—including "trivial" numeric expansions—must be a conflict under AC3.1. Architecture cannot implement both "exact-match" and "canonicalization" without a defined parser.
+2. **Promotion-Blocking:** AC3.1/3.3 states any two facts with unequal values under the same key create an "open conflict." AC5.2 then blocks promotion to `trusted` if an `"open conflict"` exists. This allows a single "unvetted" source (e.g., a random blog) to block a high-tier registry source (e.g., World Bank) from ever being promoted, contradicting the `"prefer trusted"` intent of AC2.1.
+
+**3. REMAINING VAGUE AC or UNSCOPED DEPENDENCY**
+1. **Sanity Check Logic (§5):** The `"Property-level sanity check"` is an unscoped dependency. Architecture cannot implement "rejects implausible values" (e.g., 412% coverage) without a specific validation schema (ranges/regex) for each property in the §2.1 set.
+
+**4. CONVERGENCE CALL**
+**ANOTHER ROUND**
+Fix: Enforce strict EXACT-match by removing "trivial canonicalization" in §5; clarify in AC3.1/5.2 that only conflicts between *registry-tier sources* block promotion, preventing unvetted data from paralyzing the "trusted" status.
+
+<!-- gemini fs2 exit=0 -->
+
+---
+## Round 3 — 2026-06-12 — Feature Spec v3 convergence check
+
+1. DID v3 CLOSE THE ROUND-2 FIXES (a)-(g)?
+(a) **`as-of` is a VERSION dimension:** CLOSED. > "`as-of` is the *version* dimension, *not* identity: within one tuple, the newest `as-of` is the current version"
+(b) **Undetermined required qualifier ⇒ ABSTAIN:** CLOSED. > "fact is marked `unspecified` for that qualifier and held as its own tuple — never guessed ... never auto-promoted."
+(c) **Strict exact-match within identical unit:** CLOSED. > "v1 uses strict exact-value match within an identical unit ... format/magnitude canonicalization, unit normalization, and numeric tolerance are deferred"
+(d) **Tier-scoped promotion-blocking:** CLOSED. > "A conflict blocks promotion only when it is among trust-bar-meeting sources"
+(e) **Added `basis`, `stage`/`scope` qualifiers:** CLOSED. Added to §2.1 table and cross-referenced in §3.
+(f) **Demoted cohort-run and change-log:** CLOSED. Both explicitly moved to v1.1 in US-6 and US-8.
+(g) **Named extraction contract, schema, and lattice as Architecture deliverables:** CLOSED. The fact-extraction contract is defined as a "load-bearing dependency" in §7, while validation schema and resolution precedence are explicitly assigned to Architecture in §8.
+
+2. NEW CONTRADICTIONS
+None. The spec rigorously bounds the problem. By holding `unspecified` qualifiers in isolated tuples and explicitly deferring canonicalization, tolerance, and alignment mechanisms, the data model avoids structural contradictions and accurately scopes the NLP requirements for the next layer.
+
+3. CONVERGENCE CALL
+ADVANCE
+
+<!-- gemini fs3 exit=0 -->

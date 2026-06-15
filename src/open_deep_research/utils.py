@@ -42,6 +42,19 @@ from open_deep_research.configuration import Configuration, SearchAPI
 from open_deep_research.prompts import summarize_webpage_prompt
 from open_deep_research.state import ResearchComplete, Summary
 
+logger = logging.getLogger(__name__)
+
+
+async def record_search_sources(run_source_store, thread_id: str, unique_results: dict) -> None:
+    """Persist each unique search result as a run_source row (raw_text if raw_content present)."""
+    for url, result in unique_results.items():
+        raw = (result or {}).get("raw_content") or ""
+        if raw:
+            await run_source_store.record(thread_id, url, raw, capture_status="raw_text")
+        else:
+            await run_source_store.record(thread_id, url, None, capture_status="summarized")
+
+
 ##########################
 # Tavily Search Tool Utils
 ##########################
@@ -83,7 +96,24 @@ async def tavily_search(
             url = result['url']
             if url not in unique_results:
                 unique_results[url] = {**result, "query": response['query']}
-    
+
+    # Persist per-source raw text for fact extraction (best-effort; never break search).
+    try:
+        from open_deep_research.factbase import store as _fb_store
+        from open_deep_research.storage import get_db_path as _get_db_path
+        import aiosqlite as _aiosqlite
+        _configurable = (config or {}).get("configurable", {}) if config else {}
+        _thread_id = _configurable.get("thread_id")
+        if _thread_id and Configuration.from_runnable_config(config).persist_results:
+            async with _aiosqlite.connect(_get_db_path(config)) as _conn:
+                from open_deep_research.factbase import migrations as _fbmig, schema as _fbschema
+                from open_deep_research.storage import _ensure_schema as _ens
+                await _ens(_conn)                       # research_runs must exist before v2 ALTER
+                await _fbmig.apply(_conn, _fbschema.STEPS)
+                await record_search_sources(_fb_store.RunSourceStore(_conn), str(_thread_id), unique_results)
+    except Exception as _e:
+        logger.warning("run_source capture failed (non-fatal): %s", _e)
+
     # Step 3: Set up the summarization model with configuration
     configurable = Configuration.from_runnable_config(config)
     

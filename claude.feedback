@@ -1,0 +1,186 @@
+
+---
+
+## Round 2 — 2026-06-12 — review of v2 revision
+
+Internal Claude red team (same three lenses), focused on whether the v2 fixes held.
+
+### Reviewer A — Product Skeptic — convergence call: YES (advance)
+- Fork A held but the rendering contract is a hidden behavioral promise P5 can't guarantee.
+- Fork C is the strongest fix. Fork B coherent but "regenerated from claims" is unfalsifiable.
+- **New contradiction (key):** auto-merge (P1) + trusted-only synthesis (P7) means a brand-new
+  subject's first report synthesizes from ZERO trusted claims — the cold-start case §1 promises to
+  serve. Gating created this; v1 didn't have it.
+- Also: P7 has no promotion *trigger* (corroboration only arrives on later runs; nothing triggers
+  re-research) — "the accumulation flywheel has no motor." Single-researcher + subscription ToS
+  caps the wedge. Domain-profile bias named but unowned.
+- **Single highest-value change:** define what a first-run report on a brand-new subject
+  synthesizes from.
+
+### Reviewer B — Technical Realist — convergence call: YES (advance)
+- Fork A holds technically. Fork B inconsistent: prose→claims→prose is NOT identity-preserving
+  (extraction is lossy); "regenerated" prose is a thinner artifact — say "claims-derived view."
+- **Fork C's gate has no feasible promotion signal:** P7 promotes on corroboration, but P4 concedes
+  corroboration can't detect independence and is "a weak signal." So promotion is either inflatable
+  (defeats the gate) or reduces to single-source-trust + no-contradiction. v2 never picks. The gate
+  is called "primary defense" while its main signal is conceded unsound — the central gap.
+- **New contradiction:** "provisional excluded from synthesis" (P7) vs "conflict surfaced inline in
+  prose" (P5) — a fresh contradicting claim is provisional, so is it excluded or surfaced?
+- Cold-start: trusted-by-default makes first reports empty — early value is *negative*.
+- **Single highest-value change:** define the promotion signal — e.g. promote = (source-trust ≥ bar)
+  AND (no open contradiction), corroboration explicitly NOT an input until independence lands; and
+  state whether provisional contradicting claims surface in prose.
+
+### Reviewer C — Market Cynic — convergence call: NO
+- §7 names the "why switch" question then declines to answer it; the wedge loses to Elicit (rigor)
+  and ChatGPT-memory (low-effort recall). The defensible sliver — cross-run conflict/confidence
+  state — is exactly what Fork A defers (no UI to see it).
+- **Fork A guts the v1 product:** v1 ships "a schema plus a ⚠ string in prose" — "a database
+  migration wearing a vision's clothes." Fork C adds friction with no v1 payoff (thinner reports).
+- No single-session "aha"; audit dependency unfunded; target persona unspecified for GTM.
+- **Single highest-value change:** pull ONE read-only surface into v1 — a `dossier show <subject>`
+  render of trusted claims, open conflicts, and confidence tiers — so the wedge is testable in the
+  first session, not a deferred promise.
+
+---
+
+## Round 3 — 2026-06-12 — convergence check on v3
+
+Internal Claude red team (convergence check). Tally with external CLIs: **3 ADVANCE / 2 ANOTHER ROUND**.
+
+### Reviewer A — Product Skeptic — ANOTHER ROUND
+- (1) degraded synthesis RESOLVED; (2) promotion rule RESOLVED; (3) reframed model RESOLVED.
+- New issues: P7 "no open contradiction" depends on deferred contradiction detection (blocker —
+  flag the dependency or define v1 fallback); §3 metric "share of trusted claims backed by a
+  trusted source" is ~tautological under P7; machine-generated caveats are load-bearing but deferred.
+
+### Reviewer B — Technical Realist — ADVANCE
+- All three collisions RESOLVED. Promotion rule implementable as written; the contradiction-detection
+  dependency is *acceptable at the vision layer* (commits to what the gate decides on, not mechanism;
+  P5 already makes conflicts first-class). Remaining items sub-vision-layer / Architecture's problem.
+
+### Reviewer C — Market Cynic — ADVANCE
+- Round-2 "no testable product" RESOLVED by the read-only `dossier show` view + degraded synthesis;
+  the wedge is now demonstrable in session one. Two residual GTM concerns (CLI is a thin vehicle for
+  the wedge; session-one shows the weakest version of the differentiator) are Feature-Spec/sequencing
+  risks, not unsettled vision questions.
+
+### External CLIs
+- **codex — ANOTHER ROUND:** (1)(2) RESOLVED, (3) PARTIAL. Blocker: immutable run reports
+  ("never rewritten") vs. P5 "surface conflicts wherever rendered (run reports, dossier view)" —
+  reports can't be both frozen artifacts and live surfaces; plus "confidence-gated ingestion" vs
+  P1 "ingestion is unconditional" terminology.
+- **gemini — ADVANCE:** all collisions resolved; no new contradictions; structurally sound.
+
+### Disposition (v4)
+All round-3 findings are precision/wording fixes, not structural. Applied in v4: run reports are
+immutable snapshots (current conflicts live in the dossier view); rendering contract scoped to
+claim-derived rendering; "gated promotion" terminology; honest contradiction-detection dependency
+flag; success metric de-tautologized. **Convergence reached** — remaining feedback is operational,
+not structural.
+
+---
+
+## Round 4 — 2026-06-12 — final verification of v4
+
+Final check. Tally with external CLIs: **4 ADVANCE / 1 ANOTHER ROUND**.
+
+- **Product skeptic — ADVANCE.** All five v4 fixes (a)-(e) hold; no fix reopened a prior issue.
+- **Technical realist — ADVANCE.** Each fix holds logically; (b)'s carve-out reinforces immutability.
+- **Market cynic — ADVANCE.** §7 wedge intact and tightened; de-tautologized §3 now measures the
+  wedge rather than restating it; no new GTM contradiction.
+- **gemini — ADVANCE.** Structural and terminology convergence reached.
+- **codex — ANOTHER ROUND (single sharp objection):** v4 fix (d) "DOESN'T HOLD" — degraded-synthesis
+  caveats mark *provisional* content, so they cannot backstop an undetected contradiction that
+  *over-promotes* a claim to trusted (such a claim renders trusted/uncaveated). Only audit (and later
+  detection→demotion) does. **Valid.**
+
+### Disposition (v5)
+codex is right. Fixed in v5: P7 now separates the two failure modes — over-promotion is backstopped
+by after-the-fact audit and later contradiction-detection→demotion (NOT caveats); caveats backstop
+the distinct degraded-synthesis (thin-trusted-base) case. This directly closes the only remaining
+objection. **Convergence reached across all reviewers** — remaining items are deferred Architecture
+concerns, not vision-level issues.
+
+---
+
+## Round 5 — 2026-06-12 — re-review of the v6 fact-base reframe
+
+Internal Claude red team. Tally with external CLIs so far: **0 ADVANCE / 4 ANOTHER ROUND** (gemini pending).
+
+### Reviewer A — Product Skeptic — ANOTHER ROUND
+- P5 strains: a fact carries as-of date/scope qualifiers (§5), so France pop 68.2M(2023) vs 67.9M(2021)
+  is NOT a conflict — two valid time-points. P5's "different value = conflict" is under-specified.
+- P4 strain: per-(type,property) trust matrix is heavier than v5's per-source prior.
+- New problems: (a) non-scalar facts (relationships, multi-valued like official languages, time-series)
+  — model assumes a scalar "value"; a multi-valued property looks like perpetual self-conflict;
+  (b) properties contested in *definition* not value (accuracy depends on dataset/metric); (c) entities
+  that don't cleanly instance (methods/events/concepts vs France/aspirin) — slug-keying a fuzzy entity
+  is an unearned vision claim; (d) "physical world" over-narrows and fights its own ML example.
+- **Blocker:** the fact model is silently scalar-only; non-scalar + definitional disagreement are
+  vision-level gaps, not deferrable detail.
+
+### Reviewer B — Technical Realist — ANOTHER ROUND
+- Reframe makes the data model MORE coherent ((instance,property) gives P6 a real primary key).
+- Risk claim (i) **partially true, overstated**: narrows the schema/grammar, but value/unit fidelity,
+  qualifier capture, and as-of date — the hard part — survive inside the triple. Restate as "narrows
+  schema, not semantic-fidelity risk."
+- Risk claim (ii) **true with correctly-scoped residual**, but understates multi-valued properties
+  (half-life by route/dose) and as-of dating — real key is (instance, property, as-of).
+- New: value-equality with tolerance + unit normalization is a NEW conflict-detection primitive
+  (68.2M vs 68,200,000 vs 68.15M); time-varying facts make "conflict vs newer vs staleness" first-class.
+- **Blocker:** restate claim (i); define value-equality/unit-normalization as the new conflict primitive.
+
+### Reviewer C — Market Cynic — ANOTHER ROUND
+- Wedge framing marginally stronger (drops the Elicit fight) but moat weaker: the differentiator is a
+  feature layer, not a defensible asset; Wikidata has data+community, LLM-with-search gives it free.
+- "Personal Wikidata" is a category people avoid (cf. manual spreadsheets never disrupted); facts are
+  a commodity LLMs give free; cross-source conflict matters to a tiny high-stakes slice who also
+  distrust auto-extraction — and v1 defers interactive adjudication.
+- **Blocker:** demand for an auto-built conflict-aware fact base is unvalidated; §7's own hedge admits
+  the wedge isn't yet defensible.
+
+### External codex — ANOTHER ROUND
+- P5 manufactures conflicts (variance by date/scope/method/uncertainty); P6 conflates independent
+  source assertions with genuine temporal change; P7 "no open contradiction" becomes hostile to
+  measured facts (legitimate variance blocks/demotes trust); "physical world" doesn't cohere with the
+  accuracy example. Both risk-reduction claims **refuted** as written (qualifier-aware assertion
+  identity is the real problem, not (instance,property)).
+- **Blocker:** qualifier-aware assertion identity and conflict semantics are foundational, but v6
+  treats (instance, property) as sufficient.
+
+### Synthesis direction
+The reframe is sound in spirit but v6 under-modeled facts. Convergent fixes: (1) **qualifier-aware
+fact identity** — key includes as-of date / scope / method, so differing-qualifier values are distinct
+facts, not conflicts; (2) distinguish **conflict vs. temporal-change vs. multi-valued**; define
+**value-equality + unit normalization** as the conflict primitive; (3) **restate risk-reduction claim
+(i)** honestly (schema not semantics); (4) **broaden/clarify the framing** beyond "physical world";
+(5) confront the **demand** challenge via a concrete high-stakes persona. (1)-(4) are vision edits;
+(5) is the next Feature-Spec gate.
+
+---
+
+## Round 6 — 2026-06-12 — re-convergence check on v7
+
+Internal Claude red team + external CLIs. Tally: **4 ADVANCE / 1 ANOTHER ROUND** (codex; fixed in v8).
+
+- **Product skeptic — ADVANCE.** All five round-5 blockers CLOSED; no surviving new contradiction;
+  verified examples don't smuggle multi-valued/time-series facts.
+- **Technical realist — ADVANCE.** Blockers closed at vision/logic level; the residual (P5/P7 hinge on
+  the deferred value-equality + qualifier-alignment primitive) is an owned Architecture dependency,
+  honestly flagged, not a contradiction.
+- **Market cynic — ADVANCE.** Demand blocker CLOSED at vision level (honest, high-stakes, falsifiable).
+  Flagged a Feature-Spec tension: high-stakes users must *act* on conflicts but v1 is read-only;
+  "competitive/market intelligence" is the softest of the named domains. (→ deferred items #31, #32.)
+- **gemini — ADVANCE.** All five closed; two flagged issues (single-valued forcing false conflicts on
+  lists; qualifier-alignment failure → over-promotion) — both addressed by v8.
+- **codex — ANOTHER ROUND (valid, fixed in v8):** v7's "single value per (instance, property,
+  qualifiers)" contradicted the conflict model (a conflict needs ≥2 unequal values under that exact
+  key); revision-vs-concurrent-assertion also blurred.
+
+### Disposition (v8)
+codex's contradiction fixed: **provenance is part of fact identity** — each fact is one source's
+assertion, so a qualified key carries multiple competing source-assertions (the conflict), while the
+dossier presents one *resolved current* value. Clarified revision (one source over time) vs. conflict
+(different sources), and intrinsic multi-valued properties vs. cross-source disagreement; sharpened
+P7's over-promotion dependency to name qualifier under-/over-matching (gemini). **Reframe converged.**

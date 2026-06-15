@@ -1,0 +1,130 @@
+
+---
+## Round 2 — 2026-06-12 — review of v2 revision
+
+## 1. Did the fixes hold?
+
+1. **Fork A is honestly scoped but sequenced incoherently.** P1 says value depends on audit “*actually happening*,” while §6 concedes adjudication and history exploration “*are not usable in v1*.” This is more than deferred convenience: v1 cannot exercise the feedback process its trust model requires. Machine-queryable SQLite lineage does not make researcher auditing a credible operating loop.
+
+2. **Fork B does not hold.** P2 says neither representation is subordinate, yet claims are “*extracted from*” prose and “*prose can be regenerated from claims*.” These are asymmetric transformations. Regenerated prose is not the original citable artifact and may omit qualifiers or introduce synthesis language. The document never defines whether canonical prose means immutable run reports, current synthesized prose, or both.
+
+3. **Fork C papers over “trusted.”** Promotion may use “*sufficient corroboration from sufficiently trusted sources*,” but P4 admits corroboration is currently vulnerable to syndication and gaming. With no human approval gate, a heuristic explicitly described as weak can automatically confer `trusted` status. Calling such claims “vetted” and using the gate as the “*primary defense*” overstates what the mechanism establishes.
+
+## 2. New contradictions from the changes
+
+1. **Dual-canonical prose conflicts with gated synthesis.** A run’s prose is co-canonical even when its extracted claims remain provisional, while authoritative reports exclude those claims. The system can therefore retain canonical prose asserting material that its trusted claim base rejects. Conflict warnings do not solve disagreement between the two canonical forms.
+
+2. **Status conflates independent dimensions.** `provisional`/`trusted` describe epistemic admission; `stale`/`superseded` describe lifecycle. Modeling them as one `status` forces nonsense choices such as whether a stale trusted claim ceases to be trusted. These must be separate axes at the vision level, not left as schema detail.
+
+## 3. Remaining structural issues
+
+1. **“Trusted” lacks a defined authority.** The vision must state whether promotion is automatic, researcher-confirmed, or domain-profile policy. That is a product-governance decision, not an Architecture mechanism.
+
+2. **The canonical dossier state is undefined.** Reports are per-run artifacts, claims accumulate across runs, and prose may be regenerated, but there is no declared current dossier view or rule for how historical prose relates to current trusted knowledge.
+
+3. **Success is not operationalized.** “*More complete and better-grounded*” and “*quality and groundedness*” provide no vision-level test of improvement. Without explicit outcome criteria, accumulation can still masquerade as progress.
+
+## 4. Convergence call
+
+**NO.** The most confidence-increasing change would be a precise canonical-state contract defining immutable run prose, current synthesized prose, claim tiers, divergence handling, and exactly who or what may promote a claim to trusted.
+
+<!-- codex r2 exit=0 -->
+
+---
+## Round 3 — 2026-06-12 — convergence check on v3
+
+## 1. Round-2 Collisions
+
+1. **Degraded synthesis — RESOLVED.** P7 permits provisional claims with explicit machine-generated caveats when trusted evidence is insufficient.
+
+2. **Promotion rule — RESOLVED.** P7 defines automatic promotion by profile trust bar plus no open contradiction, explicitly excluding corroboration.
+
+3. **Data model + read-only view — PARTIAL.** Reports, claim base, and dossier view are clearly separated, but report immutability conflicts with universal conflict surfacing.
+
+## 2. New Contradictions
+
+1. P2 says run reports are immutable and “never rewritten,” while P5 requires conflicts to be surfaced “wherever the subject is rendered (run reports, dossier view).” A conflict discovered later cannot appear in an existing immutable report.
+
+2. The rendering contract says “all rendering (run reports, dossier view)” uses one canonical path, but run reports are stored source-grounded prose while dossier views are generated from mutable claim state. These cannot share one rendering path without either regenerating reports or weakening what “one canonical render path” means.
+
+3. Scope still calls the mechanism “confidence-gated ingestion,” while P1 explicitly says “ingestion is unconditional” and only promotion is gated.
+
+## 3. Convergence Call
+
+**ANOTHER ROUND**
+
+Blocking issue: Define whether immutable run reports are historical artifacts or live rendered surfaces; the document currently requires them to be both.
+
+<!-- codex r3 exit=0 -->
+
+---
+## Round 4 — 2026-06-12 — final verification of v4
+
+(a) **HOLDS** — Reports are “immutable snapshots”; later conflicts surface only in the current dossier view.
+
+(b) **HOLDS** — The canonical path covers claim-derived rendering at run time; stored reports are “displayed as-written.”
+
+(c) **HOLDS** — Ingestion is unconditional; “promotion is gated.”
+
+(d) **DOESN’T HOLD** — Caveats mark provisional content, so they cannot backstop an undetected contradiction that causes erroneous promotion to trusted. Only audit does.
+
+(e) **HOLDS** — The metric now measures trusted versus provisional content in rendered answers across runs.
+
+**New contradiction:** P7 calls degraded-synthesis caveats a backstop against over-promotion, but over-promoted claims are rendered as trusted and therefore uncaveated.
+
+**ANOTHER ROUND** — Remove the claim that provisional-content caveats mitigate false promotion, or define caveating for promotion uncertainty.
+
+<!-- codex r4 exit=0 -->
+
+---
+## Round 5 — 2026-06-12 — re-review of the v6 fact-base reframe
+
+**1. Does The Reframe Hold?**
+
+1. P5 breaks under the definition “a **different value for the same entity-property**” equals conflict. Measurements commonly differ by date, scope, methodology, population, or uncertainty without contradicting. The model will manufacture conflicts.
+
+2. P6 is internally inconsistent: a fact is both a value-bearing triple and an `(instance, property)` record whose value changes by revision. Independent source assertions and genuine temporal changes cannot share one revision history without conflation.
+
+3. P7’s “**no open contradiction**” promotion rule becomes hostile to measured facts: legitimate variance can permanently block trust or demote sound values.
+
+4. “**fact base about the physical world**” does not cohere with examples such as “reported accuracy of a method.” Accuracy is an evaluation result conditional on dataset, metric, configuration, and protocol, not an intrinsic property of a method instance.
+
+**2. Risk-Reduction Claims**
+
+1. **Extraction risk: refuted.** The output grammar is narrower, but reliable extraction now requires entity linking, property normalization, unit conversion, temporal scope, conditions, uncertainty, and evidence binding. “Retains the qualifiers … needed to be meaningful” hides the hardest semantic extraction inside an unstructured escape hatch. Syntactic checkability is improved; end-to-end factual extraction risk is not demonstrably lower.
+
+2. **Claim identity: refuted.** `(instance, property)` is insufficient. Identity must include qualifiers such as observation date, jurisdictional scope, methodology, population, metric, and conditions. Otherwise distinct observations collapse into revisions or false conflicts. The residual problem is not merely “**entity instances**” plus “**property names**”; it remains contextual assertion identity.
+
+**3. New Problems Introduced**
+
+1. Many facts are ranges, distributions, bounds, censored measurements, relational values, or qualified categories rather than scalar `value + unit`.
+
+2. Sources may disagree on the property’s definition, not its value: “population,” “unemployment,” and “accuracy” frequently encode incompatible denominators or methodologies.
+
+3. Entity instancing is unstable for changing, composite, abstract, or versioned entities: countries, drugs/formulations, organizations, and model families.
+
+4. “Physical world” arbitrarily excludes valid legal, institutional, economic, and social facts while the document simultaneously includes abstract methods.
+
+**ANOTHER ROUND** — The blocker is that qualifier-aware assertion identity and conflict semantics are foundational to the reframe, yet v6 incorrectly treats `(instance, property)` as sufficient.
+
+<!-- codex r5 exit=0 -->
+
+---
+## Round 6 — 2026-06-12 — re-convergence check on v7
+
+**Round-5 Blockers**
+
+1. **CLOSED** — Conflict identity now requires “same entity, property, *and* qualifiers”; qualifier variance is explicitly distinct facts.
+2. **CLOSED** — v6’s risk claim is fully retracted: “the hard part is relocated, not removed.”
+3. **CLOSED** — Scope consistently covers attributed measured, derived, methodological, and institutional facts while excluding causal/argument synthesis.
+4. **CLOSED** — The high-stakes beachhead and weak-moat risk are explicit and testable through the persona gate.
+5. **NOT-CLOSED** — “single value per (instance, property, qualifiers)” contradicts conflicts containing multiple unequal values under that exact key.
+
+**New Contradictions**
+
+1. The model cannot represent its central differentiator. A fact is keyed by `(instance, property, qualifiers)` and restricted to one value, yet a conflict is “between facts on the same (instance, property, qualifiers) with values unequal.” Either source assertion/provenance must participate in fact identity, or the key must own multiple asserted values.
+2. P6’s “append-only revision history: what the value changed to” further blurs replacement versus simultaneous conflicting assertions. Under the stated identity, a second value can be interpreted as a revision, despite P5 requiring both values to remain concurrently visible.
+
+**ANOTHER ROUND** — Resolve the data-model contradiction between single-valued qualified keys and multiple competing values before returning to Feature Spec.
+
+<!-- codex r6 exit=0 -->

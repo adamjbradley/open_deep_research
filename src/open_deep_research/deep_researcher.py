@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Optional
 
 from langchain_core.messages import (
     AIMessage,
@@ -16,6 +16,7 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
+from pydantic import BaseModel, Field
 
 from open_deep_research.claude_agent_chat import configurable_claude_model
 from open_deep_research.configuration import (
@@ -53,6 +54,7 @@ from open_deep_research.storage import (
     get_subject_by_slug,
     get_subject_names,
     log_research_run,
+    preallocate_run as preallocate_run_storage,
     save_run_and_upsert_subject,
     slugify,
 )
@@ -70,6 +72,14 @@ from open_deep_research.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+from open_deep_research.factbase import fetch as _fb_fetch
+
+
+async def _fact_fetch_text(url, **kw):
+    return await _fb_fetch.fetch_text(url, **kw)
+
 
 # Initialize a configurable model that we will use throughout the agent.
 # Backed by the Claude Agent SDK (Claude Code) so all LLM activity bills against
@@ -305,6 +315,23 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     }
 
 
+def _lead_researcher_tools(conducted_research: bool) -> list:
+    """Tools offered to the supervisor, conditioned on whether research has run yet.
+
+    The CLI/subscription backends select tools by *name* via a JSON envelope that does
+    not enforce per-tool argument schemas, so the no-argument ResearchComplete is always
+    a valid selection. If it is offered before any research has run, the supervisor picks
+    it every turn and never dispatches research; the premature-completion guard in
+    ``supervisor_tools`` then merely loops until the iteration cap, ending with empty
+    notes. Withholding ResearchComplete (and think_tool) until a ConductResearch result
+    exists forces a real dispatch first. Once research has returned, the full toolset is
+    available so the supervisor can reflect and legitimately complete.
+    """
+    if conducted_research:
+        return [ConductResearch, ResearchComplete, think_tool]
+    return [ConductResearch]
+
+
 async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[Literal["supervisor_tools"]]:
     """Lead research supervisor that plans research strategy and delegates to researchers.
     
@@ -328,9 +355,16 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
         "tags": ["langsmith:nostream"]
     }
     
-    # Available tools: research delegation, completion signaling, and strategic thinking
-    lead_researcher_tools = [ConductResearch, ResearchComplete, think_tool]
-    
+    # Step 2: Choose tools based on progress. Until at least one ConductResearch result
+    # has returned, withhold ResearchComplete so the supervisor cannot prematurely complete
+    # via the no-argument envelope selection -- it must dispatch real research first.
+    supervisor_messages = state.get("supervisor_messages", [])
+    conducted_research = any(
+        isinstance(message, ToolMessage) and getattr(message, "name", "") == "ConductResearch"
+        for message in supervisor_messages
+    )
+    lead_researcher_tools = _lead_researcher_tools(conducted_research)
+
     # Configure model with tools, retry logic, and model settings
     research_model = (
         configurable_model
@@ -338,12 +372,11 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
         .with_config(research_model_config)
     )
-    
-    # Step 2: Generate supervisor response based on current context
-    supervisor_messages = state.get("supervisor_messages", [])
+
+    # Step 3: Generate supervisor response based on current context
     response = await research_model.ainvoke(supervisor_messages)
     
-    # Step 3: Update state and proceed to tool execution
+    # Step 4: Update state and proceed to tool execution
     return Command(
         goto="supervisor_tools",
         update={
@@ -444,10 +477,35 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
     
     # Handle ConductResearch calls (research delegation)
     conduct_research_calls = [
-        tool_call for tool_call in most_recent_message.tool_calls 
+        tool_call for tool_call in most_recent_message.tool_calls
         if tool_call["name"] == "ConductResearch"
     ]
-    
+
+    # The tool-selection envelope doesn't enforce per-tool argument schemas, so a
+    # ConductResearch call can arrive with an empty or missing research_topic (especially
+    # when it is the only tool offered pre-research). Dispatching that would KeyError on
+    # args["research_topic"] and research nothing -- answer each with a corrective nudge
+    # and drop it so only calls with a real topic are dispatched. If all of them were empty
+    # and there are no think_tool calls, the nudges alone loop the supervisor back to retry.
+    empty_research_calls = [
+        tool_call for tool_call in conduct_research_calls
+        if not str((tool_call.get("args") or {}).get("research_topic", "")).strip()
+    ]
+    for tool_call in empty_research_calls:
+        all_tool_messages.append(ToolMessage(
+            content=(
+                "ConductResearch requires a non-empty 'research_topic': a specific, "
+                "standalone instruction describing exactly what to research. Provide one "
+                "and dispatch ConductResearch again."
+            ),
+            name="ConductResearch",
+            tool_call_id=tool_call["id"],
+        ))
+    conduct_research_calls = [
+        tool_call for tool_call in conduct_research_calls
+        if tool_call not in empty_research_calls
+    ]
+
     if conduct_research_calls:
         try:
             # Limit concurrent research units to prevent resource exhaustion
@@ -956,7 +1014,9 @@ async def persist_research(state: AgentState, config: RunnableConfig):
         # Answered from the cache: log the Q&A run, but leave the dossier unchanged.
         if state.get("answered_from_cache") and state.get("subject"):
             run["status"] = "answered_from_cache"
-            run_id = await log_research_run(db_path, slugify(state["subject"]), run)
+            run_id = await log_research_run(
+                db_path, slugify(state["subject"]), run, run_id=state.get("prealloc_run_id")
+            )
             return {"report_id": run_id, "subject": state["subject"]}
 
         if configurable.accumulate_by_subject and final_report:
@@ -1010,12 +1070,143 @@ async def persist_research(state: AgentState, config: RunnableConfig):
             sources_union=sources_union,
             run=run,
             now=now,
+            run_id=state.get("prealloc_run_id"),
         )
         return {"report_id": run_id, "subject": subject_name}
     except Exception as e:
         # Persistence is best-effort: never fail a completed run on a DB error.
         logger.warning("Failed to persist research result: %s", e)
         return {}
+
+
+###################
+# Fact-base extraction (structured output models + helpers)
+###################
+class FactRecord(BaseModel):
+    """A single extracted country digital-identity fact."""
+
+    property: str
+    instance_name: str
+    value: str
+    unit: Optional[str] = None
+    as_of: Optional[str] = None
+    qualifiers: dict = Field(default_factory=dict)
+    evidence_span: str
+
+
+class ExtractionResult(BaseModel):
+    """List of facts extracted from a single source."""
+
+    facts: list[FactRecord] = Field(default_factory=list)
+
+
+def _make_fact_model_call(configurable, config):
+    """Build an async model_call(source_text, prof) -> list[dict] for the extractor.
+
+    Mirrors the structured-output invocation pattern used elsewhere in this graph
+    (singleton ``configurable_model`` -> ``with_structured_output`` -> ``with_config``
+    -> ``ainvoke``). Best-effort: returns [] on any error so extraction never fails
+    a completed run.
+    """
+    async def model_call(source_text, prof):
+        try:
+            prop_names = [pd.name for pd in prof.properties]
+            prompt = (
+                "Extract Digital-Identity facts about a COUNTRY from the source text below. "
+                f"Only use these property names: {prop_names}. "
+                "Emit a qualifier ONLY if the source explicitly states it; otherwise omit it (do not guess). "
+                "evidence_span MUST be a verbatim substring of the source text supporting the value. "
+                "If nothing is stated, return an empty list.\n\nSOURCE:\n" + (source_text or "")[:8000]
+            )
+            model = (
+                configurable_model
+                .with_structured_output(ExtractionResult)
+                .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+                .with_config({
+                    "model": configurable.research_model,
+                    "max_tokens": configurable.research_model_max_tokens,
+                    "api_key": get_api_key_for_model(configurable.research_model, config),
+                    "tags": ["langsmith:nostream"],
+                })
+            )
+            result = await model.ainvoke([HumanMessage(content=prompt)])
+            return [f.model_dump() for f in (result.facts or [])]
+        except Exception as e:
+            logger.warning("fact model_call failed (non-fatal): %s", e)
+            return []
+    return model_call
+
+
+async def preallocate_run(state: AgentState, config: RunnableConfig) -> dict:
+    """Create the research_runs row early so the tool layer/extract_facts share a run id."""
+    configurable = Configuration.from_runnable_config(config)
+    if not configurable.persist_results:
+        return {}
+    thread_id = (config.get("configurable") or {}).get("thread_id")
+    try:
+        run_id = await preallocate_run_storage(get_db_path(config), str(thread_id))
+        return {"prealloc_run_id": run_id}
+    except Exception as e:
+        logger.warning("preallocate_run failed (non-fatal): %s", e)
+        return {}
+
+
+async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
+    """Per-source fact extraction over the run's captured run_source rows (research path)."""
+    configurable = Configuration.from_runnable_config(config)
+    if not configurable.persist_results:
+        return {}
+    thread_id = (config.get("configurable") or {}).get("thread_id")
+    if not thread_id:
+        return {}
+    try:
+        import aiosqlite
+        from open_deep_research.factbase import (
+            entities as fbentities,
+            extractor as fbextractor,
+            ingest as fbingest,
+            migrations as fbmig,
+            profile as fbprofile,
+            registry as fbregistry,
+            schema as fbschema,
+            store as fbstore,
+        )
+        prof = fbprofile.load("country_digital_identity")
+        reg = fbregistry.SourceRegistry.load("di_source_registry")
+        model_call = _make_fact_model_call(configurable, config)
+        if asyncio.iscoroutine(model_call):
+            model_call = await model_call
+        run_id = state.get("prealloc_run_id")
+        async with aiosqlite.connect(get_db_path(config)) as conn:
+            await fbmig.apply(conn, fbschema.STEPS)
+            from open_deep_research.factbase import backfill as _fb_backfill
+            from open_deep_research.storage import extract_sources as _extract_sources
+            cited = _extract_sources(state.get("final_report", "") or "", *(state.get("raw_notes", []) or []))
+            if cited:
+                await _fb_backfill.backfill_run_sources(
+                    fbstore.RunSourceStore(conn), str(thread_id), cited, _fact_fetch_text)
+            sources = await fbstore.RunSourceStore(conn).read(str(thread_id))
+            if run_id and any(s["capture_status"] != "raw_text" for s in sources):
+                from open_deep_research.storage import set_coverage_incomplete
+                await set_coverage_incomplete(get_db_path(config), run_id, True)
+            all_records = []
+            for s in sources:
+                if s["capture_status"] != "raw_text" or not s["text"]:
+                    continue
+                recs = await fbextractor.extract(s["text"], prof, model_call)
+                for r in recs:
+                    r.setdefault("source_url", s["source_url"])
+                all_records.extend(recs)
+            if all_records and run_id:
+                await fbingest.Ingestor(
+                    conn,
+                    profile=prof,
+                    resolver=fbentities.CountryResolver(),
+                    registry=reg,
+                ).ingest(run_id=run_id, records=all_records)
+    except Exception as e:
+        logger.warning("extract_facts failed (non-fatal): %s", e)
+    return {}
 
 
 # Main Deep Researcher Graph Construction
@@ -1027,21 +1218,25 @@ deep_researcher_builder = StateGraph(
 )
 
 # Add main workflow nodes for the complete research process
+deep_researcher_builder.add_node("preallocate_run", preallocate_run)               # Preallocate run id for shared fact capture
 deep_researcher_builder.add_node("assess_knowledge", assess_knowledge)             # Entry: subject match + knowledge decision
 deep_researcher_builder.add_node("answer_from_dossier", answer_from_dossier)       # Answer directly from stored knowledge
 deep_researcher_builder.add_node("clarify_with_user", clarify_with_user)           # User clarification phase
 deep_researcher_builder.add_node("write_research_brief", write_research_brief)     # Research planning phase
 deep_researcher_builder.add_node("research_supervisor", supervisor_subgraph)       # Research execution phase
 deep_researcher_builder.add_node("final_report_generation", final_report_generation)  # Report generation phase
+deep_researcher_builder.add_node("extract_facts", extract_facts)                   # Per-source fact extraction (research path)
 deep_researcher_builder.add_node("persist_research", persist_research)             # Persist results to SQLite
 
 # Define main workflow edges. assess_knowledge (entry) branches via Command(goto)
 # to answer_from_dossier / write_research_brief / clarify_with_user.
-deep_researcher_builder.add_edge(START, "assess_knowledge")                         # Entry point: check the knowledge base first
+deep_researcher_builder.add_edge(START, "preallocate_run")                          # Entry point: preallocate the run id
+deep_researcher_builder.add_edge("preallocate_run", "assess_knowledge")             # Then check the knowledge base
 deep_researcher_builder.add_edge("answer_from_dossier", "persist_research")         # Cached answer -> log the run
 deep_researcher_builder.add_edge("write_research_brief", "research_supervisor")     # Brief to research
 deep_researcher_builder.add_edge("research_supervisor", "final_report_generation") # Research to report
-deep_researcher_builder.add_edge("final_report_generation", "persist_research")    # Report to persistence
+deep_researcher_builder.add_edge("final_report_generation", "extract_facts")       # Report to fact extraction
+deep_researcher_builder.add_edge("extract_facts", "persist_research")              # Fact extraction to persistence
 deep_researcher_builder.add_edge("persist_research", END)                          # Final exit point
 
 # Compile the complete deep researcher workflow

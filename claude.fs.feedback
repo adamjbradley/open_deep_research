@@ -1,0 +1,122 @@
+# claude.fs.feedback
+## Round 1 — 2026-06-12 — Feature Spec v1 (DPI / Digital Identity)
+
+Internal red team: Scope Hawk, Feasibility Auditor, DPI Domain Realist. Tally with CLIs: all ANOTHER ROUND.
+
+## Scope Hawk — ANOTHER ROUND
+- Scope creep: US-4 cross-country compare (separate surface, rules still open); 8-property set spans 5
+  value-kinds (each needs its own equality/normalization) → ship 3–4; AC5.2 demotion; computed
+  staleness lifecycle; degraded synthesis listed in-scope but has no story/AC.
+- Vague ACs: AC1.1 "≥1 property" near-vacuous; AC3.1 depends on undefined value-equality (open §7);
+  AC2.4/AC6.1 thresholds + "newer" across unknown/estimate dates undefined; AC5.1 trust bar not
+  operationalized; AC2.2 "visibly" subjective (mirror AC2.3's concrete token).
+- Hidden deps: ISO 3166 list + name-resolution shim (build item, not footnote); source trust-tier
+  registry; the fact-extraction schema/contract itself (the hard NLP, no story/AC/failure budget).
+- Missing stories: refresh/re-research-and-supersede (Maya's daily job is UPDATING); inspect a fact's
+  provenance/history (P6 promised, no story to read it); export/cite (her terminal job).
+- **#1 fix:** AC3.1 value-equality/unit-normalization is the load-bearing core yet punted to §7.
+
+## Feasibility Auditor — ANOTHER ROUND
+- Extraction of structured (country, property, value, unit, as-of) is a NEW structured-output node over
+  compressed notes (pipeline emits prose + URL-regex sources only; storage.py extract_sources); getting
+  as-of + basis right across 5 value-kinds is 3–10× the "fact-extraction step" framing.
+- **AC3.1 contradiction:** normalization is deferred (§2.3/§7) yet REQUIRED to fire conflicts — cannot
+  detect 99% vs 87% conflict while 12M vs 60% don't, without the deferred normalization.
+- Country-instance resolution: slugify is punctuation-stripping; "Türkiye"/"Turkey"/"Côte d'Ivoire"
+  duplicate; needs alias map.
+- Scholarly/authoritative connector: ID4D/GSMA have no clean public APIs → scraping + per-source
+  parsers = largest hidden cost.
+- Cost: ~195 countries × 8 props ≈ 1,560 cells; sequential per-country research subgraphs on CLI/
+  subscription backends = days of wall-clock; refresh flywheel unbounded.
+- Simpler: v1 conflict = exact-match under identical qualifiers (drop "unit-normalized"); facts as a
+  parallel structured sidecar table beside the existing prose merge; per-country only.
+- **#1 fix:** resolve the AC3.1 contradiction (scope conflict to exact-match-under-identical-qualifiers).
+
+## DPI Domain Realist — ANOTHER ROUND
+- **id_coverage_pct is the #1 false-conflict generator:** population_basis is not enumerated. ID4D =
+  adults 15+; GSMA = registered holders; national = issued credentials (can exceed 100%). Two "85%"
+  can mean different things. Must be a required closed enum (adults_15+/total_pop/births/registered).
+- linked_services_count is meaningless/never converges → cut; replace with federation_model.
+- Missing scheme_status (announced/piloting/operational/mandatory) — bigger gap than any present
+  property; law-vs-rollout conflicts constantly without it.
+- legal_basis name+year too thin (often multiple instruments); label as "primary enabling instrument".
+- Add data_protection_law (boolean+year) — table-stakes for DPI, well-sourced.
+- Source tiers wrong: World Bank ID4D vs GSMA are the PRIMARY conflict pair by construction (different
+  denominators); ID4D is modeled/stale (waves, interpolated) → needs measured/modeled flag; national
+  regulators are incentivized to overcount → NOT > academic for coverage.
+- As-of alone won't prevent false conflicts; denominator/methodology/scope must be in the conflict key.
+  Booleans hide definitional conflict (mobile driving licence vs mobile national ID).
+- Maya verdict: credible v1 frame, v0.5 property model; denominator-blind compare is unpublishable.
+- **#1 fix:** make population_basis + measured/modeled REQUIRED closed-enum qualifiers that participate
+  in the conflict key.
+
+## codex (CLI) — ANOTHER ROUND
+- Same: all-countries → 10–20 cohort; bounded authoritative sources first; 3–4 properties; defer prose.
+- Conflict key not qualifier-complete (keys on (country,property,as-of) while props declare
+  population_basis/jurisdiction) → manufactures false conflicts.
+- **Evidence record missing:** a URL alone can't prove the source supports the value; need quoted
+  evidence/passage + retrieval timestamp + document identity; "authoritative→trusted" needs claim-level
+  entailment, not just source authority.
+- Missing: evidence-inspection journey; constrained comparison (region/common as-of); rerun/refresh
+  change-log.
+- **#1 fix:** qualifier-complete fact identity + evidence record + deterministic current/promotion rules.
+
+---
+
+## Round 2 — 2026-06-12 — Feature Spec v2 convergence check
+
+Internal red team + CLIs. Tally: **2 ADVANCE (scope hawk, DPI domain) / 3 ANOTHER ROUND (feasibility, codex, gemini)** — all residual findings precise/structural, fixed in v3.
+
+- **Scope Hawk — ADVANCE.** Round-1 concerns closed. Flagged US-8 cohort-run + rich 4-bucket changelog
+  as v1.1 creep; AC2.1 needs a full per-tuple resolution precedence lattice (carry to Architecture).
+- **Feasibility — ANOTHER ROUND.** AC3.1 contradiction CLOSED by qualifier key + exact-match. But the
+  qualifier-complete key SHIFTS the hard problem into extraction: the extractor must reliably emit
+  population_basis/measured_modeled per fact (sources state them implicitly) — guess→false conflicts,
+  abstain→never compares. Evidence record raises precision (value→span binding). **#1 fix: write the
+  fact-extraction contract + infer-vs-abstain policy.**
+- **DPI Domain — ADVANCE.** Domain concerns closed. New: scheme_status needs basis:de_jure/de_facto
+  (mandatory-by-law vs piloting-in-practice false-conflict); data_protection_law needs stage/scope;
+  measured_modeled is binary but reality tiered. "Enum additions in Architecture, don't block."
+- **codex — ANOTHER ROUND.** Sharp: **as-of is a version dimension, not identity** — conflict/
+  resolution/promotion must be per (country, property, non-temporal-qualifier tuple), as-of governs
+  version precedence. Fixes 3 contradictions (AC2.1 "same qualifiers newest as-of", AC3.3 per-property
+  vs per-fact, AC6.1 became-unknown vs append-only). Undetermined-qualifier behavior undefined.
+- **gemini — ANOTHER ROUND.** Canonicalization paradox ("68.2M = 68,200,000" contradicts exact-match +
+  deferred normalization); **promotion-blocking blind to source tier** (a stray blog blocks a World
+  Bank fact). Per-property sanity-check schema unscoped.
+
+### Disposition (v3 — all incorporated, no user decisions needed)
+(a) as-of = version dimension; conflict/resolution/promotion per non-temporal tuple. (b) Undetermined
+required qualifier ⇒ abstain (`unspecified`, own tuple). (c) Removed canonicalization; strict
+exact-match within identical unit; format/magnitude parsing deferred. (d) Promotion-blocking conflict
+scoped to trust-bar-meeting sources; lower-tier disagreement surfaced but non-blocking. (e) Added
+scheme_status.basis (de_jure/de_facto), data_protection_law.stage/scope. (f) Demoted US-8 + rich
+changelog to v1.1. (g) Fact-extraction contract (incl. infer-vs-abstain + value→span) and per-property
+validation schema + resolution lattice named as Architecture deliverables.
+
+---
+
+## Round 3 — 2026-06-12 — Feature Spec v3 convergence check
+
+Internal red team + CLIs. Tally: **4 ADVANCE / 1 ANOTHER ROUND** (codex; fixed in v4). All residual
+findings precise and non-structural — the FS correctly defers its hard mechanisms to Architecture.
+
+- **Scope Hawk — ADVANCE.** v3 edits stayed in scope (qualifiers shrink the comparison surface, not
+  expand it). Non-blocking: define "comparable as-of" as exact-year-match in v1 (fixed in v4).
+- **Feasibility — ADVANCE.** Round-2 blocker CLOSED — §2.2/§7 now state a complete behavioral contract
+  (output shape + abstain policy + value→span); the NLP mechanism is correctly Architecture's job.
+  Non-blocking: "strongly implies" reopens discretion — default to abstain (fixed in v4); consolidate
+  the required-qualifier set in §2.1 (fixed in v4).
+- **DPI Domain — ADVANCE.** basis/stage/scope correctly capture the flagged splits (Aadhaar de jure vs
+  de facto; enacted vs in-force). Non-blocking: add `coverage_kind` (enrolled/issued/active) — the last
+  coverage false-conflict source (fixed in v4); `foundational_id_scheme` kind (noted, lower risk).
+- **codex — ANOTHER ROUND (one precise blocker, fixed in v4):** AC5.2 promoted any threshold-meeting
+  conflict-free fact without excluding `unspecified`-qualifier tuples — contradicting the abstain
+  policy. v4 AC5.2 now requires no `unspecified` required qualifier for promotion.
+- **gemini — (did not return in time; 4 reviews decisive.)**
+
+### Disposition (v4 — Feature Spec converged)
+AC5.2 excludes `unspecified` tuples from auto-promotion; "strongly implies" → explicit-states +
+abstain-default; "comparable as-of" → same-year in v1; added `coverage_kind`; §2.1 is the authoritative
+qualifier set. Remaining items (full resolution lattice, validation schema, as-of alignment heuristic,
+extraction-node calibration, `foundational_id_scheme.kind`) are correctly Architecture-layer.

@@ -1,0 +1,92 @@
+# codex.fs.feedback
+## Round 1 — 2026-06-12 — Feature Spec v1 (DPI / Digital Identity)
+
+## 1. SCOPE CREEP
+1. **“Across all countries”** is not minimum v1. Validate with a representative 10–20-country cohort spanning source availability, languages, and regions.
+2. **“Hybrid sources” including scholarly and open web** creates several ingestion, ranking, extraction, and deduplication systems. Start with a bounded authoritative-source set.
+3. **Eight heterogeneous properties** require property-specific schemas, validation, normalization, and extraction. Start with 3–4: scheme, legal basis, coverage, biometrics.
+4. **“Immutable run report (prose)”** is not required to prove the fact-base workflow. Retain structured run metadata and evidence excerpts; defer generated prose.
+
+## 2. VAGUE ACCEPTANCE CRITERIA
+1. **AC1.1: “produces facts for ≥1 property”** permits success after extracting one trivial fact while seven properties fail. Define required-property coverage and explicit run outcomes.
+2. **AC2.1: “resolved current value”** is undefined when multiple non-conflicting facts exist, especially provisional versus trusted or known-date versus unknown-date.
+3. **AC5.1: “source meets the … trust bar”** delegates the central promotion rule to an unspecified profile. Define deterministic trust inputs, thresholds, and source classification.
+4. **AC6.1: “A newer value … becomes the current fact”** does not define date precision, equal dates, unknown dates, publication date versus measurement date, or whether lower-authority data supersedes trusted data.
+
+## 3. HIDDEN DEPENDENCIES
+1. Evidence capture and citation verification are absent. A URL alone cannot prove that the source supports the extracted value; v1 needs quoted evidence/location, retrieval timestamp, and document identity.
+2. Source identity/versioning is assumed: canonical URL handling, duplicate publications, changed pages, inaccessible documents, PDFs, and archived snapshots.
+3. The spec requires deterministic country and qualifier normalization despite deferring **“entity-instance resolution”** and leaving **“as-of qualifier alignment”** open.
+
+## 4. MISSING STORIES / JOURNEYS
+1. Maya cannot inspect the evidence behind a fact. Add a journey from dossier cell to source passage, extraction context, and research run.
+2. Maya cannot constrain comparison by region, country set, or common as-of period. **“One row per country”** produces an unusable table and invites invalid temporal comparisons.
+3. There is no rerun/refresh journey showing what changed, what failed, and whether previously known facts disappeared from sources.
+
+## 5. FEASIBILITY
+1. **“All countries” × hybrid multilingual web/scholarly research** is 3–10× harder than implied due to access failures, language coverage, document parsing, and source scarcity.
+2. Conflict detection is internally incorrect. AC3.1 keys on **“(country, property, as-of)”**, while properties declare qualifiers such as **“population basis”** and **“jurisdiction.”** This will manufacture false conflicts.
+3. **“Authoritative source … becomes trusted”** cannot be reliable without claim-level entailment checks. Source authority does not establish extraction correctness or qualifier completeness.
+
+## 6. CONVERGENCE CALL
+**ANOTHER ROUND — Make the qualifier-complete fact identity, evidence record, and deterministic current/promotion rules explicit; Architecture cannot repair an undefined behavioral contract.**
+
+<!-- codex fs exit=0 -->
+
+---
+## Round 2 — 2026-06-12 — Feature Spec v2 convergence check
+
+1. **Round-1 blockers**
+- (1) **CLOSED** — “same ... all conflict-key qualifiers” plus exact-match prevents denominator false conflicts.
+- (2) **CLOSED** — normalization/tolerance is consistently deferred.
+- (3) **CLOSED** — bounded cohort and six-property scope.
+- (4) **CLOSED** — curated per-property registry replaces automated classification.
+- (5) **CLOSED** — evidence requires passage, canonical URL, timestamp, and run linkage.
+- (6) **PARTIAL** — stories exist, but current-value and supersession semantics remain inconsistent.
+
+2. **New contradictions**
+- AC2.1 says “among non-conflicting facts with the same qualifiers, the newest `as-of` wins,” but `as-of` is itself a qualifier. Different dates cannot have “the same qualifiers.”
+- AC3.3 blocks promotion for an entire “property,” while AC5.2 promotes/demotes individual facts. A conflict in one qualifier tuple must not block unrelated tuples.
+- AC6.1 allows properties to “became `unknown`,” yet append-only history and “`as-of: unknown` ... never supersedes a dated one” imply a failed refresh cannot replace an existing dated value.
+
+3. **Architecture-blocking ambiguity**
+- AC2.1 requires one “resolved current value,” although distinct qualifier tuples intentionally coexist. It must resolve per qualifier tuple, not per property.
+- Required-qualifier behavior is undefined when `population_basis`, `measured_modeled`, or `jurisdiction` cannot be extracted: reject, provisional fact, or `unknown`.
+- “Trivial format canonicalization” is undefined while exact equality depends on it; `"68,200,000" = "68.2M"` already introduces magnitude parsing.
+
+4. **Convergence call**
+
+**ANOTHER ROUND** — define resolution, conflict, promotion, and supersession uniformly per `(country, property, non-temporal qualifier tuple)`, with `as-of` governing version precedence rather than identity.
+
+<!-- codex fs2 exit=0 -->
+
+---
+## Round 3 — 2026-06-12 — Feature Spec v3 convergence check
+
+**ROUND-2 FIXES**
+
+(a) **CLOSED** — “`as-of` is the *version* dimension, *not* identity”; differing dates become history, not conflicts.
+
+(b) **PARTIAL** — `unspecified` is isolated and declared “never auto-promoted,” but AC5.2 promotes any threshold-meeting, conflict-free fact without excluding `unspecified`.
+
+(c) **CLOSED** — “strict exact-value match within an identical unit”; normalization and tolerance are deferred.
+
+(d) **CLOSED** — only conflicts among “trust-bar-meeting sources” block or demote promotion.
+
+(e) **CLOSED** — `scheme_status.basis` and `data_protection_law.stage/scope` are explicit identity qualifiers.
+
+(f) **CLOSED** — US-8 and the rich change-log are explicitly v1.1.
+
+(g) **CLOSED** — §7 names the extraction contract and evidence binding; §8 names validation schemas and the resolution lattice.
+
+**NEW CONTRADICTIONS**
+
+1. Qualifier abstention says an `unspecified` tuple is “never auto-promoted,” while AC5.2 says: “A fact whose source meets the tuple's trust threshold AND has no open conflict in its tuple is promoted to `trusted`.” No `unspecified` exception exists.
+
+2. The extraction policy says qualifiers may be emitted when the source “strongly implies them,” while repeatedly requiring “never guessed.” Without a stated distinction, implicit inference can violate abstention.
+
+**CONVERGENCE CALL**
+
+**ANOTHER ROUND** — blocking fix: amend every promotion rule, especially AC5.2, to explicitly prohibit auto-promotion when any required identity qualifier is `unspecified`.
+
+<!-- codex fs3 exit=0 -->

@@ -1,0 +1,105 @@
+# gemini.arch.feedback
+## Round 1 — 2026-06-12 — Architecture v1
+
+**1. DECOUPLING**
+The `FactExtractor` is tightly coupled to the specific "compressed, citation-bearing notes" format produced by the researcher subgraph. Any change to the upstream summarization logic—even non-structural—risks breaking the extraction regex or JSON coercion. While the `SourceRegistry` uses a "data-file adapter," the architecture lacks a port for **Entity Resolution**; the logic for mapping `instance_name` to a canonical key is currently buried in the "aggregation" step of `persist_research`, leaking domain-mapping complexity into the storage layer.
+
+**2. RESILIENCE / DEGRADATION**
+The design ignores SQLite write-contention. Under LangGraph's concurrency, multiple research units calling `persist_research` simultaneously against a single `aiosqlite` file will trigger `SQLITE_BUSY` errors or severe latency. Furthermore, the "no span → no fact" policy (§4) is a high-risk failure mode for Gemini/Codex backends; JSON-coerced evidence spans are notoriously brittle, meaning the "explicitly-states-else-unspecified" policy will likely degrade into a "fails-to-coerce-else-dropped" reality, leading to silent data loss.
+
+**3. CORRECTNESS / FEASIBILITY ON THIS STACK**
+The "alias resolution (Türkiye/Turkey…)" mentioned in §4 is a hand-waved "miracle" step. Because the `tuple_key` depends on the `instance_id`, any failure in the `instance_name`→`entity_instance` mapping during aggregation results in "ghost" entities and missed conflicts, rendering the engine's primary value proposition (conflict detection) unreliable. Additionally, injecting a "closed enum" of the entire `property_def` vocabulary into every per-researcher prompt may exceed token/attention limits for narrow-context backends or specific country cohorts with dense property sets.
+
+**4. SECURITY / COST / SCALABILITY**
+"Evidence store keeps source excerpts" (§8) lacks a retention or pruning strategy. In a "living" fact base, the SQLite file will bloat exponentially with redundant source spans, eventually impacting query performance for the CLI surfaces. While LLM calls are "bounded" by subscriptions, the wall-clock overhead of +1 structured-output call per concurrent researcher will significantly increase latency in the graph's execution.
+
+**5. CONVERGENCE CALL**
+**ANOTHER ROUND.**
+
+The single most important fix: **Define a formal `EntityResolver` port and adapter.** Deterministic conflict detection via `tuple_key` is impossible if the "alias resolution" logic is an undefined post-processing step. You must specify how model-emitted strings map to canonical IDs (e.g., via a pre-seeded manifest or a similarity-search utility) before implementation begins.
+
+<!-- gemini arch exit=0 -->
+
+---
+## Round 2 — 2026-06-12 — Architecture v2 convergence check
+
+1. DID v2 CLOSE ROUND-1 BLOCKERS (1)-(6)?
+(1) CLOSED. Moving to a "single post-supervisor `extract_facts` node" running over retained notes successfully bypasses the `ResearcherOutputState` tooling bottleneck.
+(2) CLOSED. Mandating that `evidence_span` is "verified as an exact substring of that segment" concretely eliminates hallucinated provenance.
+(3) CLOSED. Defining "ONE transaction" for ingestion with strict `(tuple_key, as_of, value, source_id)` deduplication resolves the missing transactional/idempotent guarantees.
+(4) CLOSED. The `EntityResolver` port with a strict "miss ⇒ quarantine" rule prevents the system from being flooded with phantom entities.
+(5) CLOSED. The "flat, per-property" extraction schema elegantly bypasses Gemini/Codex nested-object coercion failures, backed by a drop-rate guardrail.
+(6) CLOSED. "Pure policies return decisions... `FactWriter` applies them" fully resolves the persistence decoupling leaks.
+
+2. NEW CONTRADICTIONS
+- **O(N×M) LLM Call Explosion:** The architecture states "The node loops `(source-note × property-in-profile)`; each call returns facts for one property". For 50 sources and 20 properties, this generates 1,000 discrete LLM calls at the end of the run. This contradicts standard rate-limit and latency budgets for a single node, requiring aggressive concurrency or batching during implementation.
+- **Substring Rigidity vs. Compression:** V2 claims "evidence_span is then verified as an exact substring" but defers "span-verification tolerance (whitespace)" to implementation. If the upstream `compress_research` alters formatting, strict substring matching will trigger a massive false-rejection rate, conflicting with the goal of high extraction yield.
+- **Recompute Mutation vs. Append-Only History:** V2 states "bumping `registry_version`... triggers a re-evaluate pass over affected tuples". Re-evaluating pure policies over historical facts could trigger a cascade of new `fact_revision` writes or retroactive supersessions, potentially conflicting with the immutability of past conflicts/resolutions.
+
+3. CONVERGENCE CALL
+ADVANCE
+
+<!-- gemini arch2 exit=0 -->
+
+---
+## Round 3 — 2026-06-12 — Architecture v3 convergence check
+
+1. **DID v3 CLOSE THE ROUND-2 FINDINGS?**
+- **CLOSED:** The `run_source` side store ("persistence is the carry channel") correctly bypasses the LangGraph state-merging boundary at the supervisor fan-in. Writing at the tool layer ensures per-source metadata/text exists before the `raw_notes` flattening.
+- **CLOSED:** Node placement (`extract_facts` after `final_report_generation`) correctly uses `run_id` to retrieve source text, avoiding the "cleared notes" bug.
+- **CLOSED:** Call volume is reduced to O(sources) via the "flat list of fact records" schema.
+- **CLOSED:** Logic separation is achieved; "Pure policies... return fully-resolved intents" and the writer only "persists them inside the transaction."
+- **CLOSED:** Forward-only recompute and canonical dedup (value, unit) are soundly defined.
+
+2. **NEW CONTRADICTIONS**
+- **Provenance Pollution:** v3 states `run_source` is written at the "tool layer... as it fetches them" and `extract_facts` reads "by `run_id`." This implies extraction runs on *every* source retrieved during the search phase, including those the Supervisor or Researcher might have discarded as irrelevant for the final report. This risks polluting the dossier with "noise" sources that failed the primary agent's quality filter.
+- **Context/Density Risk:** Moving to "one call per source" for all profile properties (15–20 fields) increases the risk of LLM output truncation or "coercion collapse" in dense, text-heavy sources. While §4 adds a "drop-rate guardrail," the prompt complexity for a single pass over 20 properties is significantly higher than the v2 property-scoped approach.
+- **Storage Redundancy:** Writing full source text to `run_source` at the tool layer for every retrieval across multiple researchers/runs without a global (cross-run) content-addressable store will lead to rapid SQLite bloat.
+
+3. **CONVERGENCE CALL**
+**ADVANCE**
+
+The architecture is now buildable and the state-boundary blocker is resolved. The provenance and density risks are manageable at the implementation/prompt-engineering layer (§12).
+
+> "source text reaches extraction via a `run_source` side store... persistence is the carry channel... no ResearcherState/SupervisorState change" (§2)
+> "extract_facts reads the store by run_id... does not use notes" (Revision note c)
+> "One call per source... flat list of fact records across properties" (§4)
+
+<!-- gemini arch3 exit=0 -->
+
+---
+## Round 4 — 2026-06-12 — Architecture v4 convergence check
+
+1. DID v4 CLOSE THE ROUND-3 BLOCKERS/FOLD-INS?
+- **run_id lifecycle**: CLOSED. "preallocates the run row at graph start... finalized in `persist_research`" provides the required key for tools to write.
+- **Search-adapter fidelity**: PARTIAL. Restricting to raw-text adapters is correct, but "disables fact extraction for the run" introduces a new bug (see below).
+- **Same-run conflicting facts**: CLOSED. Ingestion "evaluates each tuple against stored facts and the run's other candidates".
+- **Source ceiling**: CLOSED. "coverage-incomplete marker" explicitly handles omitted sources.
+- **run_source lifecycle**: CLOSED. "RunSourceStore write port" and "WAL + busy_timeout" isolate the DB contention.
+- **Policy read shape**: CLOSED. Policies read strictly via "FactQuery DTO".
+
+2. NEW CONTRADICTIONS
+- **Mixed-Adapter Run Collapse**: You state, "a summarizing CLI/native search adapter disables fact extraction for the run". This is fatal for mixed-adapter runs. If the supervisor routes one query to a raw-text Tavily tool and another to a summarizing local tool, disabling extraction *for the entire run* silently discards all the valid Tavily facts. The extraction bypass must be evaluated *per-source* or *per-adapter result*, not as a global per-run kill switch.
+- **Orphaned Runs & Schema Mismatch**: You state the system "preallocates the run row at graph start (status `running`, finalized in `persist_research`)". Today, `persist_research` executes an `INSERT`. While changing it to an `UPDATE` is trivial, if the LangGraph execution crashes, errors out, or is cancelled before reaching `persist_research`, the `research_runs` row is permanently orphaned in the `running` state. The lifecycle needs to account for crash-recovery or explicitly tolerate orphaned rows.
+
+3. CONVERGENCE CALL
+ANOTHER ROUND
+Change the summarizing-adapter extraction bypass from "for the run" to per-source/per-adapter so mixed-tool runs do not discard valid facts.
+
+<!-- gemini arch4 exit=0 -->
+
+---
+## Round 5 — 2026-06-12 — Architecture v5 convergence check
+
+1. DID v5 CLOSE THE ROUND-4 ITEMS?
+- Run lifecycle / double-INSERT: CLOSED.
+- Mixed-adapter all-or-nothing: CLOSED.
+- Prune vs evidence: CLOSED.
+
+2. NEW CONTRADICTIONS
+- **Invisible skipped sources:** v5 states "sources from summarizing CLI/native adapters simply have no `run_source` row" and `extract_facts` "reads `run_source` by `run_id`". If summarizing adapters leave no row, `extract_facts` cannot know a source was skipped to trigger the flag ("When any source is skipped... the run is flagged `coverage_incomplete`"). The node must either read the graph state's total source list or require adapters to write a metadata stub to `run_source`.
+
+3. CONVERGENCE CALL
+ADVANCE
+
+<!-- gemini arch5 exit=0 -->

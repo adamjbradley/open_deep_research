@@ -1,0 +1,125 @@
+# codex.arch.feedback
+## Round 1 — 2026-06-12 — Architecture v1
+
+**1. DECOUPLING**
+- “Aggregation (`persist_research`): map…validate…compute…look up…then hand tuples…” makes `persist_research` the business-logic service locator. Introduce an ingestion/application service; keep graph persistence as a thin adapter.
+- `FactStore` combines persistence, querying, conflict history, and evidence. That interface is SQLite-shaped and too broad to swap or test cleanly.
+- Policy functions are called “pure,” but promotion requires current conflicts, versions, demotions, and revisions. The transaction/orchestration boundary is unspecified; purity alone does not establish decoupling.
+
+**2. RESILIENCE / DEGRADATION**
+- “Retry then skip-with-log” defines neither retry limits nor whether one malformed fact rejects the entire extraction result. Require per-fact validation so valid facts survive partial backend coercion failures.
+- No atomicity/idempotency contract exists for fact insert, evidence insert, conflict changes, promotion, lifecycle updates, and revisions. An aggregation crash can leave trusted facts without evidence or half-written conflicts.
+- Single-file SQLite contention is dismissed. Per-researcher completion may converge on `persist_research`; define one writer, transaction scope, busy timeout, bounded retry, and replay behavior.
+
+**3. CORRECTNESS / FEASIBILITY**
+- “Exact quoted span” cannot be guaranteed from “compressed…notes”: compression may paraphrase, truncate, or merge sources. Evidence must be validated as an exact substring of a retained, source-addressable note segment; otherwise reject it.
+- `qualifiers: {name: value|"unspecified"}` is not actually a closed enum. Dynamic property-specific qualifier names and values are difficult to enforce through one static Pydantic schema across Claude, Gemini, and Codex. Validate each emitted item independently after coercion.
+- Emitting extraction “into `ResearcherState`; aggregated in `persist_research`” understates required graph changes. The architecture does not specify the reducer for concurrent researcher outputs, state-size implications, or how extraction failure avoids failing the researcher node.
+- Conflict lifecycle is incomplete. No deterministic rule handles duplicate observations, conflict resolution, replacement facts, same-source revisions, or reopening. “A newer `as_of` supersedes the prior current version” also fails to state whether provisional evidence may supersede trusted evidence.
+
+**4. SECURITY / COST / SCALABILITY**
+- “No new network egress” is false: an additional model call transmits compressed source material. It may use existing providers, but it is new egress volume and requires provider-specific retention/privacy treatment.
+- The schema shown has no soft-delete columns, contradicting “schema-ready.” Evidence retention, deletion propagation, and run deletion semantics are undefined.
+- Registry edits can alter promotion eligibility globally, but no registry version is recorded and no deterministic recomputation process exists. Subscription billing does not remove latency, quota, or concurrency cost.
+
+**5. CONVERGENCE CALL**
+
+ANOTHER ROUND — define a transactional, idempotent ingestion/recomputation protocol covering partial extraction, evidence validation, conflict transitions, promotion/lifecycle updates, retries, and registry-version changes.
+
+<!-- codex arch exit=0 -->
+
+---
+## Round 2 — 2026-06-12 — Architecture v2 convergence check
+
+1. **CLOSED** — Extraction moved to “**single post-supervisor node**”; source-tagged segments are explicitly added without changing researcher/supervisor state.
+
+2. **CLOSED** — “`evidence_span` **not found verbatim**” is rejected.
+
+3. **CLOSED** — One atomic transaction, dedup key, single writer, and pre-ingest per-fact rejection are specified.
+
+4. **CLOSED** — `EntityResolver` miss goes to “**quarantine, never auto-create**.”
+
+5. **CLOSED** — Flat property-specific schemas, post-coercion validation, retry isolation, and drop-rate monitoring address backend coercion.
+
+6. **CLOSED** — `FactIdentity`, pure policy intents, writer/query split, thin persistence, migrations, new CLI, recompute, and soft deletion close the coupling gaps.
+
+**New Contradictions**
+
+1. Cost bounding is false: “`sources × properties`” is not “**bounded by cohort×6**”; source count is independent of cohort size. The plan needs an explicit per-run/source extraction ceiling or batching contract.
+
+2. Idempotency uses `(tuple_key, as_of, value, source_id)` while identity promises `canonicalize(value,unit)`. Raw `value` omits `unit`, potentially collapsing different units or duplicating equivalent canonical values. Dedup must use the canonical value-unit identity.
+
+3. “Every intent writes a `fact_revision(why)`” conflicts with idempotent reruns creating “no phantom revision.” Clarify that no-op/deduplicated intents write no revision.
+
+**ADVANCE**
+
+<!-- codex arch2 exit=0 -->
+
+---
+## Round 3 — 2026-06-12 — Architecture v3 convergence check
+
+**Round-2 Findings**
+
+- **Source boundary: PARTIAL.** `run_source` avoids graph-state flattening for Tavily, where URL and `raw_content` coexist before summarization. CLI/native search wrappers currently return compiled strings, not `"original retrieved text"` per URL.
+- **Cleared notes: CLOSED.** `"extract_facts reads run_source by run_id"` removes dependence on cleared `notes`.
+- **Call explosion: CLOSED.** `"once per source"` is O(sources); flat records do not recreate the nested qualifier schema.
+- **Writer re-deciding: CLOSED.** Policies emit `"fully-resolved intents"`; the writer only persists.
+- **Recompute/history: CLOSED.** Forward-only revisions and `"never rewrites closed historical conflicts/resolutions"` are coherent.
+- **Dedup: CLOSED.** `canonical(value,unit)` plus no revision for no-op reruns resolves the finding.
+
+**New Contradictions**
+
+1. **Blocking lifecycle inversion.** Tools must write `run_source(run_id, ...)`, and `extract_facts` reads it before `persist_research`; but current `persist_research` creates the research-run ID. v3 never establishes a `run_id` before tool execution.
+2. **Same-run decisions may be stale.** Policies receive `"current tuple's stored facts"` before one final batch write. Unless candidates are staged cumulatively, two conflicting facts discovered in the same run will not see each other.
+3. **Source ceiling is lossy without semantics.** `"per-run source ceiling"` bounds cost but specifies neither deterministic selection nor explicit incomplete-coverage status; silently omitted sources can make absence appear authoritative.
+
+**Convergence Call**
+
+ANOTHER ROUND
+
+Preallocate a durable run ID before research begins, and define a structured source-capture contract for each supported adapter; unsupported adapters must explicitly disable fact extraction.
+
+<!-- codex arch3 exit=0 -->
+
+---
+## Round 4 — 2026-06-12 — Architecture v4 convergence check
+
+**Round-3 Closure**
+
+- **run_id lifecycle — PARTIAL.** “Preallocates the run row at graph start” closes timing, but §7 neither adds `research_runs.status` nor explicitly replaces the existing `persist_research` INSERT with UPDATE/finalization semantics.
+- **Search-adapter fidelity — PARTIAL.** Raw-text-only ingestion is sound, but “a summarizing CLI/native search adapter disables fact extraction for the run” is ambiguous for mixed-adapter fan-out.
+- **Same-run conflicting facts — CLOSED.** “Collects all candidates first” and evaluates against stored facts plus “the run’s other candidates.”
+- **Source ceiling — PARTIAL.** Deterministic selection and “coverage-incomplete” are asserted, but no persisted run-level marker appears in §7.
+- **run_source lifecycle/coupling — CLOSED.** `RunSourceStore`, hash deduplication, soft-delete/pruning, WAL, and `busy_timeout` define the boundary and lifecycle.
+- **Policy read shape — CLOSED.** Stored facts are supplied through `FactQuery`; policies remain pure intent producers.
+
+**New Contradictions**
+
+1. Preallocation conflicts with the retained persistence contract unless explicitly reconciled: v4 says `persist_research` “finalized” the row, while the identified existing behavior is an INSERT. The schema also omits the required run status/finalization fields.
+2. Mixed adapters have undefined semantics. One summarizing adapter apparently disables extraction for the entire run, discarding valid raw-text sources; extracting only raw-source results would instead require the run to be marked coverage-incomplete.
+
+**CONVERGENCE CALL**
+
+ANOTHER ROUND — specify one authoritative run lifecycle: migration fields, graph-start INSERT, `persist_research` UPDATE/finalization, failure cleanup, and a run-level extraction/coverage status that defines mixed-adapter behavior.
+
+<!-- codex arch4 exit=0 -->
+
+---
+## Round 5 — 2026-06-12 — Architecture v5 convergence check
+
+1. **Run lifecycle / double-INSERT — CLOSED.** “`preallocate_run` … INSERTs” and both paths use `finalize_research_run(run_id, …)` UPDATE.
+
+2. **Mixed-adapter all-or-nothing — PARTIAL.** Per-source extraction is fixed, but “sources from summarizing adapters … have no `run_source` row” leaves no defined mechanism to detect that “any source is skipped” and set `coverage_incomplete`.
+
+3. **Prune vs evidence — NOT-CLOSED.** The prune rule says `run_source` rows are “referenced by live `evidence`,” but `evidence(fact_id, quoted_span, source_url, doc_identity, retrieved_at)` has no stable reference to `run_source` or its `content_hash`. The guard, including cross-run hash sharing, is not enforceable from the stated schema.
+
+**NEW CONTRADICTIONS**
+
+- “Every fact has an `evidence` row” conflicts with evidence having no durable identity link to the retained text that validates it.
+- `coverage_incomplete` is promised for adapter skips while skipped adapter sources are deliberately absent from the only acquisition-side record.
+
+**CONVERGENCE CALL — ANOTHER ROUND**
+
+Blocking structural fix: model source acquisition explicitly so every encountered source has a persisted record, with capture/extraction status and a stable content identity referenced by `evidence`; raw text may remain optional. This simultaneously makes adapter-skip coverage and evidence-aware pruning enforceable.
+
+<!-- codex arch5 exit=0 -->
