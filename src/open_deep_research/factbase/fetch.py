@@ -24,33 +24,63 @@ def html_to_text(html: str) -> str:
     return " ".join(text.split())
 
 
-def _safe_host(url: str) -> bool:
-    """SSRF guard: resolve the URL's host and reject if any resolved IP is
-    private/loopback/link-local/reserved/multicast/unspecified. Returns True
-    only when the host resolves and every resolved address is public."""
+def _is_public_ip(ip: ipaddress._BaseAddress) -> bool:
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified)
+
+
+def _resolve_safe(url: str) -> str | None:
+    """SSRF guard: resolve the URL's host and reject if ANY resolved IP is
+    private/loopback/link-local/reserved/multicast/unspecified (fail-closed).
+
+    Returns the single validated public IP we resolved (as a string), or None
+    if the host is unresolvable / unsafe. The caller connects to exactly this
+    IP, which closes the DNS-rebinding TOCTOU window: httpx never re-resolves
+    the name, so a hostile DNS server cannot swap in a private IP at connect
+    time. We require every resolved address to be public, then pin the first
+    one (which is among the validated set)."""
     try:
         host = (urlparse(url).hostname or "").strip().lower().rstrip(".")
         if not host:
-            return False
+            return None
         infos = socket.getaddrinfo(host, None)
         if not infos:
-            return False
+            return None
+        pinned: str | None = None
         for info in infos:
             ip = ipaddress.ip_address(info[4][0])
-            if (ip.is_private or ip.is_loopback or ip.is_link_local
-                    or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
-                return False
-        return True
+            if not _is_public_ip(ip):
+                return None
+            if pinned is None:
+                pinned = str(ip)
+        return pinned
     except Exception:
-        return False
+        return None
+
+
+def _safe_host(url: str) -> bool:
+    """Thin bool wrapper around `_resolve_safe` for callers/tests that only
+    need a yes/no SSRF verdict."""
+    return _resolve_safe(url) is not None
+
+
+def _pin_url(url: str, ip: str):
+    """Rewrite `url` so the netloc points at the validated `ip` (bracketing
+    IPv6 literals and preserving any explicit port). Returns
+    (ip_url, host_header, sni_hostname) where host_header/sni_hostname carry
+    the original hostname so the virtual host and TLS certificate verification
+    still bind to the real name, not the IP."""
+    parsed = urlparse(url)
+    host = parsed.hostname
+    port = f":{parsed.port}" if parsed.port else ""
+    netloc_ip = f"[{ip}]{port}" if ":" in ip else f"{ip}{port}"
+    ip_url = parsed._replace(netloc=netloc_ip).geturl()
+    return ip_url, parsed.netloc, host
 
 
 async def fetch_text(url: str, *, client=None, timeout: float = 10.0,
                      max_bytes: int = 2_000_000, max_redirects: int = 5) -> str | None:
     if not (url or "").lower().startswith(("http://", "https://")):
-        return None
-    # SSRF guard: validate the initial host before issuing any request.
-    if not _safe_host(url):
         return None
     own = client is None
     if own:
@@ -60,7 +90,21 @@ async def fetch_text(url: str, *, client=None, timeout: float = 10.0,
     try:
         current = url
         for _ in range(max_redirects + 1):
-            resp = await client.get(current)
+            # SSRF guard + DNS-rebinding fix: resolve ONCE and pin the validated
+            # IP for this hop. Connecting to the IP literal means httpx does not
+            # re-resolve the hostname at connect time, so a hostile DNS server
+            # cannot return a public IP to the guard and a private IP to the
+            # socket. The original hostname rides along as the Host header
+            # (virtual host) and sni_hostname (TLS SNI + certificate verify).
+            ip = _resolve_safe(current)
+            if ip is None:
+                return None
+            ip_url, host_header, sni_host = _pin_url(current, ip)
+            resp = await client.get(
+                ip_url,
+                headers={"Host": host_header},
+                extensions={"sni_hostname": sni_host},
+            )
             status = getattr(resp, "status_code", 0)
             if status in (301, 302, 303, 307, 308):
                 location = (resp.headers.get("location") or "").strip()
@@ -68,10 +112,9 @@ async def fetch_text(url: str, *, client=None, timeout: float = 10.0,
                     return None
                 new_url = urljoin(current, location)
                 # Re-validate EACH hop: scheme + host must remain safe so a
-                # public URL cannot redirect into the internal network.
+                # public URL cannot redirect into the internal network. The next
+                # loop iteration re-resolves and re-pins the redirect target.
                 if not new_url.lower().startswith(("http://", "https://")):
-                    return None
-                if not _safe_host(new_url):
                     return None
                 current = new_url
                 continue
