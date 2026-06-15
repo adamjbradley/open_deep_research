@@ -8,7 +8,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
 import aiohttp
+from dotenv import load_dotenv
 from langchain_core.language_models import BaseChatModel
+
+# Load environment variables from .env file
+load_dotenv()
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -30,6 +34,7 @@ from tavily import AsyncTavilyClient
 
 from open_deep_research.claude_agent_chat import (
     ClaudeAgentChat,
+    configurable_claude_model,
     run_codex_search,
     run_gemini_search,
     run_search_agent,
@@ -81,6 +86,7 @@ async def tavily_search(
         Formatted string containing summarized search results
     """
     # Step 1: Execute search queries asynchronously
+    logger.info("Tavily search executing for queries: %s", queries)
     search_results = await tavily_search_async(
         queries,
         max_results=max_results,
@@ -89,13 +95,15 @@ async def tavily_search(
         config=config
     )
     
-    # Step 2: Deduplicate results by URL to avoid processing the same content multiple times
+    # Step 2: Deduplicate results by URL
     unique_results = {}
     for response in search_results:
         for result in response['results']:
             url = result['url']
             if url not in unique_results:
                 unique_results[url] = {**result, "query": response['query']}
+
+    logger.info("Tavily found %d unique results for %d queries", len(unique_results), len(queries))
 
     # Persist per-source raw text for fact extraction (best-effort; never break search).
     try:
@@ -120,13 +128,17 @@ async def tavily_search(
     # Character limit to stay within model token limits (configurable)
     max_char_to_include = configurable.max_content_length
     
-    # Initialize summarization model with retry logic (Claude Agent SDK backend)
-    summarization_model = ClaudeAgentChat(
-        model=to_claude_model(configurable.summarization_model),
-        max_tokens=configurable.summarization_model_max_tokens,
-        subscription=use_subscription(),
-    ).with_structured_output(Summary).with_retry(
-        stop_after_attempt=configurable.max_structured_output_retries
+    # Initialize summarization model with retry logic
+    summarization_model = (
+        configurable_claude_model()
+        .with_structured_output(Summary)
+        .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+        .with_config({
+            "model": configurable.summarization_model,
+            "max_tokens": configurable.summarization_model_max_tokens,
+            "api_key": get_api_key_for_model(configurable.summarization_model, config),
+            "tags": ["langsmith:nostream"],
+        })
     )
     
     # Step 4: Create summarization tasks (skip empty content)
@@ -229,7 +241,7 @@ async def summarize_webpage(model: BaseChatModel, webpage_content: str) -> str:
         # Execute summarization with timeout to prevent hanging
         summary = await asyncio.wait_for(
             model.ainvoke([HumanMessage(content=prompt_content)]),
-            timeout=60.0  # 60 second timeout for summarization
+            timeout=120.0  # 120 second timeout for summarization
         )
         
         # Format the summary with structured sections
