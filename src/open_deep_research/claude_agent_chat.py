@@ -104,7 +104,7 @@ _TRANSIENT_ERROR_MARKERS = (
     "rate limit",
     "rate_limit",
     " 429",
-    "exit code",
+    "failed (exit ",  # matches _run_cli's "CLI <bin> failed (exit <code>)" message
     "process error",
     "processerror",
     "connection reset",
@@ -123,7 +123,9 @@ def _is_transient_sdk_error(exc: BaseException) -> bool:
     mismatches, missing keys, config problems) are NOT transient -- they must
     surface immediately so real bugs aren't masked by retries.
     """
-    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+    # Keep both: on Python 3.10 asyncio.TimeoutError is a distinct class (merged with
+    # the builtin in 3.11). PEP-604 union keeps the linter happy on 3.10+.
+    if isinstance(exc, asyncio.TimeoutError | TimeoutError):
         return True
     text = str(exc).lower()
     return any(marker in text for marker in _TRANSIENT_ERROR_MARKERS)
@@ -136,6 +138,7 @@ async def _run_with_retry(attempt, *, max_attempts: int, backoff_s: float):
     attempts remain; re-raises non-transient errors immediately and the last
     transient error once attempts are exhausted.
     """
+    max_attempts = max(1, max_attempts)  # always attempt once; never fall through to None
     for i in range(max_attempts):
         try:
             return await attempt()
@@ -602,6 +605,15 @@ class ClaudeAgentChat(BaseChatModel):
                     data["is_error"] = bool(msg.is_error)
 
             await _drain_query_with_timeout(prompt, options, _handle, _SDK_TIMEOUT_S)
+            # Raise inside the retried unit (not after it) so an error result the SDK
+            # reports *gracefully* (is_error flag, no exception) is still classified by
+            # _is_transient_sdk_error and retried when transient.
+            if data["is_error"]:
+                # Plain (not !r) interpolation so a transient result string ("success",
+                # "overloaded", ...) is still matched by _is_transient_sdk_error.
+                raise RuntimeError(
+                    f"Claude Agent SDK returned an error result: {data['result_text']}"
+                )
             return data
 
         async def _attempt() -> dict:
@@ -617,10 +629,6 @@ class ClaudeAgentChat(BaseChatModel):
         structured = data["structured"]
         result_text = data["result_text"]
         usage = data["usage"]
-        is_error = data["is_error"]
-
-        if is_error:
-            raise RuntimeError(f"Claude Agent SDK returned an error: {result_text!r}")
 
         response_metadata = {"model": self.model}
         if usage is not None:

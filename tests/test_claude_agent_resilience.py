@@ -51,6 +51,17 @@ def test_genuine_errors_are_not_transient():
     assert _is_transient_sdk_error(KeyError("research_topic")) is False
 
 
+def test_graceful_error_result_message_is_transient():
+    """The error raised inside _consume for a graceful is_error result is matchable.
+
+    _run_query raises ``RuntimeError("...error result: <result_text>")`` (plain, no
+    repr) so a transient result string still classifies -- guards against the quoting
+    regression where ``'success'`` wouldn't match the ``error result: success`` marker.
+    """
+    exc = RuntimeError("Claude Agent SDK returned an error result: success")
+    assert _is_transient_sdk_error(exc) is True
+
+
 # -- retry ------------------------------------------------------------------
 
 def test_retry_recovers_after_transient_failures():
@@ -98,6 +109,19 @@ def test_retry_exhausts_then_reraises():
     except Exception as e:
         assert "overloaded" in str(e)
     assert calls["n"] == 3
+
+
+def test_retry_with_zero_attempts_still_runs_once():
+    """A bad max_attempts must never silently return None; it attempts at least once."""
+    calls = {"n": 0}
+
+    async def attempt():
+        calls["n"] += 1
+        return "ok"
+
+    result = asyncio.run(_run_with_retry(attempt, max_attempts=0, backoff_s=0))
+    assert result == "ok"
+    assert calls["n"] == 1
 
 
 # -- timeout ----------------------------------------------------------------
