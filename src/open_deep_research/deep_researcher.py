@@ -315,6 +315,23 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     }
 
 
+def _lead_researcher_tools(conducted_research: bool) -> list:
+    """Tools offered to the supervisor, conditioned on whether research has run yet.
+
+    The CLI/subscription backends select tools by *name* via a JSON envelope that does
+    not enforce per-tool argument schemas, so the no-argument ResearchComplete is always
+    a valid selection. If it is offered before any research has run, the supervisor picks
+    it every turn and never dispatches research; the premature-completion guard in
+    ``supervisor_tools`` then merely loops until the iteration cap, ending with empty
+    notes. Withholding ResearchComplete (and think_tool) until a ConductResearch result
+    exists forces a real dispatch first. Once research has returned, the full toolset is
+    available so the supervisor can reflect and legitimately complete.
+    """
+    if conducted_research:
+        return [ConductResearch, ResearchComplete, think_tool]
+    return [ConductResearch]
+
+
 async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[Literal["supervisor_tools"]]:
     """Lead research supervisor that plans research strategy and delegates to researchers.
     
@@ -338,9 +355,16 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
         "tags": ["langsmith:nostream"]
     }
     
-    # Available tools: research delegation, completion signaling, and strategic thinking
-    lead_researcher_tools = [ConductResearch, ResearchComplete, think_tool]
-    
+    # Step 2: Choose tools based on progress. Until at least one ConductResearch result
+    # has returned, withhold ResearchComplete so the supervisor cannot prematurely complete
+    # via the no-argument envelope selection -- it must dispatch real research first.
+    supervisor_messages = state.get("supervisor_messages", [])
+    conducted_research = any(
+        isinstance(message, ToolMessage) and getattr(message, "name", "") == "ConductResearch"
+        for message in supervisor_messages
+    )
+    lead_researcher_tools = _lead_researcher_tools(conducted_research)
+
     # Configure model with tools, retry logic, and model settings
     research_model = (
         configurable_model
@@ -348,12 +372,11 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
         .with_config(research_model_config)
     )
-    
-    # Step 2: Generate supervisor response based on current context
-    supervisor_messages = state.get("supervisor_messages", [])
+
+    # Step 3: Generate supervisor response based on current context
     response = await research_model.ainvoke(supervisor_messages)
     
-    # Step 3: Update state and proceed to tool execution
+    # Step 4: Update state and proceed to tool execution
     return Command(
         goto="supervisor_tools",
         update={
@@ -454,10 +477,35 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
     
     # Handle ConductResearch calls (research delegation)
     conduct_research_calls = [
-        tool_call for tool_call in most_recent_message.tool_calls 
+        tool_call for tool_call in most_recent_message.tool_calls
         if tool_call["name"] == "ConductResearch"
     ]
-    
+
+    # The tool-selection envelope doesn't enforce per-tool argument schemas, so a
+    # ConductResearch call can arrive with an empty or missing research_topic (especially
+    # when it is the only tool offered pre-research). Dispatching that would KeyError on
+    # args["research_topic"] and research nothing -- answer each with a corrective nudge
+    # and drop it so only calls with a real topic are dispatched. If all of them were empty
+    # and there are no think_tool calls, the nudges alone loop the supervisor back to retry.
+    empty_research_calls = [
+        tool_call for tool_call in conduct_research_calls
+        if not str((tool_call.get("args") or {}).get("research_topic", "")).strip()
+    ]
+    for tool_call in empty_research_calls:
+        all_tool_messages.append(ToolMessage(
+            content=(
+                "ConductResearch requires a non-empty 'research_topic': a specific, "
+                "standalone instruction describing exactly what to research. Provide one "
+                "and dispatch ConductResearch again."
+            ),
+            name="ConductResearch",
+            tool_call_id=tool_call["id"],
+        ))
+    conduct_research_calls = [
+        tool_call for tool_call in conduct_research_calls
+        if tool_call not in empty_research_calls
+    ]
+
     if conduct_research_calls:
         try:
             # Limit concurrent research units to prevent resource exhaustion
