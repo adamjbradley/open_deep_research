@@ -248,6 +248,17 @@ class Configuration(BaseModel):
             }
         }
     )
+    run_staleness_minutes: int = Field(
+        default=60,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 60,
+                "min": 5,
+                "description": "Age (minutes) after which a still-'running' research_runs row is treated as abandoned (e.g. a crashed/killed run) and reaped to status='error' at the start of the next run. Should comfortably exceed a normal run's wall-clock so live runs are never reaped."
+            }
+        }
+    )
     accumulate_by_subject: bool = Field(
         default=True,
         metadata={
