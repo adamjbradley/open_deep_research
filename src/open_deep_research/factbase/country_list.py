@@ -5,6 +5,13 @@ Three input shapes (scout discovery lives in Plan 7b, where the model call is):
   - a known group name ("G20", "EU", "West Africa") -> its members
   - a comma-separated list of names ("A, B, C")
 A single bare token that is not a known group is treated as one explicit name.
+
+TRUST BOUNDARY: ``spec`` (including the ``@file`` form) must come ONLY from a
+CLI-authenticated operator argument, never from LLM-generated or remote input. The
+``@file`` branch opens the given path verbatim by design (a standard CLI affordance,
+like ``curl @file``); the operator already has shell-level read access, so this grants
+no escalation. Do NOT route scout/LLM output or untrusted request data through here —
+the scout strategy (Plan 7b) returns names directly and must not reach this open().
 """
 from __future__ import annotations
 
@@ -23,6 +30,7 @@ def resolve_country_list(spec: str) -> list[str]:
     if not spec:
         raise ValueError("empty country-list spec")
     if spec.startswith("@"):
+        # Operator-supplied path (see module TRUST BOUNDARY note): opened verbatim by design.
         with open(spec[1:], encoding="utf-8") as fh:
             names = [ln.strip() for ln in fh]
         out = [n for n in names if n]
