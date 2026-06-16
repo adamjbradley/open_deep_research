@@ -62,6 +62,12 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("stats", help="Fact-base health metrics")
     sub.add_parser("validate", help="Validate all profile/registry YAML files.")
 
+    rec = sub.add_parser("recompute", help="Recompute canonical fact values; --check reports drift only.")
+    rec.add_argument("--profile", default="country_digital_identity",
+                     help="Profile name (YAML stem) to check/recompute against.")
+    rec.add_argument("--check", action="store_true",
+                     help="Report whether the profile changed since the last stamped run (no writes).")
+
     return parser
 
 
@@ -71,6 +77,26 @@ async def run(argv, db_path=None) -> str:
         report, ok = validate_profiles()
         return report if ok else report + "\nINVALID"
     db_path = db_path or get_db_path(None)
+    if args.command == "recompute":
+        from open_deep_research import storage as _storage
+        from open_deep_research.factbase import (
+            drift as _drift, migrations as _mig, profile as _profile,
+            recompute as _recompute, schema as _schema,
+        )
+        prof = _profile.load(args.profile)
+        cur_hash = getattr(prof, "profile_hash", None)
+        if args.check:
+            d = await _drift.check_drift(db_path, args.profile, cur_hash)
+            if d["drifted"]:
+                return (f"DRIFT  {args.profile}: changed since last run "
+                        f"({(d['last_run_hash'] or '')[:8]} -> {(cur_hash or '')[:8]}). "
+                        f"Run `dossier recompute --profile {args.profile}` to refresh canonical values.")
+            return f"OK     {args.profile}: no drift (hash {(cur_hash or 'none')[:8]})."
+        async with aiosqlite.connect(db_path) as conn:
+            await _storage._ensure_schema(conn)
+            await _mig.apply(conn, _schema.STEPS)
+            n = await _recompute.backfill_canonical_values(conn, prof, force=True)
+        return f"recomputed canonical values for {n} fact row(s) under {args.profile}."
     async with aiosqlite.connect(db_path) as conn:
         q = _query.FactQuery(conn)
         if args.command == "show":

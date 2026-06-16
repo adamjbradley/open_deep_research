@@ -1396,6 +1396,20 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
             # Provenance: stamp which profile produced this run's facts (after selection/load,
             # before extraction). Direct UPDATE within the open connection.
             if run_id:
+                # Drift signal: if a *prior* run used a different hash for this profile, warn
+                # (warn-and-proceed). The current run isn't stamped yet, so exclude its id.
+                _cur = await conn.execute(
+                    "SELECT profile_hash FROM research_runs "
+                    "WHERE profile_name=? AND profile_hash IS NOT NULL AND id<>? "
+                    "ORDER BY id DESC LIMIT 1",
+                    (configurable.profile_name, run_id))
+                _prev = await _cur.fetchone()
+                _cur_hash = getattr(prof, "profile_hash", None)
+                if _prev and _prev[0] and _cur_hash and _prev[0] != _cur_hash:
+                    logger.warning(
+                        "Profile '%s' changed since the last run (%s -> %s); prior facts may be "
+                        "stale until `dossier recompute --profile %s`.",
+                        configurable.profile_name, _prev[0][:8], _cur_hash[:8], configurable.profile_name)
                 await conn.execute(
                     "UPDATE research_runs SET profile_name=?, profile_version=?, profile_hash=? WHERE id=?",
                     (configurable.profile_name,
