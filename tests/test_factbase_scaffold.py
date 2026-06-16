@@ -44,3 +44,19 @@ def test_induce_rejects_schema_invalid_proposal():
         return INVALID
     with pytest.raises(ValueError):
         asyncio.run(induce("country", "x", [], [], stub))
+
+
+def test_render_draft_has_review_block_and_revalidates():
+    import yaml
+    from open_deep_research.factbase.scaffold import render_draft_yaml
+    from open_deep_research.factbase.profile_schema import profile_from_dict
+
+    text = render_draft_yaml(VALID)
+    assert "SCAFFOLD DRAFT" in text                    # review block present
+    assert "cbdc_status" in text and "confidence: medium" in text  # flagged decision
+    assert "identity_rationale" not in text            # rationale is a comment, not a YAML field
+
+    # The YAML body (comments ignored by the parser) must re-validate as a real profile.
+    data = yaml.safe_load(text)
+    prof = profile_from_dict(data)
+    assert prof.property("cbdc_status").value_enum == ["research", "pilot", "launched"]
