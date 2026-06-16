@@ -79,7 +79,7 @@ def canonical_value(property_def, value: str, unit: str | None) -> tuple[str, st
             f = None
         if f is None or not math.isfinite(f):  # non-numeric or inf/nan -> text fallback (never raise)
             return (_norm_text(raw), _norm_text(unit) or None)
-        canon = str(int(f)) if f == int(f) else repr(f)
+        canon = str(int(f)) if f == int(f) else str(f)  # str==repr for float in py3; match _parse_percent
         return (canon, _norm_text(unit) or None)
 
     if kind in ("name", "name_year"):

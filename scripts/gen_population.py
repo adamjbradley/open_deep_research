@@ -5,6 +5,7 @@ Pulls SP.POP.TOTL most-recent-non-empty value per economy, keeps only real ISO-3
 alpha-3 countries (drops World Bank aggregates like WLD/EUU/AFE by intersecting with
 pycountry), writes {ALPHA3: {value, year}}. Runtime never imports this; it reads the YAML.
 """
+import datetime
 import json
 import os
 import urllib.request
@@ -30,7 +31,10 @@ def main() -> None:
         year = r.get("date")
         if code in valid and val is not None and year:
             out[code] = {"value": int(val), "year": int(year)}
+    header = (f"# Generated {datetime.date.today().isoformat()} from World Bank "
+              f"SP.POP.TOTL (most-recent value per country). Regenerate: scripts/gen_population.py\n")
     with open(os.path.normpath(OUT), "w", encoding="utf-8") as fh:
+        fh.write(header)  # YAML comment -> invisible to safe_load, visible in git blame/vintage
         yaml.safe_dump(out, fh, sort_keys=True)
     print(f"wrote {len(out)} countries to {os.path.normpath(OUT)}")  # noqa: T201
 
