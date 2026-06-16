@@ -304,6 +304,14 @@ class Configuration(BaseModel):
             "description": "Name of the factbase source registry (YAML file stem under factbase/profiles/) used for source-trust tiers.",
         }},
     )
+    compile_extraction_prompt: bool = Field(
+        default=True,
+        metadata={"x_oap_ui_config": {
+            "type": "boolean",
+            "default": True,
+            "description": "Compile the fact-extraction prompt from the profile (property kinds, descriptions, enum vocabularies, qualifiers). When false, fall back to the names-only baseline.",
+        }},
+    )
     max_fact_rounds: int = Field(
         default=2,
         metadata={

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 class PropertyDef:
     name: str
     value_kind: str
+    description: str = ""
     identity_qualifiers: list[str] = field(default_factory=list)
     required_qualifiers: list[str] = field(default_factory=list)
     qualifier_enums: dict[str, list[str]] = field(default_factory=dict)

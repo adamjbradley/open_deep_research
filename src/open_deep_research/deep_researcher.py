@@ -1302,14 +1302,15 @@ def _make_fact_model_call(configurable, config, target_properties=None):
     """
     async def model_call(source_text, prof):
         try:
-            prop_names = target_properties or [pd.name for pd in prof.properties]
-            prompt = (
-                "Extract Digital-Identity facts about a COUNTRY from the source text below. "
-                f"Only use these property names: {prop_names}. "
-                "Emit a qualifier ONLY if the source explicitly states it; otherwise omit it (do not guess). "
-                "evidence_span MUST be a verbatim substring of the source text supporting the value. "
-                "If nothing is stated, return an empty list.\n\nSOURCE:\n" + (source_text or "")[:8000]
+            from open_deep_research.factbase.prompting import build_extraction_prompt
+            prompt = build_extraction_prompt(
+                prof, target_properties, source_text,
+                compiled=configurable.compile_extraction_prompt,
             )
+            if configurable.compile_extraction_prompt and len(prompt) > 12000:
+                logger.warning(
+                    "Compiled extraction prompt is large (%d chars) for entity_type=%s; "
+                    "consider trimming the profile.", len(prompt), prof.entity_type)
             model = (
                 configurable_model
                 .with_structured_output(ExtractionResult)
