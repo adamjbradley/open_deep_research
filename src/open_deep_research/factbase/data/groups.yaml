@@ -1,0 +1,61 @@
+# Named country groups -> member country names (resolved via CountryResolver at use time).
+# Editable data, not code. Keep groups globally representative, not Western-only.
+G20:
+  - Argentina
+  - Australia
+  - Brazil
+  - Canada
+  - China
+  - France
+  - Germany
+  - India
+  - Indonesia
+  - Italy
+  - Japan
+  - Mexico
+  - Russia
+  - Saudi Arabia
+  - South Africa
+  - South Korea
+  - Turkey
+  - United Kingdom
+  - United States
+West Africa:
+  - Nigeria
+  - Ghana
+  - Senegal
+  - Cote d'Ivoire
+  - Benin
+  - Togo
+  - Mali
+  - Niger
+  - Burkina Faso
+  - Guinea
+EU:
+  - Austria
+  - Belgium
+  - Bulgaria
+  - Croatia
+  - Cyprus
+  - Czech Republic
+  - Denmark
+  - Estonia
+  - Finland
+  - France
+  - Germany
+  - Greece
+  - Hungary
+  - Ireland
+  - Italy
+  - Latvia
+  - Lithuania
+  - Luxembourg
+  - Malta
+  - Netherlands
+  - Poland
+  - Portugal
+  - Romania
+  - Slovakia
+  - Slovenia
+  - Spain
+  - Sweden

@@ -96,6 +96,23 @@ def _parser() -> argparse.ArgumentParser:
     sc.add_argument("--seed", action="append", default=[], metavar="URL",
                     help="Seed source URL(s) to ground the schema in real vocabulary (fetched as data; repeatable).")
 
+    mx = sub.add_parser("matrix", help="Cross-country matrix: rows=instances, cols=profile properties.")
+    mx.add_argument("--profile", default="country_digital_identity",
+                    help="Profile whose properties form the matrix columns.")
+    mx.add_argument("--format", choices=["text", "md", "csv"], default="text")
+
+    bt = sub.add_parser("batch", help="Run a profile across many countries (resumable).")
+    bt.add_argument("--profile", required=True)
+    bt.add_argument("--countries", help="Explicit 'A,B,C', @file, or a group name (e.g. G20).")
+    bt.add_argument("--scout", help="Discover the country list from this query instead.")
+    bt.add_argument("--concurrency", type=int, default=3)
+    bt.add_argument("--format", choices=["text", "md", "csv"], default="text")
+    bt.add_argument("--no-registry-autoprovision", action="store_true",
+                    help="Accepted; registry auto-provision is not performed in CLI mode "
+                         "(it runs via the batch API). Reserved for parity.")
+    bt.add_argument("--dry-run", action="store_true",
+                    help="Resolve the list (+report unresolved) without running research.")
+
     return parser
 
 
@@ -160,6 +177,62 @@ async def run(argv, db_path=None) -> str:
         note = " (replaced existing)" if replaced else ""
         return (f"Wrote usable profile {out_yaml}{note} -- live now -- and annotated comparison copy "
                 f"{out_draft} (not loaded). Diff them to review what the generator decided.")
+    if args.command == "matrix":
+        from open_deep_research import storage as _storage
+        from open_deep_research.factbase import migrations as _mig, schema as _schema
+        from .matrix import render_matrix
+        from .profile import load as _load_profile
+        prof = _load_profile(args.profile)
+        property_names = [pd.name for pd in prof.properties]
+        resolver = CountryResolver()
+        async with aiosqlite.connect(db_path) as conn:
+            await _storage._ensure_schema(conn)
+            await _mig.apply(conn, _schema.STEPS)
+            q = _query.FactQuery(conn)
+            rows = []
+            for name in property_names:
+                rows.extend(await q.compare_grouped(name))
+        if not rows:
+            return f"No facts found for profile '{args.profile}' in the database."
+        return render_matrix(rows, property_names, resolver.instance_name, fmt=args.format)
+    if args.command == "batch":
+        from open_deep_research import storage as _storage
+        from open_deep_research.factbase import migrations as _mig, schema as _schema
+        from .country_list import resolve_country_list
+        from .profile import load as _load_profile
+        prof = _load_profile(args.profile)
+        if args.scout:
+            return ("scout discovery runs only via the batch API (needs a model call); "
+                    "pass --countries for the CLI, or call BatchRunner with a scout_call.")
+        names = resolve_country_list(args.countries) if args.countries else []
+        if not names:
+            return "error: batch needs a country list — pass --countries 'A,B,C'|@file|<group> (or --scout)."
+        resolver = CountryResolver()
+        if args.dry_run:
+            lines = []
+            for n in names:
+                k = resolver.resolve(n)
+                lines.append(f"  {n} -> {k}" if k else f"  {n} -> UNRESOLVED")
+            return f"dry-run: {len(names)} countries for {args.profile}\n" + "\n".join(lines)
+        from .batch import BatchRunner, default_run_one
+        from .matrix import render_matrix
+        runner = BatchRunner(profile_name=args.profile, db_path=db_path,
+                             concurrency=args.concurrency, run_one=default_run_one,
+                             profile_hash=getattr(prof, "profile_hash", ""),
+                             list_spec=args.countries or "")
+        res = await runner.run(names)
+        property_names = [pd.name for pd in prof.properties]
+        async with aiosqlite.connect(db_path) as conn:
+            await _storage._ensure_schema(conn)
+            await _mig.apply(conn, _schema.STEPS)
+            q = _query.FactQuery(conn)
+            rows = []
+            for nm in property_names:
+                rows.extend(await q.compare_grouped(nm))
+        matrix = render_matrix(rows, property_names, resolver.instance_name, fmt=args.format)
+        summary = ", ".join(f"{k}={v}" for k, v in sorted(res["summary"].items()))
+        unresolved = (" | unresolved: " + ", ".join(res["unresolved"])) if res["unresolved"] else ""
+        return f"batch {res['batch_id']}: {summary}{unresolved}\n\n{matrix}"
     async with aiosqlite.connect(db_path) as conn:
         q = _query.FactQuery(conn)
         if args.command == "show":
