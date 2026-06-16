@@ -60,3 +60,14 @@ def test_render_draft_has_review_block_and_revalidates():
     data = yaml.safe_load(text)
     prof = profile_from_dict(data)
     assert prof.property("cbdc_status").value_enum == ["research", "pilot", "launched"]
+
+
+def test_existing_property_names_for_country_includes_di_props():
+    from open_deep_research.factbase.scaffold import existing_property_names_for
+    names = existing_property_names_for("country")
+    assert "scheme_status" in names and "id_coverage_pct" in names
+
+
+def test_existing_property_names_for_unknown_entity_is_empty():
+    from open_deep_research.factbase.scaffold import existing_property_names_for
+    assert existing_property_names_for("no_such_entity") == []

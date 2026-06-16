@@ -139,14 +139,16 @@ async def run(argv, db_path=None) -> str:
     if args.command == "scaffold":
         import os
         from open_deep_research.storage import slugify
-        from .scaffold import induce, render_draft_yaml, render_profile_yaml
+        from .scaffold import (
+            existing_property_names_for, induce, render_draft_yaml, render_profile_yaml)
         from . import fetch as _fetch
         sources = []
         for url in (getattr(args, "seed", None) or []):
             txt = await _fetch.fetch_text(url)  # SSRF-safe; returns None on any failure
             if txt:
                 sources.append(txt)
-        proposal = await induce(args.entity_type, args.description, sources, [], _scaffold_model_call())
+        existing = existing_property_names_for(args.entity_type)  # reuse the entity type; only add new props
+        proposal = await induce(args.entity_type, args.description, sources, existing, _scaffold_model_call())
         out_yaml = args.out or os.path.join(
             os.path.dirname(__file__), "profiles", f"{slugify(args.description)}.yaml")
         out_draft = (out_yaml[:-5] + ".draft.yaml") if out_yaml.endswith(".yaml") else out_yaml + ".draft.yaml"

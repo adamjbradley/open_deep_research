@@ -116,3 +116,25 @@ def render_draft_yaml(proposal: "ScaffoldProposal") -> str:
 def render_profile_yaml(proposal: "ScaffoldProposal") -> str:
     """Clean, loadable profile YAML (no annotations) -- the immediately-usable output."""
     return yaml.safe_dump(_proposal_to_profile_dict(proposal), sort_keys=False, default_flow_style=False)
+
+
+def existing_property_names_for(entity_type: str) -> list[str]:
+    """Property names already defined for ``entity_type`` across shipped profiles.
+
+    Lets scaffolding propose only NEW properties (and reuse the entity type's identity).
+    Skips registry files (they have a 'sources' key, no entity_type) and *.draft.yaml.
+    """
+    import yaml
+    from importlib.resources import files
+
+    names: list[str] = []
+    for entry in files("open_deep_research.factbase.profiles").iterdir():
+        if not entry.name.endswith(".yaml") or entry.name.endswith(".draft.yaml"):
+            continue
+        try:
+            data = yaml.safe_load(entry.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - a malformed file shouldn't break scaffolding
+            continue
+        if isinstance(data, dict) and data.get("entity_type") == entity_type:
+            names.extend(p["name"] for p in data.get("properties", []) if "name" in p)
+    return names
