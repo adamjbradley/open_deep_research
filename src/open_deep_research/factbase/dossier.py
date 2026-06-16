@@ -107,7 +107,9 @@ def _parser() -> argparse.ArgumentParser:
     bt.add_argument("--scout", help="Discover the country list from this query instead.")
     bt.add_argument("--concurrency", type=int, default=3)
     bt.add_argument("--format", choices=["text", "md", "csv"], default="text")
-    bt.add_argument("--no-registry-autoprovision", action="store_true")
+    bt.add_argument("--no-registry-autoprovision", action="store_true",
+                    help="Accepted; registry auto-provision is not performed in CLI mode "
+                         "(it runs via the batch API). Reserved for parity.")
     bt.add_argument("--dry-run", action="store_true",
                     help="Resolve the list (+report unresolved) without running research.")
 
