@@ -91,6 +91,7 @@ def profile_from_dict(data: dict) -> Profile:
         PropertyDef(
             name=p.name,
             value_kind=p.kind,
+            description=p.description or "",
             identity_qualifiers=list(p.identity_qualifiers),
             required_qualifiers=list(p.required_qualifiers),
             qualifier_enums={k: list(v) for k, v in p.qualifier_enums.items()},
