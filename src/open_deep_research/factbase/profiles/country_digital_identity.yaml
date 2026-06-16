@@ -1,0 +1,47 @@
+entity_type: country
+version: "1"
+notes: "Digital-Identity pillar for the country entity type (Feature Spec 2.1)."
+properties:
+  - name: foundational_id_scheme
+    kind: name
+    description: "The country's primary national/foundational ID scheme."
+    value_aliases:
+      aadhaar:
+        - uidai
+        - aadhaar uid
+        - uid aadhaar
+        - unique identity scheme or aadhaar
+        - unique identity uid scheme or aadhaar
+  - name: scheme_status
+    kind: enum
+    description: "Operational maturity of the foundational ID scheme."
+    identity_qualifiers: [basis]
+    required_qualifiers: [basis]
+    qualifier_enums:
+      basis: [de_jure, de_facto]
+    value_enum: [announced, piloting, operational, mandatory]
+  - name: id_coverage_pct
+    kind: percentage
+    description: "Share of the population holding the foundational ID."
+    identity_qualifiers: [population_basis, coverage_kind, measured_modeled]
+    required_qualifiers: [population_basis]
+    qualifier_enums:
+      population_basis: [adults_15plus, total_pop, births, registered_holders]
+      coverage_kind: [enrolled, issued, active]
+      measured_modeled: [measured, modeled]
+  - name: biometric_capture
+    kind: enum
+    description: "Biometric modality captured at enrolment."
+    value_enum: [none, photo, fingerprint, iris, multi]
+  - name: data_protection_law
+    kind: boolean
+    description: "Whether a data-protection law applies to the ID system."
+    identity_qualifiers: [jurisdiction, stage, scope]
+    required_qualifiers: [stage]
+    qualifier_enums:
+      stage: [enacted, in_force]
+      scope: [comprehensive, sectoral]
+  - name: legal_basis
+    kind: name_year
+    description: "Name + year of the statute/regulation establishing the scheme."
+    identity_qualifiers: [jurisdiction]

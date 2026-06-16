@@ -102,3 +102,95 @@ ANOTHER ROUND
 ADVANCE. (The fact-base reframe is now structurally sound and honest about its massive deferred risks; resume Feature Spec to resolve the qualifier-matching and multi-value constraints in user stories.)
 
 <!-- gemini r6 exit=0 -->
+
+---
+## Round 7 — 2026-06-15 — verification of Feature Spec v4 + Architecture v6 + Plan 5
+
+**1. ARE THE PREVIOUS COLLISIONS RESOLVED?**
+*   **Qualifier matching & Over-promotion:** RESOLVED. The Feature Spec (v4) and Architecture (v6) now explicitly exclude "unspecified" (abstained) qualifier tuples from auto-promotion (AC5.2). This prevents lossy extraction from accidentally clearing the trust gate.
+*   **Multi-value constraints:** RESOLVED. The model now admits that multiple source-assertions for the same qualified key *is* the conflict state, and handles valid concurrent values (like de-jure vs de-facto status) by splitting them into distinct, qualifier-correct tuples.
+*   **Traceability vs. Summarizing Backends:** RESOLVED. Plan 5's "Discover-then-Fetch" backfill allows the fact base to maintain its anti-hallucination guard (span-verification against raw text) even when running on search backends that only provide summaries.
+
+**2. ARCHITECTURAL COHERENCE CHECK**
+*   The transition from "immutable reports" (v1) to a "living fact base" (v7/v8) is now fully operationalized in Architecture v6. The use of a stable `run_source_id` FK in the `evidence` table, combined with the `capture_status` tracking, provides a machine-auditable chain of custody that satisfies P1 (Trust through traceability).
+*   The "Single Writer" ingestion protocol (§5) successfully side-steps SQLite concurrency issues while maintaining transactional integrity for the promotion/conflict policies.
+
+**3. REMAINING IMPLEMENTATION RISKS**
+*   **The "Explicitly States" Dial:** The system's utility rests entirely on the extraction prompt's ability to distinguish "explicitly stated" qualifiers from "inferred" ones. If the model is too "helpful" (guessing denominators or units), the qualifier-correct conflict key (AC3.2) will fail to catch genuine disagreements. This is now properly framed as a prompt-calibration task, not a structural flaw.
+*   **The Coverage-Incomplete Signal:** Architecture v6 relies on `run_source` status to derive coverage. If the backfill fetcher (Plan 5) is frequently blocked/paywalled, the "provisional" pile will grow without a path to promotion. The system is "honest" about this via the `coverage_incomplete` flag, which is a sufficient safeguard for v1.
+
+**4. CONVERGENCE CALL**
+**ADVANCE.** The superpower specifications (Vision v8, Feature Spec v4, Architecture v6) and the implementation plan (Plan 5) are now logically aligned and grounded in the project's technical constraints. The project is ready for implementation of the core ingestion and dossier surfaces.
+
+<!-- gemini r7 exit=0 -->
+
+---
+## Round 8 — 2026-06-15 — verification of Multi-Backend Implementation & Fact-Base Wiring
+
+**1. ARE THE TECHNICAL MIGRATIONS SUCCESSFUL?**
+*   **Gemini/Antigravity Migration:** SUCCESSFUL. The transition from the deprecated `gemini` CLI to the new `agy` CLI is complete. Using `--model` and `--dangerously-skip-permissions` ensures that Google Search grounding functions non-interactively without blocking on tool approvals.
+*   **Codex CLI Alignment:** SUCCESSFUL. The Codex backend now uses global flags (`--search`) and auto-approval flags (`--dangerously-bypass-approvals-and-sandbox`), ensuring compatibility with Codex v0.139.0+.
+*   **Unified Resilience:** SUCCESSFUL. All CLI backends are now wrapped in `_run_with_retry`. This provides a consistent guard against the transient infrastructure failures (CLI timeouts, rate limits, and overloaded states) that previously plagued long research turns.
+
+**2. ARCHITECTURAL SPECIALIZATION & OPTIMIZATION**
+*   **Role Specialization:** The graph has been successfully refactored to use a "High-Reasoning/Low-Latency" mix. **Codex (`gpt-5.5`)** handles the Supervisor and Report Generation roles (strategic planning), while **Gemini (`gemini-2.0-flash`)** handles the Researcher, Summarization, and Fact Extraction roles (execution and high-volume processing).
+*   **Parallel Fact Extraction:** The `extract_facts` node has been parallelized using `asyncio.gather`. This removes a major bottleneck where sources were previously processed sequentially, significantly reducing the total turn time for high-source runs.
+
+**3. FACT BASE WIRING & PROVENANCE**
+*   **Backfill Logic (Plan 5):** VERIFIED. The "Discover-then-Fetch" logic in `backfill_run_sources` now correctly handles the "raw_text" upgrade path without downgrading existing statuses. This ensures that the system preserves the best available evidence for span-verification.
+*   **The "source_ceiling" Signal:** RESOLVED. Sources beyond the `max_urls` ceiling are now explicitly recorded as `skipped` with the reason `source_ceiling`. This allows the `coverage_incomplete` flag to reliably signal when a dossier's provenance is limited by resource constraints.
+*   **End-to-End Traceability:** VERIFIED. Integration tests (e.g., the Aadhaar wiring test) confirm that facts are correctly extracted from `run_source` text, attributed to stable `run_source_id` FKs, and admitted to the fact table as "provisional," satisfying the P1 mandate (Trust through traceability).
+
+**4. CONVERGENCE CALL**
+**ADVANCE.** The implementation has successfully bridged the gap between the superpower specifications and the physical constraints of the CLI-backed architecture. The multi-backend model is stable, the fact base wiring is verified, and the system is ready for production research workloads.
+
+<!-- gemini r8 exit=0 -->
+
+---
+## Round 9 — 2026-06-15 — review of Profiles-as-Data Design (2026-06-16)
+
+**1. ALIGNMENT WITH CORE PRINCIPLES**
+*   **P1 (Trust through traceability):** STRENGTHENED. Stamping every run with a `profile_hash` provides a machine-reproducible link between the extraction logic and the data produced. This moves "domain bias" from hidden code to an auditable data artifact.
+*   **P2 (Domain assumptions live only in data):** REALIZED. Externalizing profiles to YAML finally closes the gap between the Vision and the implementation. The "seam" is now a physical file boundary, making assumptions inspectable without a Python interpreter.
+*   **P5 (Never silently picks a winner):** STRENGTHENED. By compiling enum descriptions and vocabularies into the extraction prompt, the model is less likely to "guess" values that fall outside the domain's established taxonomy.
+
+**2. ARCHITECTURAL & SAFETY EVALUATION**
+*   **The Meta-Schema Guardrail:** The inclusion of `dossier validate` and on-load Pydantic validation is a critical safety net. Rejecting malformed profiles (e.g., `required_qualifiers` not being a subset of `identity_qualifiers`) prevents systemic ingestion errors that would otherwise only be caught during audit.
+*   **Interface Stability:** Maintaining identical signatures for `load(name)` is a high-signal architectural choice. It ensures that the migration from Python to YAML is "transparent" to the factbase's 21 existing tests and the core engine.
+*   **Scaffolding Rationale:** The requirement for "risk-annotated" YAML comments (rationale + confidence) is an excellent defense against automation bias. It forces the human reviewer to confront the consequential calls made by the generator.
+
+**3. TECHNICAL RECOMMENDATIONS**
+*   **Version Truth:** The design proposes both an author-managed `version:` and a machine-derived `profile_hash`. **Recommendation:** Use `profile_hash` as the primary key for reproducibility in `research_runs`; use author-managed `version:` only for human-facing changelogs.
+*   **Pydantic for Meta-Schema:** Given the project's heavy reliance on Pydantic for configuration and state, defining the meta-schema in Pydantic (rather than JSON Schema) is more idiomatic and allows for easier integration with existing validation patterns.
+*   **Include Registry:** Externalizing the `SourceRegistry` in the same pass is correct. It shares the same loading seam and authoring burden as profiles.
+
+**4. CONVERGENCE CALL**
+**ADVANCE.** The design is structurally sound, solves the primary engineering pain of domain-adaptation, and strengthens the project's provenance model. The project is ready for Implementation Plan 6.
+
+<!-- gemini r9 exit=0 -->
+
+---
+## Round 10 — 2026-06-16 — review of Profiles-as-Data Design (v2 revision)
+
+**1. RESOLUTION OF PREVIOUS GAPS**
+*   **The Selection Contract:** RESOLVED. Moving from hardcoded profile names to `Configuration.profile_name/registry_name` ensures that the multi-domain vision is actually reachable in v1. This correctly positions the "pillar resolver" as a future seam.
+*   **Classified Recompute:** RESOLVED. The distinction between "Normalization" (aliases) and "Structural" (tuple keys/identity) edits is technically sound. Requiring an explicit `dossier recompute --rebuild` for structural changes prevents silent data corruption.
+*   **Lossless Migration (The Aadhaar Case):** RESOLVED. The inclusion of `value_aliases` in the YAML format and the requirement for a "Golden Round-Trip" test (`.py == .yaml`) ensures that the current production mappings for Aadhaar are preserved.
+*   **Versioning & Erosion:** STRENGTHENED. The "Warn Loudly" requirement for hash mismatches (where `version:` is same but `profile_hash` differs) is a critical guard against the un-versioned edit erosion identified in prior rounds.
+
+**2. SECURITY & PROVENANCE EVALUATION**
+*   **Injection Hardening:** The recognition of LLM-generated rationale comments as a "social engineering surface" is a high-signal security observation. Keeping them inert and clearly machine-generated preserves the integrity of the human-in-the-loop gate.
+*   **Provenance Timing:** Moving the hash-stamp to the "post-selection / pre-extraction" window in `research_runs` correctly handles the temporal reality of the graph's execution flow.
+
+**3. TECHNICAL RECOMMENDATIONS**
+*   **Prompt A/B Verification:** The requirement that the compiled prompt path "must not increase false/unsupported facts" compared to the names-only baseline is the correct success metric.
+*   **Packaging:** Explicitly adding `pyyaml` and `package-data` setuptools config ensures the CLI remains portable.
+
+**4. CONVERGENCE CALL**
+**ADVANCE.** The revised design (v2) is now exceptionally thorough, addressing both the high-level principles and the low-level implementation traps (hardcoding, lossy aliases, silent drift). The project is ready for implementation via Plan 6a (Core) and 6b (Scaffolding).
+
+<!-- gemini r10 exit=0 -->
+
+
+
+

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 from dataclasses import dataclass, field
 
 
@@ -57,5 +56,15 @@ class Profile:
 
 
 def load(name: str) -> Profile:
-    mod = importlib.import_module(f"open_deep_research.factbase.profiles.{name}")
-    return mod.PROFILE
+    """Load a domain profile from its YAML data file (validated on load)."""
+    import yaml
+    from importlib.resources import files
+
+    from .profile_schema import profile_from_dict
+
+    text = (
+        files("open_deep_research.factbase.profiles")
+        .joinpath(f"{name}.yaml")
+        .read_text(encoding="utf-8")
+    )
+    return profile_from_dict(yaml.safe_load(text))

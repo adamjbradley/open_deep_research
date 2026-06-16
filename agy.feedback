@@ -1,0 +1,140 @@
+# Antigravity feedback — v1 Spec, Arch, and Plan 5 Verification
+
+Reviewed specs:
+- `docs/superpowers/specs/2026-06-12-living-dossier-platform-design.md` (Vision+Principles v8)
+- `docs/superpowers/specs/2026-06-12-living-dossier-platform-features.md` (Feature Spec v4)
+- `docs/superpowers/specs/2026-06-12-living-dossier-platform-architecture.md` (Architecture v6)
+- `docs/superpowers/specs/2026-06-12-deferred-living-dossier-platform.md` (Deferred Questions)
+Reviewed plan:
+- `docs/superpowers/plans/2026-06-12-living-dossier-platform-plan5.md` (Discover-then-Fetch Evidence Capture)
+
+---
+
+## Round 1 — 2026-06-15 — review of Feature Spec v4, Architecture v6, and Plan 5
+
+**ANTIGRAVITY RED TEAM REVIEW**
+
+### 1. Plan 5 (Discover-then-Fetch) Review & SSRF Security
+
+*   **Production-Grade SSRF and DNS-Rebinding Mitigations (Task 1 / fetch.py):** The security implementation in `fetch.py` is exceptionally strong. 
+    *   Resolving the hostname via `socket.getaddrinfo` and validating that *every* resolved IP is public (`_is_public_ip`) before connect time is the correct way to fail-closed on SSRF.
+    *   IP-pinning (rewriting the target URL to use the resolved IP literal) and passing SNI and Host headers explicitly (`extensions={"sni_hostname": sni_host}`, `headers={"Host": host_header}`) completely closes the DNS-rebinding (TOCTOU) vulnerability. Since `httpx` does not re-resolve IP literals, a malicious DNS server cannot return a public address during the check and a private address at connect time.
+    *   Enforcing `follow_redirects=False` and re-validating the resolved IP on every redirect hop prevents redirection bypasses into internal subnets.
+*   **The URL Ceiling Silent Incompleteness (Task 2 / backfill.py):** There is an active implementation gap in how the URL ceiling interacts with the `coverage_incomplete` flag.
+    *   In `backfill.py:15`, the loop breaks immediately once `fetched + skipped >= max_urls`.
+    *   Any cited URLs *beyond* the ceiling limit do not get a `run_source` row written to the database.
+    *   In `deep_researcher.py:1189`, the `coverage_incomplete` flag is derived via `any(s["capture_status"] != "raw_text" for s in sources)`. Because the omitted sources are absent from the `run_source` table, the run is reported as coverage-complete even when active sources were silently omitted.
+    *   *Fix:* Omitted URLs beyond the ceiling should be recorded in `run_source` with a status of `skipped` and a reason of `source_ceiling`, ensuring the `coverage_incomplete` flag is correctly triggered.
+*   **Skipped/Summarized Upgradeability:** Once a source url is saved in `run_source` as `summarized` or `skipped`, `backfill_run_sources` will skip processing it in subsequent runs because of the `existing` filter. V1 should allow upgrading a previously skipped or summarized source to `raw_text` if a subsequent backfill attempt successfully fetches it.
+
+### 2. Feature Spec v4 and Architecture v6 Alignment
+
+*   **Decoupled Trust & Conflict Model:** The transition from v1's rigid exact-value model to the v7/v8 qualifier-complete conflict key is sound. Treating `as-of` as a versioning dimension rather than an identity key is correct. Decoupling temporal updates from semantic conflicts avoids unnecessary conflict flags.
+*   **Single-Writer Concurrency:** Moving fact writing to a single-writer transaction protocol in `persist_research` avoids SQLite concurrency contentions while enforcing relational and evidence integrity constraints.
+*   **Heartbeat-Based Reaper:** Sweeping slow/crashed runs via a liveness heartbeat (`last_heartbeat`) rather than a hard TTL prevents false-positive reaping of slow, concurrent fan-outs while cleaning orphaned database records.
+
+### 3. Supervisor Resiliency and Tool-Selection Safeguards
+
+*   **Premature Completion Control:** The conditioning of supervisor tools using `_lead_researcher_tools(conducted_research=...)` successfully resolves the CLI/subscription envelope issue. By withholding `ResearchComplete` until a `ConductResearch` call has returned a result, the supervisor is forced to perform actual research rather than looping empty-handed.
+*   **Empty Topic Sanitization:** Dropping `ConductResearch` calls with empty topics and returning corrective nudges in `supervisor_tools` prevents runtime exceptions and keeps the agent loops resilient.
+
+### 4. LangGraph Engine & Graph Construction Assessment
+
+*   **Deprecated Constructor Parameters (High):** The subgraphs and the top-level graph (e.g., `deep_researcher_builder`) use the deprecated parameters `config_schema`, `input`, and `output` in their `StateGraph` definitions. These will be removed in future versions.
+    *   *Fix:* Replace them with `context_schema`, `input_schema`, and `output_schema` respectively.
+*   **Catch-All Exception Handler in `supervisor_tools` (Medium):** The error handler catches all exceptions and includes a hardcoded `or True` bypass. Any runtime or database failure is treated as a non-fatal token-limit error, causing the research phase to exit early to `END` without notes or warnings.
+    *   *Fix:* Narrow the exception catch block, handle token limit exceptions explicitly, and let other failures propagate or be logged transparently.
+*   **Disconnected Visual Graphs:** The subgraphs rely entirely on dynamic routing (`Command(goto=...)`) for internal nodes. Without corresponding static edges defined via `add_edge`, standard visualization tools render these nodes as completely isolated components.
+    *   *Fix:* Add static edges for primary loop paths to aid visualization.
+*   **Non-Standard TypedDict Defaults:** Defining class-level assignments (such as `raw_notes: ... = []`) in `AgentState` or `SupervisorState` violates standard `TypedDict` syntax and can trigger warnings/errors in strict type checkers like mypy.
+
+---
+
+## Convergence Call
+
+**ADVANCE.** The specifications and Plan 5's design are structurally aligned, with highly robust security protections implemented. Resolving the URL ceiling derivation gap and cleaning up the deprecated LangGraph constructors are the main remaining tasks.
+
+<!-- agy r1 exit=0 -->
+
+---
+
+## Round 2 — 2026-06-16 — verification of Multi-Backend Implementation & Robustness Batch 1
+
+**ANTIGRAVITY CONVERGENCE CHECK**
+
+### 1. Multi-Backend CLI Wrappers & Unified Resilience
+*   **CLI Wrappers & Non-Interactive Flagging:** Transitioning to the new CLI interfaces with `--model` and `--dangerously-skip-permissions` is verified. Google Search grounding runs safely and non-interactively without prompting for tool approvals.
+*   **Unified Retry Protocol:** Wrapping the CLI invocations in `_run_with_retry` provides robust fallback protection against CLI-level timeouts and transient provider errors, securing the critical path of long-running queries.
+*   **Event-Loop Local Semaphore:** The fix in [claude_agent_chat.py](file:///mnt/c/Users/abradley/Projects/IdentityInnovation/search/open_deep_research/src/open_deep_research/claude_agent_chat.py) generating the concurrency semaphore dynamically per event loop (rather than using a module-global singleton) successfully isolates concurrent run loops and avoids binding failures on dead loops.
+
+### 2. Architecture Specialization & Graph Optimization
+*   **Role Specialization:** The hybrid model architecture—using **Codex (`gpt-5.5`)** for supervisory planning and final report synthesis, and **Gemini (`gemini-2.0-flash`)** for researcher tasks and fact extraction—optimizes reasoning depth vs. extraction throughput.
+*   **Parallel Fact Extraction:** Fact extraction within the `extract_facts` node has been parallelized via `asyncio.gather`. Sequential processing latency is resolved, yielding significant speedups on high-source dossiers.
+
+### 3. Fact Base Wiring & Instrumentation
+*   **Discover-then-Fetch Upgrades:** The backfill logic successfully preserves the best available evidence by preventing the downgrading of existing statuses when merging new source runs.
+*   **Ceiling Signal Fix:** The silent completion gap identified in Round 1 is fully resolved: sources exceeding the `max_urls` limit are recorded as `skipped` with the reason `source_ceiling`. This ensures the `coverage_incomplete` flag accurately reports resource-constrained runs.
+
+### 4. Graph Robustness (Batch 1)
+*   **Failure Isolation:** Parallel researcher tasks are now awaited using `return_exceptions=True` in `asyncio.gather`. A single researcher crash is isolated, and successful parallel sibling tasks are preserved rather than being aborted.
+*   **Exception Transparency:** The catch-all `or True` bypass in the supervisor error handler has been removed. Unexpected exceptions bubble up transparently rather than ending silently, preventing corrupt or empty notes from being persisted as completed dossiers.
+
+---
+
+## Convergence Call
+
+**ADVANCE.** The multi-backend CLI alignment is robust, the fact base wiring holds under parallel load, and the batch-1 robustness repairs successfully isolate execution failures. The graph is ready for production workloads.
+
+<!-- agy r2 exit=0 -->
+
+---
+
+## Round 3 — 2026-06-16 — review of Profiles as Data + Assisted Scaffolding design spec
+
+**ANTIGRAVITY RED TEAM REVIEW**
+
+### 1. Pillar 1 — Profiles as Data
+*   **Validate-on-Load & Meta-Schema Seam:** We recommend Pydantic-in-code as the meta-schema definition format (over JSON Schema files). Since the codebase is written in Python and uses Pydantic models elsewhere, defining the meta-schema via Pydantic enables native schema validation, clean error tracing, and seamless integration with tests and CLI commands.
+*   **Context Bloat and Prompt Limits:** Serializing descriptions, enums, and qualifiers into the extraction prompt (`_make_fact_model_call`) is a vast improvement over serializing only property names. However, large profiles with many properties and expansive enum lists present a prompt bloat risk that can lead to attention dispersion or context limit issues. The loader or compiler should track token limits and issue warnings if a compiled profile schema exceeds recommended prompt sizes.
+*   **Destructive Schema Changes during Recompute:** The spec outlines how `recompute` recalculates prior facts when profiles are edited. We must define how `recompute` handles cases where properties are deleted or their data types (`kind`) are changed destructively. A deprecation or pruning rule must prevent old database entries from entering orphaned states.
+*   **Source Registry Integration:** We recommend externalizing `SourceRegistry` to YAML in the same implementation plan, as it shares the same configuration-as-data seam.
+
+### 2. Pillar 2 — Assisted Scaffolding
+*   **Entity Type Reuse:** Reusing the entity type and resolver (e.g. `country`) is the correct architectural boundary. It ensures entity resolution logic is completely decoupled from the generation of specific fact pillars.
+*   **Human-Gated Guardrail:** We strongly support the invariant that inline scaffolding *never* auto-adopts a generated profile into a live run. Schema generation must remain strictly human-gated (reviewed and committed) to prevent hallucinated schema loops.
+*   **Localized prompt calibration:** LLMs tend to generate Anglo/Western-centric schema structures when given global domain descriptions (like digital public infrastructure). The scaffolding system prompt must explicitly instruct the model to look for diverse and localized structures, ensuring global domain coverage.
+
+---
+
+## Convergence Call
+
+**ADVANCE.** The design is clean, preserves all existing interfaces and tests, and effectively moves the domain assumptions from code to data.
+
+<!-- agy r3 exit=0 -->
+
+---
+
+## Round 4 — 2026-06-16 — convergence check on Profiles as Data + Assisted Scaffolding design spec
+
+**ANTIGRAVITY CONVERGENCE CHECK**
+
+We have reviewed the revised [2026-06-16-profiles-as-data-design.md](file:///mnt/c/Users/abradley/Projects/IdentityInnovation/search/open_deep_research/docs/superpowers/specs/2026-06-16-profiles-as-data-design.md) spec against the Round 1 feedback from the other models and our own findings.
+
+### 1. Verification of Closed Blockers
+
+*   **Value Aliases Losslessness (Closed):** The spec now explicitly incorporates the `value_aliases` field (from PR #18) into the format and meta-schema definitions. The addition of the **golden round-trip verification test** (`load(.py) == load(.yaml)`) guarantees that the Python-to-YAML migration does not cause data or alias mapping losses.
+*   **Active Profile Selection Seam (Closed):** The selection contract is resolved: the configuration schema now explicitly exposes `profile_name` and `registry_name` fields, removing the previous hardcoding of the flagship profile and enabling dynamic, multi-profile runs.
+*   **Recompute and Hash Mismatch Warnings (Closed):** The spec defines the recompute trigger seam: runs stamp the `profile_name/version/hash` to `research_runs` at preallocation/finalize, loading a profile with a same-version/different-hash configuration raises a mismatch warning, and the CLI exposes `dossier recompute --rebuild` to clean prior facts after structural edits.
+*   **Scaffolding Injection Hardening (Closed):** The risk of prompt injection through the LLM-generated rationale and confidence YAML comments is formally addressed. YAML comments are kept strictly inert and marked as machine-generated.
+*   **Localized Prompts (Closed):** The scaffolding instructions now direct the LLM generator to seek localized structures and avoid Western/Anglo-default worldview biases for global data pillars.
+
+---
+
+## Convergence Call
+
+**ADVANCE.** All blockers from the initial feedback round have been successfully resolved and integrated into the design spec. The design has reached convergence and is ready for implementation planning (split into Plan 6a for Pillar 1 and Plan 6b for Pillar 2).
+
+<!-- agy r4 exit=0 -->
+
+
+

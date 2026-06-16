@@ -1,0 +1,7 @@
+version: "1"
+sources:
+  - {domain: id4d.worldbank.org, tier: authoritative, flags: [modeled]}
+  - {domain: worldbank.org, tier: authoritative, flags: [modeled]}
+  - {domain: gsma.com, tier: authoritative}
+  - {domain: mosip.io, tier: reputable}
+  - {domain: uidai.gov.in, tier: reputable, flags: [incentivized]}

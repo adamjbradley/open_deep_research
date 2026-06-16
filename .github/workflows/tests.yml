@@ -20,3 +20,6 @@ jobs:
       # pyproject.toml scopes collection to tests/test_*.py.
       - name: Run unit tests
         run: uv run pytest
+
+      - name: Validate factbase profiles
+        run: uv run dossier validate
