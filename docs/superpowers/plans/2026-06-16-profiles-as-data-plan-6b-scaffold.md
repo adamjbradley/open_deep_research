@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** Let a domain expert scaffold a new profile instead of authoring YAML from scratch: `dossier scaffold <entity_type> "<description>"` asks an LLM to **propose** a profile, validates it against the meta-schema, and writes a **risk-annotated `<name>.draft.yaml`** for the human to review/edit/commit. Human stays the gate; nothing auto-adopts.
+**Goal:** Let a domain expert scaffold a new profile instead of authoring YAML from scratch: `dossier scaffold <entity_type> "<description>"` asks an LLM to **propose** a profile, validates it against the meta-schema, and writes the result.
+
+> **REVISED (owner decision, mid-build):** the human-rename *gate* is **dropped**. The command now writes **two** files: a clean, **immediately-usable `<slug>.yaml`** (loadable right away) **and** an annotated **`<slug>.draft.yaml`** (review block + rationale/confidence) that is **not loaded** (`validate`/`load` skip `*.draft.yaml`) — kept purely as a diff/comparison artifact. This supersedes the spec's converged "never auto-adopts / human-gated" invariant; the meta-schema validation still gates *writing* (an invalid proposal produces no files).
 
 **Architecture:** A pure, injectable core in `factbase/scaffold.py` (`build_scaffold_prompt` → `induce(... model_call)` → `render_draft_yaml`) so it's testable with stub models. The model only proposes *schema* (validated via `profile_from_dict` before write); seed text is data, never instructions; the draft is written as raw annotated YAML (a leading `#` review-notes block + a clean dump) — never parse→re-dump. The `dossier scaffold` CLI wires `configurable_model` (structured output) to the core.
 
