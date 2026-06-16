@@ -8,13 +8,19 @@ class SourceRegistry:
     def load(cls, name: str) -> "SourceRegistry":
         import yaml
         from importlib.resources import files
-        from .registry_schema import registry_from_dict
+        from .registry_schema import load_registry
         text = (
             files("open_deep_research.factbase.profiles")
             .joinpath(f"{name}.yaml")
             .read_text(encoding="utf-8")
         )
-        return cls(registry_from_dict(yaml.safe_load(text)))
+        entries, version, digest = load_registry(yaml.safe_load(text))
+        reg = cls(entries)
+        # Content identity, parallel to a profile's hash. A registry edit changes source
+        # trust tiers -> `dossier recompute --rebuild` re-derives source_meets_bar/promotion.
+        reg.registry_version = version
+        reg.registry_hash = digest
+        return reg
     def _match(self, url: str) -> dict | None:
         host = (urlparse(url).hostname or "").lower()
         for domain, entry in self._entries.items():
