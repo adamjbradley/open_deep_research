@@ -32,3 +32,14 @@ async def test_matrix_subcommand_renders_rows(tmp_path):
     assert "cbdc_launch_status" in out
     assert "Nigeria" in out and "India" in out
     assert "launched*" in out  # trusted marker
+    assert "pilot*" not in out  # provisional value must NOT get the trusted marker
+
+
+@pytest.mark.asyncio
+async def test_matrix_empty_db_reports_no_facts(tmp_path):
+    db = str(tmp_path / "empty.db")
+    async with aiosqlite.connect(db) as conn:
+        await _storage._ensure_schema(conn)
+        await _mig.apply(conn, _schema.STEPS)
+    out = await run(["matrix", "--profile", "country_cbdc"], db_path=db)
+    assert "No facts found" in out

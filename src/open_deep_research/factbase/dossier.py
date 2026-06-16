@@ -180,6 +180,8 @@ async def run(argv, db_path=None) -> str:
             rows = []
             for name in property_names:
                 rows.extend(await q.compare_grouped(name))
+        if not rows:
+            return f"No facts found for profile '{args.profile}' in the database."
         return render_matrix(rows, property_names, resolver.instance_name, fmt=args.format)
     async with aiosqlite.connect(db_path) as conn:
         q = _query.FactQuery(conn)
