@@ -239,3 +239,36 @@ researcher loop terminates correctly; cache-hit and clarify-skip routing sound.
 ### Disposition
 Fixing #1–#4 as one TDD PR (approved), then #5–#6 as a second. #1+#2 are the same ~15-line region and
 together explain silent thin-research runs. Wiring a GitHub Copilot CLI backend to follow.
+
+---
+
+## Round — 2026-06-16 — Claude review of "Profiles as Data + Assisted Scaffolding" (2026-06-16-profiles-as-data-design.md)
+
+Spec status was "pending *.feedback review." Reviewed adversarially against the converged Vision/Arch
+**and the code as it stands on main** (post value-normalization #18 + facts-first #19). Convergence call:
+**YES with conditions** — the core (Pillar 1) is sound and low-risk; fix the gaps below before the plan.
+
+### Alignment (verified against current code — strong)
+- The spec correctly builds on just-merged work: `recompute.backfill_canonical_values(conn, profile, *, force=False)` exists (recompute.py:15) and is the right lever for profile-edit re-derivation; schema is at **v5** so the new migration is v6 (schema.py); `profile.load` is `importlib` today (profile.py) so the YAML swap is a true drop-in; `PropertyDef.aliases_for` exists.
+- Facts-first (#19) *helps* Pillar 1: extraction now runs on `target_properties`, so prompt-compilation only serializes the needed properties' enums/descriptions — bounding the token cost the spec calls "negligible."
+
+### 🔴 Must-fix before the plan
+1. **YAML format omits `value_aliases`.** PropertyDef gained `value_aliases` in #18 (profile.py:19) and the live `country_digital_identity` profile USES it (the Aadhaar alias map). The spec's format ("description + per-enum descriptions + version") and meta-schema don't mention it. The .py→YAML migration is **lossy** without it, and the meta-schema must validate it (canonical keys, normalized variant strings, no cross-canonical overlap). Add a **golden round-trip test**: `load(".py PROFILE") == load(".yaml")` for the real profile.
+2. **Profile *selection* is unspecified and currently hardcoded.** `deep_researcher.py:350` and `:1383` both `load("country_digital_identity")` literally. US-2 ("a second profile drives a run") and the Pillar-2 inline offer ("brief resolves to an entity_type/pillar with no matching profile") both presuppose a brief→profile resolution step that **does not exist**. Without it, multiple profiles can't be reached and the inline trigger can't fire. Name this seam in the plan (even if v1 = a config field naming the active profile).
+3. **Profile-edit propagation has no trigger.** The spec says "edit → bump version → recompute(force)" but nothing *invokes* it. extract_facts calls `backfill_canonical_values` **without force** (#18). An author who edits canonicalization/aliases and bumps `version` leaves prior facts with stale canonical values until someone manually forces a recompute. Specify the trigger: e.g. on `load()`, if the stamped `profile_hash` of the latest run ≠ current hash, run `recompute(force=True)` once (or a `dossier recompute` command + a documented step). Otherwise the erosion failure mode the spec claims to fix persists.
+
+### 🟠 Should-address
+4. **Prompt-compilation is the only behavior-affecting change and "more consistent" (US-4) is unmeasured.** Richer prompts can also *over*-extract (model fills enums from weak cues) or bloat context (source text is already truncated to 8000 chars + enums + descriptions). Define a concrete A/B on the standing India brief: facts captured **and** false/unsupported facts, before/after. The config flag is good; keep the names-only path as the measured baseline.
+5. **Pillar-2 injection surface is broader than stated.** The spec treats seed text as data (good) and notes automation bias — but the generator's **rationale/confidence YAML comments are themselves an injection target**: crafted seed text could produce persuasive rationales that socially-engineer the human reviewer into approving a biased schema. Note it; keep comments inert and clearly machine-generated.
+6. **Meta-schema list is close but extend it:** also reject `value_aliases` canonical keys that aren't valid for the kind / overlap across canonicals; and confirm the draft is written as **raw annotated text** (never parse→re-dump, which strips the comments the review depends on).
+
+### Coverage-checklist pressure
+Safety/erosion/economic are well-argued (the human gate + version+hash + CI `validate` genuinely convert a hidden-in-code bias seam into an inspectable data seam — net gain). Inclusion (enum worldview) and risk (prompt-injection, automation bias) are named but lean on prompt-discipline + review; findings #5/#6 harden them. Legal/PII fine (profiles are schema). Unknown-unknowns: #2 (selection) and #3 (recompute trigger) are the two the draft under-surfaced.
+
+### Dispositions on the open questions
+- **Meta-schema: Pydantic-in-code.** Consistent with the codebase, gives located errors, no second schema language; domain experts edit *profiles*, not the meta-schema, so a JSON-Schema file buys no authoring benefit.
+- **Versioning: keep both** (human `version:` for intent + `profile_hash` for integrity), and **warn on same-version/different-hash** — that mismatch is exactly the un-versioned-edit erosion case, so detect it rather than just stamping.
+- **Registry: externalize it in this spec.** `di_source_registry` is already a plain dict → trivial YAML move; leaving the lone `.py` undercuts P2 ("no domain assumptions in code").
+
+### Convergence
+Advance Pillar 1 to a plan once #1–#3 are folded in; Pillar 2 can be a second plan (the spec already allows the split). Suggested order in the spec is right (externalize → prompt → provenance → scaffold).
