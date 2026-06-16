@@ -45,3 +45,21 @@ def test_names_only_prompt_when_not_compiled():
 def test_compile_flag_default_on():
     from open_deep_research.configuration import Configuration
     assert Configuration().compile_extraction_prompt is True
+
+
+def test_enum_descriptions_populated_and_rendered():
+    p = profile_from_dict({"entity_type": "country", "version": "1", "properties": [
+        {"name": "s", "kind": "enum", "value_enum": [
+            {"value": "operational", "description": "issuing at scale"},
+            "mandatory"]}]})
+    pd = p.property("s")
+    assert pd.value_enum_descriptions == {"operational": "issuing at scale"}
+    cat = compile_property_catalog(p)
+    assert "operational (issuing at scale)" in cat
+    assert "mandatory" in cat  # value without a description still listed
+
+
+def test_plain_enum_has_no_descriptions():
+    p = profile_from_dict({"entity_type": "country", "version": "1", "properties": [
+        {"name": "s", "kind": "enum", "value_enum": ["a", "b"]}]})
+    assert p.property("s").value_enum_descriptions == {}

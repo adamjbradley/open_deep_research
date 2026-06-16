@@ -12,6 +12,9 @@ class PropertyDef:
     required_qualifiers: list[str] = field(default_factory=list)
     qualifier_enums: dict[str, list[str]] = field(default_factory=dict)
     value_enum: list[str] | None = None
+    # Optional per-enum-value descriptions (value -> human description), surfaced in the
+    # compiled extraction prompt. Empty unless the YAML uses the {value, description} form.
+    value_enum_descriptions: dict[str, str] = field(default_factory=dict)
     trust_threshold: str = "reputable"
     # Maps a canonical value -> its surface variants (given as already-normalized lowercase
     # strings, i.e. as identity.canonical_value produces before alias-mapping). Used to
