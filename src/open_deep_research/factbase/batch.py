@@ -58,6 +58,8 @@ class BatchRunner:
 
             sem = asyncio.Semaphore(self._k)
 
+            # All workers share one BatchLedger over one connection: safe because asyncio
+            # serializes the awaits, so no two workers interleave inside a single ledger write.
             async def worker(item):
                 key, name = item["instance_key"], item["country_name"]
                 async with sem:

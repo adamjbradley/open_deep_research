@@ -205,6 +205,8 @@ async def run(argv, db_path=None) -> str:
             return ("scout discovery runs only via the batch API (needs a model call); "
                     "pass --countries for the CLI, or call BatchRunner with a scout_call.")
         names = resolve_country_list(args.countries) if args.countries else []
+        if not names:
+            return "error: batch needs a country list — pass --countries 'A,B,C'|@file|<group> (or --scout)."
         resolver = CountryResolver()
         if args.dry_run:
             lines = []

@@ -47,3 +47,10 @@ def test_batch_dry_run_reports_resolution(tmp_path):
         db_path=db))
     assert "NGA" in out                  # Nigeria resolves
     assert "UNRESOLVED" in out           # Atlantis reported, not silently dropped
+
+
+def test_batch_without_countries_errors(tmp_path):
+    from open_deep_research.factbase.dossier import run
+    db = str(tmp_path / "noc.db")
+    out = asyncio.run(run(["batch", "--profile", "country_cbdc"], db_path=db))
+    assert out.startswith("error:")      # no --countries/--scout -> clear error, not a silent no-op
