@@ -52,7 +52,9 @@ Replace the names-only body in `_make_fact_model_call` (`deep_researcher.py:1284
 - Add `*.yaml` under `open_deep_research.factbase.profiles` to `[tool.setuptools.package-data]` (today only `py.typed` ships) + an **installed-wheel smoke test** that loads the shipped profile and registry.
 - Declare **`pyyaml` as a direct dependency** (`yaml.safe_load`); it is only transitive today.
 
-## Pillar 2 — Assisted scaffolding (human-gated)
+## Pillar 2 — Assisted scaffolding
+
+> **SUPERSEDED (owner decision, 2026-06-16, during the 6b-1 build):** the human-rename **gate is dropped**. `dossier scaffold` writes a clean, **immediately-usable `<slug>.yaml`** *and* a non-loaded annotated **`<slug>.draft.yaml`** (kept as a diff/comparison artifact). The meta-schema still gates *writing* (an invalid proposal produces no files), but a generated profile is live without manual review. This overrides the "never auto-adopts / human edits + drops `.draft`" wording below (and the reviewer-endorsed invariant). The draft is now a comparison copy, not a gate.
 
 - **Offline:** `dossier scaffold <entity_type> "<description>" [--seed URL ...] [--out path]`.
   1. If `entity_type` exists, **reuse** its identity/resolver; generate only this pillar's new properties.
