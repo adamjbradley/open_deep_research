@@ -11,6 +11,40 @@ from .entities import CountryResolver
 from open_deep_research.storage import get_db_path
 
 
+def validate_profiles(extra_paths=None) -> tuple[str, bool]:
+    """Validate every shipped profile/registry YAML (plus any extra_paths). Returns (report, ok).
+
+    A registry file is any whose top-level YAML is a dict with a 'sources' key; everything
+    else is treated as a profile.
+    """
+    import yaml
+    from importlib.resources import files as _files
+    from .profile_schema import profile_from_dict
+    from .registry_schema import registry_from_dict
+
+    paths = []
+    pkg = _files("open_deep_research.factbase.profiles")
+    for entry in pkg.iterdir():
+        if entry.name.endswith(".yaml") and not entry.name.endswith(".draft.yaml"):
+            paths.append(entry)
+    paths.extend(extra_paths or [])
+
+    lines, ok = [], True
+    for path in paths:
+        name = getattr(path, "name", str(path))
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and "sources" in data:
+                registry_from_dict(data)
+            else:
+                profile_from_dict(data)
+            lines.append(f"OK    {name}")
+        except Exception as e:  # noqa: BLE001 - report-and-continue is the point
+            ok = False
+            lines.append(f"FAIL  {name}: {e}")
+    return "\n".join(lines), ok
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dossier", description="Inspect the living fact base.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -26,12 +60,16 @@ def _parser() -> argparse.ArgumentParser:
     compare.add_argument("--raw", action="store_true", help="One row per source (no canonical grouping).")
 
     sub.add_parser("stats", help="Fact-base health metrics")
+    sub.add_parser("validate", help="Validate all profile/registry YAML files.")
 
     return parser
 
 
 async def run(argv, db_path=None) -> str:
     args = _parser().parse_args(argv)
+    if args.command == "validate":
+        report, ok = validate_profiles()
+        return report if ok else report + "\nINVALID"
     db_path = db_path or get_db_path(None)
     async with aiosqlite.connect(db_path) as conn:
         q = _query.FactQuery(conn)
@@ -52,7 +90,10 @@ async def run(argv, db_path=None) -> str:
 
 def main():
     import sys
-    print(asyncio.run(run(sys.argv[1:])))
+    out = asyncio.run(run(sys.argv[1:]))
+    print(out)
+    if out.endswith("INVALID"):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
