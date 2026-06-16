@@ -87,3 +87,18 @@ def test_scaffold_skips_unreachable_seeds(tmp_path, monkeypatch):
         ["scaffold", "country", "domain", "--seed", "https://bad.example", "--out", str(out_yaml)]))
     assert out_yaml.exists()
     assert "SEED SOURCE TEXT" not in captured["prompt"]  # no seed block when all fetches failed
+
+
+def test_scaffold_reuses_existing_entity_properties_in_prompt(tmp_path, monkeypatch):
+    out_yaml = tmp_path / "country_more.yaml"
+    captured = {}
+
+    async def capturing(prompt):
+        captured["prompt"] = prompt
+        return scaffold.ScaffoldProposal(entity_type="country", properties=[{"name": "z", "kind": "name"}])
+
+    monkeypatch.setattr(dossier, "_scaffold_model_call", lambda: capturing)
+    asyncio.run(dossier.run(["scaffold", "country", "more country facts", "--out", str(out_yaml)]))
+    # The country entity already has DI properties -> the prompt tells the model not to re-propose them.
+    assert "already exists" in captured["prompt"]
+    assert "scheme_status" in captured["prompt"]

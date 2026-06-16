@@ -66,6 +66,13 @@ class PropertyModel(BaseModel):
             return None
         return [e.value if isinstance(e, _EnumValue) else e for e in self.value_enum]
 
+    def enum_descriptions(self) -> dict[str, str]:
+        return {
+            e.value: e.description
+            for e in (self.value_enum or [])
+            if isinstance(e, _EnumValue) and e.description
+        }
+
 
 class ProfileModel(BaseModel):
     entity_type: str
@@ -96,6 +103,7 @@ def profile_from_dict(data: dict) -> Profile:
             required_qualifiers=list(p.required_qualifiers),
             qualifier_enums={k: list(v) for k, v in p.qualifier_enums.items()},
             value_enum=p.enum_values(),
+            value_enum_descriptions=p.enum_descriptions(),
             trust_threshold=p.trust_threshold,
             value_aliases={k: list(v) for k, v in p.value_aliases.items()},
         )

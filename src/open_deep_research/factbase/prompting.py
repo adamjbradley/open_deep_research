@@ -22,7 +22,12 @@ def compile_property_catalog(prof, target_properties=None) -> str:
         if getattr(pd, "description", ""):
             line += f": {pd.description}"
         if pd.value_enum:
-            line += f" | allowed values: {pd.value_enum}"
+            descs = getattr(pd, "value_enum_descriptions", None) or {}
+            if descs:
+                vals = ", ".join(f"{v} ({descs[v]})" if v in descs else v for v in pd.value_enum)
+                line += f" | allowed values: [{vals}]"
+            else:
+                line += f" | allowed values: {pd.value_enum}"
         if pd.qualifier_enums:
             quals = "; ".join(f"{k}={v}" for k, v in pd.qualifier_enums.items())
             line += f" | qualifiers: {quals}"
