@@ -82,6 +82,12 @@ def _parser() -> argparse.ArgumentParser:
                      help="Profile name (YAML stem) to check/recompute against.")
     rec.add_argument("--check", action="store_true",
                      help="Report whether the profile changed since the last stamped run (no writes).")
+    rec.add_argument("--rebuild", action="store_true",
+                     help="Structural rebuild: re-derive tuple_key, conflicts, promotion (after identity/enum/threshold edits).")
+    rec.add_argument("--rename", action="append", default=[], metavar="OLD=NEW",
+                     help="Rename a property during rebuild (repeatable).")
+    rec.add_argument("--on-removed", choices=["retain", "soft_delete"], default="retain",
+                     help="Policy for facts whose property was removed from the profile.")
 
     sc = sub.add_parser("scaffold", help="Generate a usable profile for a domain (+ an annotated comparison draft).")
     sc.add_argument("entity_type")
@@ -105,6 +111,17 @@ async def run(argv, db_path=None) -> str:
         )
         prof = _profile.load(args.profile)
         cur_hash = getattr(prof, "profile_hash", None)
+        if getattr(args, "rebuild", False):
+            from open_deep_research.factbase import rebuild as _rebuild, registry as _registry
+            reg = _registry.SourceRegistry.load(args.registry if hasattr(args, "registry") else "di_source_registry")
+            rename = dict(pair.split("=", 1) for pair in args.rename) if args.rename else {}
+            async with aiosqlite.connect(db_path) as conn:
+                await _storage._ensure_schema(conn)
+                await _mig.apply(conn, _schema.STEPS)
+                stats = await _rebuild.rebuild_structural(
+                    conn, prof, reg, rename=rename, on_removed=args.on_removed)
+            return ("rebuild complete for " + args.profile + ": "
+                    + ", ".join(f"{k}={v}" for k, v in stats.items()))
         if args.check:
             d = await _drift.check_drift(db_path, args.profile, cur_hash)
             if d["drifted"]:
