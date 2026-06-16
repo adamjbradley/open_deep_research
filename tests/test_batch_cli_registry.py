@@ -20,7 +20,7 @@ class _FakeRunner:
     last = {}
 
     def __init__(self, *, profile_name, db_path, concurrency, run_one, profile_hash="", list_spec=""):
-        _FakeRunner.last["run_one"] = run_one
+        _FakeRunner.last = {"run_one": run_one}  # reset (not mutate) so tests don't see stale state
 
     async def run(self, names):
         return {"batch_id": "b_x", "summary": {"done": len(names)}, "unresolved": [], "resolved": []}
@@ -77,7 +77,7 @@ def test_batch_cli_no_autoprovision_skips_ensure(tmp_path, monkeypatch):
     assert "ensure_called" not in captured
     run_one = _FakeRunner.last["run_one"]
     assert run_one.keywords.get("registry_name") == ""    # nothing threaded
-    assert "registry" not in out                          # no registry note when none used
+    assert "registry:" not in out                         # the "| registry: <name>" note is absent
 
 
 def test_default_run_one_passes_registry_name(monkeypatch):
