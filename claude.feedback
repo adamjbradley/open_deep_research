@@ -272,3 +272,27 @@ Safety/erosion/economic are well-argued (the human gate + version+hash + CI `val
 
 ### Convergence
 Advance Pillar 1 to a plan once #1–#3 are folded in; Pillar 2 can be a second plan (the spec already allows the split). Suggested order in the spec is right (externalize → prompt → provenance → scaffold).
+
+---
+
+## Round 2 — 2026-06-16 — Claude re-review of the REVISED profiles-as-data spec (commit 6bc35a2)
+
+Reviewed the revision against round 1 (claude conditions + codex HOLD + agy/gemini ADVANCE) and the code.
+**Convergence: ADVANCE to plan — with one scoping caveat (split the structural rebuild out) and two residual specifics.**
+
+### Did the round-1 blockers hold? (yes)
+- **#1 Selection contract — RESOLVED.** `Configuration.profile_name`/`registry_name` + `load(configurable.*)` replacing the two hardcoded `load("country_digital_identity")` sites (`deep_researcher.py:350`,`:1383`), threaded through the facts path, with a `country_cbdc` no-Python-edit acceptance test; auto brief→profile resolution explicitly deferred. Clean v1.
+- **#2 Recompute — RESOLVED, and better than I framed it.** Now classified by edit type (normalization → `backfill_canonical_values(force=True)`; structural → forward-only rebuild of tuple keys/conflict/promotion) + a hash-mismatch-on-load trigger (warn + `dossier recompute [--rebuild]`, no silent mid-run rebuild) + stamp-after-selection (not at preallocate) + fail-if-unstamped. This absorbs codex's High and agy's destructive-change point, not just my trigger note.
+- **#3 `value_aliases` — RESOLVED.** Preserved in YAML, validated by the meta-schema (incl. invalid/overlapping canonical keys), golden `load(.py)==load(.yaml)` round-trip; drafts written as raw text. Should-fixes (A/B with false-fact measurement + token-budget warn; post-selection stamp timing; `*.yaml` package-data + `pyyaml` direct dep + installed-wheel smoke test; rationale-comment injection caveat; localized prompting) and all three open questions (Pydantic; hash+version with mismatch warn; registry with its own meta-schema/version/recompute) are folded in.
+
+### 🟠 New / residual (fold into the plan; not re-blockers)
+1. **The structural forward-only rebuild is a substantial new component, not a one-liner — scope it as its own plan/phase.** `recompute.py` today only rewrites `canonical_value`. "Recompute tuple keys + re-run conflict grouping + re-evaluate promotion + refresh read models from retained fact/evidence" is real new machinery (re-derive `tuple_key` from `qualifiers_json` per row, re-bucket, re-run `conflict.detect`/`promotion.evaluate`). Recommend: **Plan 6a** = externalize + selection + prompt-compile + provenance-stamp + normalization recompute (low-risk, interface-preserving); **Plan 6b** = structural rebuild + scaffold. The spec's split already anticipates this; make the rebuild explicitly 6b, not bundled into "Pillar 1."
+2. **Property rename/remove need an explicit mapping + orphan policy — a hash diff can't infer them.** "Forward-only rebuild" can't distinguish *renamed X→Y* from *removed X + added Y*; and facts under a removed property need a defined fate (soft-delete vs retain-as-historical — agy's orphan concern). Specify a rename map input to `dossier recompute --rebuild` and a remove policy.
+3. **Inline "no profile for X" offer is near-inert in v1.** With selection = a single `Configuration.profile_name`, the only way it has "no matching profile" is a config typo (odd UX). Its real value is coupled to the *deferred* brief→profile resolver. Fine to keep, but note it's effectively dormant until that resolver lands — don't over-test it in v1.
+
+### Minor
+- "Thread selected names through rendering and persistence" slightly over-states it — render/persist key off `instance_key`, not `profile_name`; the profile is actually needed at target-property resolution, prompt-compile/extraction, and recompute. Harmless, but the plan needn't plumb profile_name into persist.
+- Hash-mismatch-on-load *warns and proceeds* with the new profile: until someone runs `recompute`, the facts-first grouped answer mixes new-profile facts with stale-canonical old ones — an accepted (warned) inconsistency window for v1; worth a one-line acknowledgement.
+
+### Convergence
+**ADVANCE to the plan stage.** Both blockers are properly designed away; the remaining items are plan-level scoping (split 6a/6b) and two specifics (rename/remove mapping; orphan policy). No re-block.
