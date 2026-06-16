@@ -30,3 +30,15 @@ def test_canonical_number_collapses_separators_and_integral():
     assert c == "12.5"                       # non-integral normalized
     d, _ = canonical_value(pd, "not a number", None)
     assert d == "not a number"              # non-numeric falls back to text norm
+
+
+def test_inf_nan_rejected_and_never_raise():
+    pd = PropertyDef(name="population", value_kind="number")
+    # inf/nan are not valid counts -> validate False
+    assert pd.validate("inf") is False
+    assert pd.validate("nan") is False
+    assert pd.validate("-inf") is False
+    # canonical_value must never raise on them (contract) -> text fallback
+    for bad in ("inf", "-inf", "nan"):
+        v, _ = canonical_value(pd, bad, None)
+        assert isinstance(v, str)           # deterministic string, no OverflowError/ValueError

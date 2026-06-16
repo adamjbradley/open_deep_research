@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 
@@ -45,8 +46,7 @@ class PropertyDef:
         if self.value_kind == "number":
             s = v.replace(",", "").replace("_", "").replace(" ", "")
             try:
-                float(s)
-                return True
+                return math.isfinite(float(s))  # reject inf/nan -- not valid counts
             except ValueError:
                 return False
         if self.value_kind == "enum" and self.value_enum is not None:
