@@ -60,6 +60,18 @@ class SubjectResolution(BaseModel):
         ),
     )
 
+class TargetProperties(BaseModel):
+    """The profile properties a question needs answered (facts-first mode)."""
+
+    property_names: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The subset of available profile property names needed to answer the "
+            "question. Use names EXACTLY as listed. Empty if unsure (caller falls back "
+            "to all properties)."
+        ),
+    )
+
 class KnowledgeAssessment(BaseModel):
     """Whether existing stored knowledge already answers a question, and the gaps."""
 
@@ -103,6 +115,10 @@ class AgentState(MessagesState):
     answered_from_cache: Optional[bool]
     prealloc_run_id: Optional[int]
     persist_error: Optional[str]
+    # Facts-first mode
+    target_properties: Optional[list[str]]
+    fact_rounds_used: Optional[int]
+    extracted_source_urls: Annotated[list[str], override_reducer] = []
 
 class SupervisorState(TypedDict):
     """State for the supervisor that manages research tasks."""

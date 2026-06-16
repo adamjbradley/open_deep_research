@@ -278,6 +278,38 @@ class Configuration(BaseModel):
             }
         }
     )
+    facts_first_mode: bool = Field(
+        default=False,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "default": False,
+                "description": "Gather structured facts sufficient to answer the question and answer directly from the fact base, SKIPPING the prose final report. Targets only the profile properties the question needs, loops to research gaps until sufficient (see max_fact_rounds), then answers from the facts. When off, the normal report-writing flow runs."
+            }
+        }
+    )
+    max_fact_rounds: int = Field(
+        default=2,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": 2,
+                "min": 1,
+                "max": 5,
+                "description": "Facts-first mode only: max research rounds. After each round, if a target property still has no fact, re-research the gaps (up to this many rounds). 1 = single pass (no gap loop). Each extra round only extracts newly-fetched sources."
+            }
+        }
+    )
+    facts_answer_polish_model: Optional[str] = Field(
+        default=None,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "text",
+                "default": "",
+                "description": "Facts-first mode only: optional cheap model to polish the deterministic facts answer into prose (grounded only in the facts). Empty = use the summarization_model. The deterministic answer is always produced; polish is best-effort."
+            }
+        }
+    )
     use_knowledge_base: bool = Field(
         default=True,
         metadata={

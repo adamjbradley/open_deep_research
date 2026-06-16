@@ -6,7 +6,7 @@ def test_extract_facts_harvests_urls_and_backfills(monkeypatch, tmp_path):
     async def fake_fetch(url, **kw):
         return "India: coverage was 99% among adults in 2024."
     monkeypatch.setattr(dr, "_fact_fetch_text", fake_fetch, raising=False)
-    async def fake_model_call_factory(configurable, config):
+    async def fake_model_call_factory(configurable, config, target_properties=None):
         async def _call(text, prof):
             return [{"property":"id_coverage_pct","instance_name":"India","value":"99","unit":"%",
                      "as_of":"2024","qualifiers":{"population_basis":"adults_15plus"},
