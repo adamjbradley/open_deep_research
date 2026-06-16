@@ -1,5 +1,4 @@
 from __future__ import annotations
-import importlib
 from urllib.parse import urlparse
 _TIER_RANK = {"unvetted": 0, "reputable": 1, "authoritative": 2}
 class SourceRegistry:
@@ -7,8 +6,15 @@ class SourceRegistry:
         self._entries = entries
     @classmethod
     def load(cls, name: str) -> "SourceRegistry":
-        mod = importlib.import_module(f"open_deep_research.factbase.profiles.{name}")
-        return cls(mod.ENTRIES)
+        import yaml
+        from importlib.resources import files
+        from .registry_schema import registry_from_dict
+        text = (
+            files("open_deep_research.factbase.profiles")
+            .joinpath(f"{name}.yaml")
+            .read_text(encoding="utf-8")
+        )
+        return cls(registry_from_dict(yaml.safe_load(text)))
     def _match(self, url: str) -> dict | None:
         host = (urlparse(url).hostname or "").lower()
         for domain, entry in self._entries.items():
