@@ -13,6 +13,24 @@ class PropertyDef:
     qualifier_enums: dict[str, list[str]] = field(default_factory=dict)
     value_enum: list[str] | None = None
     trust_threshold: str = "reputable"
+    # Maps a canonical value -> its surface variants (given as already-normalized lowercase
+    # strings, i.e. as identity.canonical_value produces before alias-mapping). Used to
+    # collapse semantically-equal values like "Aadhaar" / "Aadhaar Card" / "UID".
+    value_aliases: dict[str, list[str]] = field(default_factory=dict)
+
+    def aliases_for(self, normalized_value: str) -> str | None:
+        """Return the canonical value if ``normalized_value`` is a known variant, else None."""
+        if not self.value_aliases:
+            return None
+        reverse = self.__dict__.get("_alias_reverse")
+        if reverse is None:
+            reverse = {}
+            for canonical, variants in self.value_aliases.items():
+                reverse[canonical.strip().lower()] = canonical.strip().lower()
+                for variant in variants:
+                    reverse[variant.strip().lower()] = canonical.strip().lower()
+            self.__dict__["_alias_reverse"] = reverse
+        return reverse.get((normalized_value or "").strip().lower())
 
     def validate(self, value: str) -> bool:
         v = (value or "").strip()

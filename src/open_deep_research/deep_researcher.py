@@ -1332,7 +1332,13 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
         async with aiosqlite.connect(get_db_path(config)) as conn:
             await fbmig.apply(conn, fbschema.STEPS)
             from open_deep_research.factbase import backfill as _fb_backfill
+            from open_deep_research.factbase import recompute as _fb_recompute
             from open_deep_research.storage import extract_sources as _extract_sources
+
+            # Backfill canonical values on any pre-normalization rows so dedup/conflict
+            # /rendering treat them consistently with newly-ingested facts (idempotent).
+            if configurable.normalize_fact_values:
+                await _fb_recompute.backfill_canonical_values(conn, prof)
             
             # 1. Backfill any cited sources that weren't captured during search
             cited = _extract_sources(state.get("final_report", "") or "", *(state.get("raw_notes", []) or []))
@@ -1391,6 +1397,7 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                     profile=prof,
                     resolver=fbentities.CountryResolver(),
                     registry=reg,
+                    normalize_values=configurable.normalize_fact_values,
                 ).ingest(run_id=run_id, records=all_records)
     except Exception as e:
         logger.warning("extract_facts failed (non-fatal): %s", e)

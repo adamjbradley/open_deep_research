@@ -24,7 +24,14 @@ def detect(bucket: list[model.Fact], had_open_conflict: bool = False) -> list:
     intents: list = []
     any_conflict = False
     for as_of, facts in groups.items():
-        distinct = {identity.canonicalize(f.value, f.unit) for f in facts}
+        # Compare on the canonical value (so surface variants like "Aadhaar"/"Aadhaar Card"
+        # don't open a false conflict); fall back to raw canonicalize for un-normalized rows.
+        distinct = {
+            (f.canonical_value, f.canonical_unit)
+            if getattr(f, "canonical_value", None) is not None
+            else identity.canonicalize(f.value, f.unit)
+            for f in facts
+        }
         if len(distinct) >= 2:
             any_conflict = True
             intents.append(model.OpenConflict(

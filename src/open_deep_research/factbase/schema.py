@@ -132,4 +132,9 @@ STEPS: list[tuple[int, str]] = [
     (4, """
     ALTER TABLE run_source ADD COLUMN reason TEXT;
     """),
+    (5, """
+    ALTER TABLE fact ADD COLUMN canonical_value TEXT;
+    ALTER TABLE fact ADD COLUMN canonical_unit TEXT;
+    CREATE INDEX IF NOT EXISTS ix_fact_canonical ON fact(tuple_key, as_of, canonical_value);
+    """),
 ]
