@@ -1,0 +1,315 @@
+version: '1'
+sources:
+- domain: bis.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - standard-setter
+  - aggregator
+- domain: imf.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - policy
+- domain: worldbank.org
+  tier: authoritative
+  flags:
+  - official
+  - policy
+  - developing-world
+- domain: pbc.gov.cn
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: ecb.europa.eu
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: federalreserve.gov
+  tier: authoritative
+  flags:
+  - official
+  - primary
+  - issuer
+- domain: bankofengland.co.uk
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: riksbank.se
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - pioneer
+- domain: cbn.gov.ng
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - africa
+- domain: centralbankbahamas.com
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - caribbean
+- domain: eccb-centralbank.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - caribbean
+  - multi-country
+- domain: boj.org.jm
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - caribbean
+- domain: bcb.gov.br
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - latam
+- domain: mas.gov.sg
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: hkma.gov.hk
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: boj.or.jp
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: rbi.org.in
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: bok.or.kr
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: sama.gov.sa
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - middle-east
+- domain: cbuae.gov.ae
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - middle-east
+- domain: bankofcanada.ca
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: rba.gov.au
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - pacific
+- domain: banxico.org.mx
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - latam
+- domain: sarb.co.za
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - africa
+- domain: bnm.gov.my
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: bi.go.id
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: nbrb.by
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - eastern-europe
+- domain: cbr.ru
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - eastern-europe
+- domain: pboc.gov.cn
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: dnb.nl
+  tier: authoritative
+  flags:
+  - official
+  - issuer
+  - europe
+- domain: bundesbank.de
+  tier: authoritative
+  flags:
+  - official
+  - issuer
+  - europe
+- domain: banquedefrance.fr
+  tier: authoritative
+  flags:
+  - official
+  - issuer
+  - europe
+- domain: snb.ch
+  tier: authoritative
+  flags:
+  - official
+  - issuer
+  - europe
+- domain: atlanticcouncil.org
+  tier: reputable
+  flags:
+  - aggregator
+  - tracker
+  - think-tank
+- domain: cbdctracker.org
+  tier: reputable
+  flags:
+  - aggregator
+  - tracker
+- domain: omfif.org
+  tier: reputable
+  flags:
+  - think-tank
+  - survey
+  - central-bank-focused
+- domain: brookings.edu
+  tier: reputable
+  flags:
+  - think-tank
+  - policy
+- domain: cfr.org
+  tier: reputable
+  flags:
+  - think-tank
+  - geopolitics
+- domain: weforum.org
+  tier: reputable
+  flags:
+  - think-tank
+  - multi-stakeholder
+- domain: ft.com
+  tier: reputable
+  flags:
+  - news
+  - financial-press
+- domain: reuters.com
+  tier: reputable
+  flags:
+  - news
+  - wire
+- domain: bloomberg.com
+  tier: reputable
+  flags:
+  - news
+  - financial-press
+- domain: coindesk.com
+  tier: reputable
+  flags:
+  - news
+  - crypto-media
+- domain: theblock.co
+  tier: reputable
+  flags:
+  - news
+  - crypto-media
+- domain: swift.com
+  tier: reputable
+  flags:
+  - industry-body
+  - interoperability
+- domain: bis.org/innovation-hub
+  tier: reputable
+  flags:
+  - aggregator
+  - pilot-reports
+  - official
+- domain: cato.org
+  tier: reputable
+  flags:
+  - think-tank
+  - critical
+- domain: nber.org
+  tier: reputable
+  flags:
+  - academic
+  - research
+- domain: ssrn.com
+  tier: unvetted
+  flags:
+  - academic
+  - preprint
+- domain: cointelegraph.com
+  tier: unvetted
+  flags:
+  - news
+  - crypto-media
+- domain: decrypt.co
+  tier: unvetted
+  flags:
+  - news
+  - crypto-media
