@@ -347,7 +347,7 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     if configurable.facts_first_mode and not target_properties:
         from open_deep_research.factbase import profile as _fbprofile
         target_properties = await resolve_target_properties(
-            question, _fbprofile.load("country_digital_identity"), configurable, config
+            question, _fbprofile.load(configurable.profile_name), configurable, config
         )
     if configurable.facts_first_mode and target_properties:
         research_brief = (
@@ -1380,8 +1380,8 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
             schema as fbschema,
             store as fbstore,
         )
-        prof = fbprofile.load("country_digital_identity")
-        reg = fbregistry.SourceRegistry.load("di_source_registry")
+        prof = fbprofile.load(configurable.profile_name)
+        reg = fbregistry.SourceRegistry.load(configurable.registry_name)
         model_call = _make_fact_model_call(
             configurable, config, target_properties=state.get("target_properties"))
         # _make_fact_model_call is normally a sync factory returning an async model_call,
