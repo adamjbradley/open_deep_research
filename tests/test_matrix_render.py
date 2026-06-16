@@ -36,3 +36,37 @@ def test_render_csv():
     out = render_matrix(rows, ["cbdc_launch_status"], lambda k: "Nigeria", fmt="csv")
     assert out.splitlines()[0] == "country,cbdc_launch_status"
     assert out.splitlines()[1] == "Nigeria,launched"
+
+
+def test_multi_value_cell_joins_sorted():
+    rows = [
+        _grouped("NGA", "cbdc_launch_status", "launched"),
+        _grouped("NGA", "cbdc_launch_status", "design"),
+    ]
+    m = build_matrix(rows, ["cbdc_launch_status"], lambda k: "Nigeria")
+    # two distinct values for one (instance, property) -> joined, sorted
+    assert m[0]["cells"]["cbdc_launch_status"] == "design; launched"
+
+
+def test_conflict_marker_and_cooccurrence():
+    rows = [
+        {"instance_key": "NGA", "property_name": "cbdc_launch_status",
+         "value": "launched", "admission": "trusted", "in_conflict": True},
+    ]
+    out = build_matrix(rows, ["cbdc_launch_status"], lambda k: "Nigeria")
+    assert out[0]["cells"]["cbdc_launch_status"] == "launched*!"  # trusted + conflict
+
+
+def test_render_text_aligns_columns():
+    rows = [_grouped("NGA", "cbdc_launch_status", "launched", "trusted")]
+    out = render_matrix(rows, ["cbdc_launch_status"], lambda k: "Nigeria", fmt="text")
+    lines = out.splitlines()
+    assert lines[0].startswith("country")          # header present
+    assert "cbdc_launch_status" in lines[0]
+    assert "Nigeria" in lines[1] and "launched*" in lines[1]
+
+
+def test_render_md_escapes_pipe():
+    rows = [_grouped("NGA", "cbdc_name", "tier 1 | tier 2")]
+    out = render_matrix(rows, ["cbdc_name"], lambda k: "Nigeria", fmt="md")
+    assert r"tier 1 \| tier 2" in out   # pipe escaped, table not broken

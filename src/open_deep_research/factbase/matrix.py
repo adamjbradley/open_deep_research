@@ -3,13 +3,20 @@
 Input rows are query.group_by_canonical() output (one row per instance/property/
 canonical value). Output: rows = instances, columns = the profile's properties,
 cell = canonical value(s) with a trailing '*' for trusted, '!' for in-conflict;
-empty string = no fact (a visible coverage gap).
+both markers can co-occur on the same value (e.g. ``launched*!`` means the value
+is trusted AND disputed by another source); empty string = no fact (a visible
+coverage gap).
 """
 from __future__ import annotations
 
 import csv
 import io
 from collections.abc import Callable
+
+
+def _md_escape(s: str) -> str:
+    """Escape pipe characters so a cell value can't break a markdown table."""
+    return s.replace("|", r"\|")
 
 
 def _cell_text(values: list[dict]) -> str:
@@ -85,14 +92,15 @@ def render_matrix(
         return buf.getvalue().rstrip("\n")
     if fmt == "md":
         lines = [
-            "| " + " | ".join(headers) + " |",
+            "| " + " | ".join(_md_escape(h) for h in headers) + " |",
             "| " + " | ".join("---" for _ in headers) + " |",
         ]
         for row in matrix:
             lines.append(
                 "| "
                 + " | ".join(
-                    [row["instance"], *[row["cells"][p] for p in property_names]]
+                    _md_escape(v)
+                    for v in [row["instance"], *[row["cells"][p] for p in property_names]]
                 )
                 + " |"
             )
@@ -104,10 +112,10 @@ def render_matrix(
         for i, p in enumerate(property_names, start=1):
             widths[i] = max(widths[i], len(row["cells"][p]))
 
-    def fmt_row(cells: list[str]) -> str:
+    def _align_row(cells: list[str]) -> str:
         return "  ".join(c.ljust(widths[i]) for i, c in enumerate(cells))
 
-    lines = [fmt_row(headers)]
+    lines = [_align_row(headers)]
     for row in matrix:
-        lines.append(fmt_row([row["instance"], *[row["cells"][p] for p in property_names]]))
+        lines.append(_align_row([row["instance"], *[row["cells"][p] for p in property_names]]))
     return "\n".join(lines)
