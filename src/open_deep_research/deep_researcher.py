@@ -1392,6 +1392,17 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
         run_id = state.get("prealloc_run_id")
         async with aiosqlite.connect(get_db_path(config)) as conn:
             await fbmig.apply(conn, fbschema.STEPS)
+            # Provenance: stamp which profile produced this run's facts (after selection/load,
+            # before extraction). Direct UPDATE within the open connection.
+            if run_id:
+                await conn.execute(
+                    "UPDATE research_runs SET profile_name=?, profile_version=?, profile_hash=? WHERE id=?",
+                    (configurable.profile_name,
+                     getattr(prof, "profile_version", None),
+                     getattr(prof, "profile_hash", None),
+                     run_id),
+                )
+                await conn.commit()
             from open_deep_research.factbase import backfill as _fb_backfill
             from open_deep_research.factbase import recompute as _fb_recompute
             from open_deep_research.storage import extract_sources as _extract_sources

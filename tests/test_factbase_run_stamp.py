@@ -39,3 +39,22 @@ def test_finalize_stamps_profile_fields(tmp_path):
         assert row == ("country_digital_identity", "1", "abc123", "completed")
 
     asyncio.run(go())
+
+
+def test_stamp_update_persists(tmp_path):
+    # Mirrors the engine's in-connection UPDATE to prove the columns accept a stamp mid-run.
+    db = str(tmp_path / "fb.db")
+
+    async def go():
+        run_id = await storage.preallocate_run(db, "t")
+        async with aiosqlite.connect(db) as conn:
+            await migrations.apply(conn, schema.STEPS)
+            await conn.execute(
+                "UPDATE research_runs SET profile_name=?, profile_version=?, profile_hash=? WHERE id=?",
+                ("country_digital_identity", "1", "deadbeef", run_id))
+            await conn.commit()
+            cur = await conn.execute(
+                "SELECT profile_name, profile_hash FROM research_runs WHERE id=?", (run_id,))
+            assert await cur.fetchone() == ("country_digital_identity", "deadbeef")
+
+    asyncio.run(go())
