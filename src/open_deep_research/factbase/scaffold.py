@@ -96,9 +96,9 @@ async def induce(entity_type, description, sources, existing_property_names, mod
 def render_draft_yaml(proposal: "ScaffoldProposal") -> str:
     """Raw annotated YAML: a leading review-notes comment block + a clean profile dump."""
     notes = [
-        "# === SCAFFOLD DRAFT - machine-generated; REVIEW before use ===",
-        "# Verify the flagged identity/enum decisions below (they drive conflict detection),",
-        "# edit as needed, then rename this file to <name>.yaml and commit.",
+        "# === SCAFFOLD DRAFT - machine-generated; annotated comparison copy (NOT loaded) ===",
+        "# The usable profile was written to the sibling <name>.yaml. This .draft.yaml records",
+        "# the generator's flagged decisions + rationale so you can review and diff what changed.",
         "#",
         "# Flagged decisions:",
     ]
@@ -109,5 +109,10 @@ def render_draft_yaml(proposal: "ScaffoldProposal") -> str:
                 f"  ->  {p.identity_rationale or '(no rationale given)'} (confidence: {p.confidence})"
             )
     notes.append("#")
-    body = yaml.safe_dump(_proposal_to_profile_dict(proposal), sort_keys=False, default_flow_style=False)
+    body = render_profile_yaml(proposal)
     return "\n".join(notes) + "\n" + body
+
+
+def render_profile_yaml(proposal: "ScaffoldProposal") -> str:
+    """Clean, loadable profile YAML (no annotations) -- the immediately-usable output."""
+    return yaml.safe_dump(_proposal_to_profile_dict(proposal), sort_keys=False, default_flow_style=False)

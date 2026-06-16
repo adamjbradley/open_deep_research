@@ -45,6 +45,21 @@ def validate_profiles(extra_paths=None) -> tuple[str, bool]:
     return "\n".join(lines), ok
 
 
+def _scaffold_model_call():
+    """Return an async model_call(prompt) -> ScaffoldProposal using the configured model.
+
+    Overridable in tests so the CLI needs no LLM/network.
+    """
+    from langchain_core.messages import HumanMessage
+    from open_deep_research.deep_researcher import configurable_model
+    from .scaffold import ScaffoldProposal
+
+    async def call(prompt: str):
+        model = configurable_model.with_structured_output(ScaffoldProposal)
+        return await model.ainvoke([HumanMessage(content=prompt)])
+    return call
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dossier", description="Inspect the living fact base.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -67,6 +82,11 @@ def _parser() -> argparse.ArgumentParser:
                      help="Profile name (YAML stem) to check/recompute against.")
     rec.add_argument("--check", action="store_true",
                      help="Report whether the profile changed since the last stamped run (no writes).")
+
+    sc = sub.add_parser("scaffold", help="Generate a usable profile for a domain (+ an annotated comparison draft).")
+    sc.add_argument("entity_type")
+    sc.add_argument("description")
+    sc.add_argument("--out", help="Usable profile path (default factbase/profiles/<slug>.yaml).")
 
     return parser
 
@@ -97,6 +117,22 @@ async def run(argv, db_path=None) -> str:
             await _mig.apply(conn, _schema.STEPS)
             n = await _recompute.backfill_canonical_values(conn, prof, force=True)
         return f"recomputed canonical values for {n} fact row(s) under {args.profile}."
+    if args.command == "scaffold":
+        import os
+        from open_deep_research.storage import slugify
+        from .scaffold import induce, render_draft_yaml, render_profile_yaml
+        proposal = await induce(args.entity_type, args.description, [], [], _scaffold_model_call())
+        out_yaml = args.out or os.path.join(
+            os.path.dirname(__file__), "profiles", f"{slugify(args.description)}.yaml")
+        out_draft = (out_yaml[:-5] + ".draft.yaml") if out_yaml.endswith(".yaml") else out_yaml + ".draft.yaml"
+        replaced = os.path.exists(out_yaml)
+        with open(out_yaml, "w", encoding="utf-8") as fh:
+            fh.write(render_profile_yaml(proposal))
+        with open(out_draft, "w", encoding="utf-8") as fh:
+            fh.write(render_draft_yaml(proposal))
+        note = " (replaced existing)" if replaced else ""
+        return (f"Wrote usable profile {out_yaml}{note} -- live now -- and annotated comparison copy "
+                f"{out_draft} (not loaded). Diff them to review what the generator decided.")
     async with aiosqlite.connect(db_path) as conn:
         q = _query.FactQuery(conn)
         if args.command == "show":
