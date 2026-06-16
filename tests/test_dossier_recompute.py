@@ -34,3 +34,13 @@ def test_recompute_action_runs_on_empty_factbase(tmp_path):
         assert "recomputed" in out and "0" in out  # empty fact table -> 0 rows
 
     asyncio.run(go())
+
+
+def test_recompute_rebuild_runs(tmp_path):
+    db = str(tmp_path / "fb.db")
+
+    async def go():
+        out = await dossier.run(["recompute", "--rebuild"], db_path=db)
+        assert "rebuild" in out.lower()
+
+    asyncio.run(go())
