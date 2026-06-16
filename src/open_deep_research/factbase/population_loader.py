@@ -23,8 +23,13 @@ def _load_data() -> dict:
     import yaml
     from importlib.resources import files
 
-    text = files("open_deep_research.factbase.data").joinpath("population.yaml").read_text(
-        encoding="utf-8")
+    try:
+        text = files("open_deep_research.factbase.data").joinpath("population.yaml").read_text(
+            encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            "population.yaml missing — run: uv run python scripts/gen_population.py"
+        ) from exc
     return yaml.safe_load(text) or {}
 
 
@@ -58,7 +63,7 @@ async def load_population(db_path: str, *, profile_name: str = "country_populati
         conn.row_factory = aiosqlite.Row
         cur = await conn.execute(
             "SELECT COUNT(*) n, SUM(admission='trusted') t, COUNT(DISTINCT instance_key) k "
-            "FROM fact WHERE property_name='population' AND run_id=?", (run_id,))
+            "FROM fact WHERE property_name='population' AND run_id=?", (str(run_id),))  # run_id col is TEXT
         r = await cur.fetchone()
     return {"loaded": r["n"] or 0, "trusted": r["t"] or 0,
             "instances": r["k"] or 0, "skipped": skipped}
