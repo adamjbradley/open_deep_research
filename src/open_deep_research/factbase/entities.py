@@ -1,3 +1,5 @@
+"""ISO-3166 country-name resolution and alpha-3 key reverse lookup."""
+
 from __future__ import annotations
 
 import re
@@ -20,8 +22,13 @@ def _load() -> tuple[dict[str, str], dict[str, str]]:
     import yaml
     from importlib.resources import files
 
-    text = files("open_deep_research.factbase.data").joinpath("iso3166.yaml").read_text(
-        encoding="utf-8")
+    try:
+        text = files("open_deep_research.factbase.data").joinpath("iso3166.yaml").read_text(
+            encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            "iso3166.yaml missing from open_deep_research.factbase.data — reinstall the package"
+        ) from exc
     data = yaml.safe_load(text) or {}
     name_to_key: dict[str, str] = {}
     key_to_name: dict[str, str] = {}
