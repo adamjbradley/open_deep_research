@@ -1,0 +1,11 @@
+version: '1'
+sources:
+- domain: data.worldbank.org
+  tier: authoritative
+  flags: [primary]
+- domain: api.worldbank.org
+  tier: authoritative
+  flags: [primary]
+- domain: worldbank.org
+  tier: authoritative
+  flags: []

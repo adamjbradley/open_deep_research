@@ -1,0 +1,7 @@
+entity_type: country
+version: '1'
+properties:
+- name: population
+  kind: number
+  description: Total population (most recent World Bank SP.POP.TOTL estimate).
+  trust_threshold: reputable
