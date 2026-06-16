@@ -26,6 +26,12 @@ def _load_groups() -> dict[str, list[str]]:
 
 
 def resolve_country_list(spec: str) -> list[str]:
+    """Expand a country-list ``spec`` into country names.
+
+    ``spec`` is one of: ``@/path/to/file`` (one name per line), a named group key
+    (``G20``/``EU``/``West Africa``), or a comma-separated name list. Raises
+    ``ValueError`` if ``spec`` is blank or an ``@file`` yields no names.
+    """
     spec = (spec or "").strip()
     if not spec:
         raise ValueError("empty country-list spec")
@@ -37,6 +43,8 @@ def resolve_country_list(spec: str) -> list[str]:
         if not out:
             raise ValueError(f"no country names in file {spec[1:]}")
         return out
+    # A comma means an explicit list; this relies on group names never containing a
+    # comma (true for groups.yaml today — keep it that way when adding groups).
     if "," not in spec:
         groups = _load_groups()
         if spec in groups:
