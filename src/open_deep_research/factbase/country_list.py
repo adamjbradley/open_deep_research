@@ -54,3 +54,21 @@ def resolve_country_list(spec: str) -> list[str]:
             return list(groups[spec])
         return [spec]  # a single explicit name
     return [part.strip() for part in spec.split(",") if part.strip()]
+
+
+async def resolve_country_list_async(*, spec, scout_query, scout_call) -> list[str]:
+    """Async country-list resolution with optional LLM scout discovery.
+
+    If ``scout_query`` is given, discover names via ``scout_call(query) -> list[str]``;
+    otherwise delegate to the synchronous :func:`resolve_country_list` on ``spec``.
+
+    The scout path is the one place LLM output enters list resolution; it returns NAMES
+    only (each later resolved to an instance_key by the caller) and never touches the
+    ``@file`` open() path (see the module TRUST BOUNDARY note).
+    """
+    if scout_query:
+        if scout_call is None:
+            raise ValueError("scout_query given but no scout_call provided")
+        names = await scout_call(scout_query)
+        return [n.strip() for n in names if n and n.strip()]
+    return resolve_country_list(spec)
