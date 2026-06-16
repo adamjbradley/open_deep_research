@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
@@ -73,6 +74,21 @@ from open_deep_research.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Failure sentinels emitted by compress_research / final_report_generation when their
+# model calls exhaust retries. They are real strings that flow into notes / the report,
+# so persistence must detect them (see _report_is_failed) and avoid saving them as a
+# "completed" run or merging them into the subject dossier (which would poison the KB).
+COMPRESSION_FAILED_SENTINEL = "Error synthesizing research report: Maximum retries exceeded"
+REPORT_FAILED_PREFIX = "Error generating final report:"
+
+
+def _report_is_failed(report: Optional[str]) -> bool:
+    """Whether a final report is empty or a generation-failure sentinel (not real content)."""
+    if not report or not report.strip():
+        return True
+    stripped = report.strip()
+    return stripped.startswith(REPORT_FAILED_PREFIX) or stripped == COMPRESSION_FAILED_SENTINEL
 
 
 def recommended_recursion_limit(
@@ -529,19 +545,28 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
             allowed_conduct_research_calls = conduct_research_calls[:configurable.max_concurrent_research_units]
             overflow_conduct_research_calls = conduct_research_calls[configurable.max_concurrent_research_units:]
             
-            # Execute research tasks in parallel
+            # Execute research tasks in parallel, each under an overall wall-clock budget.
+            # Per-call timeouts bound individual stalls, but a researcher runs many
+            # turns x tool calls x retries, so without an aggregate cap its worst case is
+            # effectively unbounded. On timeout the unit raises TimeoutError, handled as a
+            # per-unit failure below (the budget comfortably exceeds a healthy run).
+            researcher_budget_s = float(os.getenv("RESEARCHER_BUDGET_S", "1800"))
             research_tasks = [
-                researcher_subgraph.ainvoke({
-                    "researcher_messages": [
-                        HumanMessage(content=tool_call["args"]["research_topic"])
-                    ],
-                    "research_topic": tool_call["args"]["research_topic"]
-                }, config) 
+                asyncio.wait_for(
+                    researcher_subgraph.ainvoke({
+                        "researcher_messages": [
+                            HumanMessage(content=tool_call["args"]["research_topic"])
+                        ],
+                        "research_topic": tool_call["args"]["research_topic"]
+                    }, config),
+                    timeout=researcher_budget_s,
+                )
                 for tool_call in allowed_conduct_research_calls
             ]
-            
-            # return_exceptions=True so one researcher failing does NOT cancel the others
-            # and discard their completed work -- each failure is isolated per-unit below.
+
+            # return_exceptions=True so one researcher failing (or timing out) does NOT
+            # cancel the others and discard their completed work -- each failure is
+            # isolated into a per-unit error ToolMessage below.
             tool_results = await asyncio.gather(*research_tasks, return_exceptions=True)
 
             # Create tool messages with research results. A failed unit becomes an error
@@ -561,7 +586,7 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
                     ))
                     continue
                 all_tool_messages.append(ToolMessage(
-                    content=observation.get("compressed_research", "Error synthesizing research report: Maximum retries exceeded"),
+                    content=observation.get("compressed_research", COMPRESSION_FAILED_SENTINEL),
                     name=tool_call["name"],
                     tool_call_id=tool_call["id"]
                 ))
@@ -685,10 +710,17 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
 
 # Tool Execution Helper Function
 async def execute_tool_safely(tool, args, config):
-    """Safely execute a tool with error handling."""
+    """Safely execute a tool with error handling.
+
+    The error string is returned to the researcher LLM (so it can adapt), but it is
+    ALSO logged at error level: otherwise a systemic failure (dead search key, down MCP)
+    makes every tool "fail" invisibly while the run still completes with a hollow report.
+    """
     try:
         return await tool.ainvoke(args, config)
     except Exception as e:
+        tool_name = getattr(tool, "name", None) or getattr(tool, "__name__", "unknown")
+        logger.error("Tool %r execution failed: %s", tool_name, e, exc_info=True)
         return f"Error executing tool: {str(e)}"
 
 
@@ -730,23 +762,47 @@ async def researcher_tools(state: ResearcherState, config: RunnableConfig) -> Co
         for tool in tools
     }
     
-    # Execute all tool calls in parallel
+    # Execute all tool calls in parallel. Guard unknown tool names: the CLI/subscription
+    # backends select tools by name with no enum enforcement, so a hallucinated/mis-typed
+    # name would KeyError here and crash the whole researcher unit. Answer those with a
+    # corrective ToolMessage (and log) instead, so the researcher can retry a valid tool.
     tool_calls = most_recent_message.tool_calls
+    valid_tool_calls = []
+    unknown_tool_outputs = []
+    for tool_call in tool_calls:
+        tool = tools_by_name.get(tool_call["name"])
+        if tool is None:
+            logger.warning(
+                "Researcher requested unknown tool %r (available: %s)",
+                tool_call["name"], sorted(tools_by_name),
+            )
+            unknown_tool_outputs.append(ToolMessage(
+                content=(
+                    f"Error: '{tool_call['name']}' is not an available tool. "
+                    f"Choose one of: {sorted(tools_by_name)}."
+                ),
+                name=tool_call["name"],
+                tool_call_id=tool_call["id"],
+            ))
+            continue
+        valid_tool_calls.append(tool_call)
+
     tool_execution_tasks = [
-        execute_tool_safely(tools_by_name[tool_call["name"]], tool_call["args"], config) 
-        for tool_call in tool_calls
+        execute_tool_safely(tools_by_name[tool_call["name"]], tool_call["args"], config)
+        for tool_call in valid_tool_calls
     ]
     observations = await asyncio.gather(*tool_execution_tasks)
-    
-    # Create tool messages from execution results
+
+    # Create tool messages from execution results (valid runs + any unknown-tool nudges)
     tool_outputs = [
         ToolMessage(
             content=observation,
             name=tool_call["name"],
             tool_call_id=tool_call["id"]
-        ) 
-        for observation, tool_call in zip(observations, tool_calls)
+        )
+        for observation, tool_call in zip(observations, valid_tool_calls)
     ]
+    tool_outputs.extend(unknown_tool_outputs)
     
     # Step 3: Check late exit conditions (after processing tools)
     exceeded_iterations = state.get("tool_call_iterations", 0) >= configurable.max_react_tool_calls
@@ -824,23 +880,28 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
             
         except Exception as e:
             synthesis_attempts += 1
-            
+
             # Handle token limit exceeded by removing older messages
             if is_token_limit_exceeded(e, configurable.researcher_model):
+                logger.warning("compress_research attempt %d hit token limit; trimming history: %s",
+                               synthesis_attempts, e)
                 researcher_messages = remove_up_to_last_ai_message(researcher_messages)
                 continue
-            
-            # For other errors, continue retrying
+
+            # For other errors, log (don't silently discard) and retry.
+            logger.warning("compress_research attempt %d failed: %s",
+                           synthesis_attempts, e, exc_info=True)
             continue
-    
+
     # Step 4: Return error result if all attempts failed
+    logger.error("compress_research exhausted %d attempts; returning failure sentinel", max_attempts)
     raw_notes_content = "\n".join([
-        str(message.content) 
+        str(message.content)
         for message in filter_messages(researcher_messages, include_types=["tool", "ai"])
     ])
-    
+
     return {
-        "compressed_research": "Error synthesizing research report: Maximum retries exceeded",
+        "compressed_research": COMPRESSION_FAILED_SENTINEL,
         "raw_notes": [raw_notes_content]
     }
 
@@ -943,15 +1004,17 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                 continue
             else:
                 # Non-token-limit error: return error immediately
+                logger.error("Final report generation failed: %s", e, exc_info=True)
                 return {
-                    "final_report": f"Error generating final report: {e}",
+                    "final_report": f"{REPORT_FAILED_PREFIX} {e}",
                     "messages": [AIMessage(content="Report generation failed due to an error")],
                     **cleared_state
                 }
-    
+
     # Step 4: Return failure result if all retries exhausted
+    logger.error("Final report generation exhausted retries (token limits)")
     return {
-        "final_report": "Error generating final report: Maximum retries exceeded",
+        "final_report": f"{REPORT_FAILED_PREFIX} Maximum retries exceeded",
         "messages": [AIMessage(content="Report generation failed after maximum retries")],
         **cleared_state
     }
@@ -1058,6 +1121,22 @@ async def persist_research(state: AgentState, config: RunnableConfig):
             )
             return {"report_id": run_id, "subject": state["subject"]}
 
+        # Failed/empty report: record the run as an error for history, but do NOT merge
+        # the error text into the subject dossier -- that would poison future cache answers
+        # (assess_knowledge could later serve the error straight from the dossier).
+        if _report_is_failed(final_report):
+            run["status"] = "error"
+            run["error"] = (final_report or "empty report")[:500]
+            subject_for_log = state.get("subject") or topic
+            run_id = await log_research_run(
+                db_path, slugify(subject_for_log), run, run_id=state.get("prealloc_run_id")
+            )
+            logger.error(
+                "Run produced no usable report (%r...); logged as error, dossier left unchanged.",
+                (final_report or "")[:120],
+            )
+            return {"report_id": run_id, "subject": subject_for_log}
+
         if configurable.accumulate_by_subject and final_report:
             # 1) Use the subject already matched by assess_knowledge, else resolve now.
             subject_name = state.get("subject")
@@ -1088,6 +1167,18 @@ async def persist_research(state: AgentState, config: RunnableConfig):
                         f"{existing['current_report']}\n\n---\n\n"
                         f"## Additional research ({now[:10]})\n\n{final_report}"
                     )
+                # Guard: a successful-but-empty/degenerate merge must not clobber a good
+                # dossier. If the merged report vanished or shrank by >50%, append instead.
+                prior = existing["current_report"].strip()
+                if not merged_report.strip() or len(merged_report.strip()) < 0.5 * len(prior):
+                    logger.warning(
+                        "Merged dossier shrank unexpectedly (%d -> %d chars); appending instead.",
+                        len(prior), len(merged_report.strip()),
+                    )
+                    merged_report = (
+                        f"{existing['current_report']}\n\n---\n\n"
+                        f"## Additional research ({now[:10]})\n\n{final_report}"
+                    )
                 sources_union = extract_sources(merged_report) or list(
                     dict.fromkeys([*existing.get("sources", []), *new_sources])
                 )
@@ -1113,9 +1204,11 @@ async def persist_research(state: AgentState, config: RunnableConfig):
         )
         return {"report_id": run_id, "subject": subject_name}
     except Exception as e:
-        # Persistence is best-effort: never fail a completed run on a DB error.
-        logger.warning("Failed to persist research result: %s", e)
-        return {}
+        # Persistence is best-effort: never fail a completed run on a DB error. But for a
+        # knowledge-base product a silent save failure breaks the whole value prop, so log
+        # at error with a stack and surface a marker the caller/UI can use to warn the user.
+        logger.error("Failed to persist research result: %s", e, exc_info=True)
+        return {"persist_error": str(e)}
 
 
 ###################

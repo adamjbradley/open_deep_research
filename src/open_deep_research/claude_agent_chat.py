@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sys
 import uuid
@@ -70,6 +71,8 @@ from langchain_core.messages import (
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.utils.function_calling import convert_to_openai_tool
+
+logger = logging.getLogger(__name__)
 
 # Limit concurrent SDK subprocesses. The subscription tier throttles around a
 # handful of simultaneous sessions, and the app fans out parallel researchers.
@@ -736,12 +739,26 @@ class _CLIJsonChat(BaseChatModel):
             schema = _tool_envelope_schema(openai_tools)
             attempts = max(1, int(os.getenv("CLI_TOOL_RETRIES", "3")))
             tool_calls: list[dict] = []
+            last_text = ""
             for _ in range(attempts):
-                text, parsed = await self._backend_generate(system_prompt, prompt, schema)
-                data = parsed if parsed is not None else (_extract_json(text) or {})
+                last_text, parsed = await self._backend_generate(system_prompt, prompt, schema)
+                data = parsed if parsed is not None else (_extract_json(last_text) or {})
                 tool_calls = _envelope_to_tool_calls(data)
                 if tool_calls:
                     break
+            if not tool_calls:
+                # Don't return an empty tool_calls list: the graph reads that as "no
+                # tool / done" and would silently end the phase. Raise so retry / the
+                # supervisor's per-unit gather surfaces it as a real, logged failure.
+                logger.error(
+                    "%s produced no parseable tool-selection envelope after %d attempts; "
+                    "last raw output (truncated): %.500s",
+                    self._backend_name, attempts, last_text,
+                )
+                raise ValueError(
+                    f"{self._backend_name} did not emit a valid tool-call envelope after "
+                    f"{attempts} attempts (model not honoring the tool protocol)."
+                )
             message = AIMessage(
                 content="",
                 tool_calls=tool_calls,
@@ -749,6 +766,8 @@ class _CLIJsonChat(BaseChatModel):
             )
         else:
             text, _ = await self._backend_generate(system_prompt, prompt, None)
+            if not text.strip():
+                logger.warning("%s returned empty content for a plain generation", self._backend_name)
             message = AIMessage(
                 content=text.strip(),
                 response_metadata={"model": self.model},
@@ -916,6 +935,7 @@ async def run_search_agent(
     text, result_text, is_error = data["text"], data["result_text"], data["is_error"]
 
     if is_error and not text:
+        logger.error("Claude Code web search returned an error result: %r", result_text)
         return f"Error performing Claude Code web search: {result_text!r}"
     return text or result_text or "No search results found."
 
@@ -949,6 +969,7 @@ async def run_gemini_search(
                 cmd, env=env, stdin=prompt, timeout=int(os.getenv("CLI_BACKEND_TIMEOUT", "600"))
             )
         except Exception as e:  # surface as tool output rather than crashing the loop
+            logger.error("Gemini web search failed: %s", e, exc_info=True)
             return f"Error performing Gemini web search: {e}"
 
 
@@ -988,6 +1009,7 @@ async def run_codex_search(
         with open(out_path, "r", encoding="utf-8") as f:
             return f.read().strip() or "No search results found."
     except Exception as e:
+        logger.error("Codex web search failed: %s", e, exc_info=True)
         return f"Error performing Codex web search: {e}"
     finally:
         try:

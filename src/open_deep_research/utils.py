@@ -205,20 +205,35 @@ async def tavily_search_async(
     """
     # Initialize the Tavily client with API key from config
     tavily_client = AsyncTavilyClient(api_key=get_tavily_api_key(config))
-    
+
+    # Bound each call: the Tavily HTTP client has no timeout by default, so a hung
+    # endpoint would block indefinitely (the only unbounded call among the backends).
+    # Share the CLI backends' timeout budget for consistency.
+    timeout_s = float(os.getenv("TAVILY_TIMEOUT", os.getenv("CLI_BACKEND_TIMEOUT", "120")))
+
     # Create search tasks for parallel execution
     search_tasks = [
-        tavily_client.search(
-            query,
-            max_results=max_results,
-            include_raw_content=include_raw_content,
-            topic=topic
+        asyncio.wait_for(
+            tavily_client.search(
+                query,
+                max_results=max_results,
+                include_raw_content=include_raw_content,
+                topic=topic
+            ),
+            timeout=timeout_s,
         )
         for query in search_queries
     ]
-    
-    # Execute all search queries in parallel and return results
-    search_results = await asyncio.gather(*search_tasks)
+
+    # Execute all queries in parallel. return_exceptions so one hung/failed query
+    # doesn't sink the batch; drop failures (logged) and keep the successful responses.
+    raw = await asyncio.gather(*search_tasks, return_exceptions=True)
+    search_results = []
+    for query, result in zip(search_queries, raw):
+        if isinstance(result, BaseException):
+            logger.error("Tavily search failed for query %r: %s", query, result, exc_info=result)
+            continue
+        search_results.append(result)
     return search_results
 
 async def summarize_webpage(model: BaseChatModel, webpage_content: str) -> str:
@@ -254,7 +269,7 @@ async def summarize_webpage(model: BaseChatModel, webpage_content: str) -> str:
         
     except asyncio.TimeoutError:
         # Timeout during summarization - return original content
-        logging.warning("Summarization timed out after 60 seconds, returning original content")
+        logging.warning("Summarization timed out after 120 seconds, returning original content")
         return webpage_content
     except Exception as e:
         # Other errors during summarization - log and return original content
@@ -548,8 +563,11 @@ async def load_mcp_tools(
     try:
         client = MultiServerMCPClient(mcp_server_config)
         available_mcp_tools = await client.get_tools()
-    except Exception:
-        # If MCP server connection fails, return empty list
+    except Exception as e:
+        # MCP unreachable: proceed without MCP tools, but log it -- otherwise a configured
+        # MCP server being down silently drops its tools (or surfaces later as a confusing
+        # "no tools found" error if MCP was the only source).
+        logger.warning("MCP tool load failed; proceeding without MCP tools: %s", e, exc_info=True)
         return []
     
     # Step 5: Filter and configure tools
@@ -824,12 +842,28 @@ def is_token_limit_exceeded(exception: Exception, model_name: str = None) -> boo
     elif provider == 'gemini':
         return _check_gemini_token_limit(exception, error_str)
     
-    # Step 3: If provider unknown, check all providers
+    # Step 3: If provider unknown, check all providers, plus a provider-agnostic text
+    # check. The CLI/subscription backends (ClaudeAgentChat/Gemini/Codex) raise plain
+    # RuntimeError/ValueError whose class+module don't match the provider SDKs, so the
+    # checks above miss a genuine context-overflow on the backends this fork actually
+    # runs -- match the common overflow phrasings directly.
     return (
         _check_openai_token_limit(exception, error_str) or
         _check_anthropic_token_limit(exception, error_str) or
-        _check_gemini_token_limit(exception, error_str)
+        _check_gemini_token_limit(exception, error_str) or
+        _check_generic_token_limit(error_str)
     )
+
+
+def _check_generic_token_limit(error_str: str) -> bool:
+    """Provider-agnostic context/token-overflow detection from the error text."""
+    markers = (
+        "context length", "context window", "context_length_exceeded",
+        "maximum context", "too many tokens", "token limit", "max_tokens",
+        "prompt is too long", "input is too long", "exceeds the limit",
+        "reduce the length", "too long",
+    )
+    return any(m in error_str for m in markers)
 
 def _check_openai_token_limit(exception: Exception, error_str: str) -> bool:
     """Check if exception indicates OpenAI token limit exceeded."""
