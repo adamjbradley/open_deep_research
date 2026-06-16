@@ -137,4 +137,9 @@ STEPS: list[tuple[int, str]] = [
     ALTER TABLE fact ADD COLUMN canonical_unit TEXT;
     CREATE INDEX IF NOT EXISTS ix_fact_canonical ON fact(tuple_key, as_of, canonical_value);
     """),
+    (6, """
+    ALTER TABLE research_runs ADD COLUMN profile_name TEXT;
+    ALTER TABLE research_runs ADD COLUMN profile_version TEXT;
+    ALTER TABLE research_runs ADD COLUMN profile_hash TEXT;
+    """),
 ]

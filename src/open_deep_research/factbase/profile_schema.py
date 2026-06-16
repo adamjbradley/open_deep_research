@@ -6,6 +6,8 @@ Kept separate from ``profile.py`` to avoid an import cycle (loaded lazily there)
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Optional, Union
 
 from pydantic import BaseModel, model_validator
@@ -99,5 +101,26 @@ def profile_from_dict(data: dict) -> Profile:
         for p in model.properties
     ]
     prof = Profile(entity_type=model.entity_type, properties=props)
-    prof.profile_version = model.version  # carried as an attribute; hash arrives in Phase 2
+    prof.profile_version = model.version
+    # Hash the SEMANTIC profile (validated, normalized) — NOT raw file bytes — so inert
+    # comments, `description`/`notes`, and formatting churn don't trigger false drift.
+    semantic = {
+        "entity_type": model.entity_type,
+        "properties": [
+            {
+                "name": pd.name,
+                "kind": pd.value_kind,
+                "identity_qualifiers": sorted(pd.identity_qualifiers),
+                "required_qualifiers": sorted(pd.required_qualifiers),
+                "qualifier_enums": {k: sorted(v) for k, v in pd.qualifier_enums.items()},
+                "value_enum": None if pd.value_enum is None else sorted(pd.value_enum),
+                "trust_threshold": pd.trust_threshold,
+                "value_aliases": {k: sorted(v) for k, v in pd.value_aliases.items()},
+            }
+            for pd in sorted(props, key=lambda p: p.name)
+        ],
+    }
+    prof.profile_hash = hashlib.sha256(
+        json.dumps(semantic, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     return prof

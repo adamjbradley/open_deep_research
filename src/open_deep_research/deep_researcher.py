@@ -347,7 +347,7 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     if configurable.facts_first_mode and not target_properties:
         from open_deep_research.factbase import profile as _fbprofile
         target_properties = await resolve_target_properties(
-            question, _fbprofile.load("country_digital_identity"), configurable, config
+            question, _fbprofile.load(configurable.profile_name), configurable, config
         )
     if configurable.facts_first_mode and target_properties:
         research_brief = (
@@ -1380,8 +1380,8 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
             schema as fbschema,
             store as fbstore,
         )
-        prof = fbprofile.load("country_digital_identity")
-        reg = fbregistry.SourceRegistry.load("di_source_registry")
+        prof = fbprofile.load(configurable.profile_name)
+        reg = fbregistry.SourceRegistry.load(configurable.registry_name)
         model_call = _make_fact_model_call(
             configurable, config, target_properties=state.get("target_properties"))
         # _make_fact_model_call is normally a sync factory returning an async model_call,
@@ -1392,6 +1392,17 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
         run_id = state.get("prealloc_run_id")
         async with aiosqlite.connect(get_db_path(config)) as conn:
             await fbmig.apply(conn, fbschema.STEPS)
+            # Provenance: stamp which profile produced this run's facts (after selection/load,
+            # before extraction). Direct UPDATE within the open connection.
+            if run_id:
+                await conn.execute(
+                    "UPDATE research_runs SET profile_name=?, profile_version=?, profile_hash=? WHERE id=?",
+                    (configurable.profile_name,
+                     getattr(prof, "profile_version", None),
+                     getattr(prof, "profile_hash", None),
+                     run_id),
+                )
+                await conn.commit()
             from open_deep_research.factbase import backfill as _fb_backfill
             from open_deep_research.factbase import recompute as _fb_recompute
             from open_deep_research.storage import extract_sources as _extract_sources

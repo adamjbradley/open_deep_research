@@ -288,6 +288,22 @@ class Configuration(BaseModel):
             }
         }
     )
+    profile_name: str = Field(
+        default="country_digital_identity",
+        metadata={"x_oap_ui_config": {
+            "type": "text",
+            "default": "country_digital_identity",
+            "description": "Name of the factbase domain profile (YAML file stem under factbase/profiles/) used for fact extraction.",
+        }},
+    )
+    registry_name: str = Field(
+        default="di_source_registry",
+        metadata={"x_oap_ui_config": {
+            "type": "text",
+            "default": "di_source_registry",
+            "description": "Name of the factbase source registry (YAML file stem under factbase/profiles/) used for source-trust tiers.",
+        }},
+    )
     max_fact_rounds: int = Field(
         default=2,
         metadata={

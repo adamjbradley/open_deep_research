@@ -331,7 +331,8 @@ async def preallocate_run(db_path: str, thread_id: str) -> int:
 async def finalize_research_run(db_path: str, run_id: int, fields: dict) -> None:
     """UPDATE the preallocated row to its terminal state. Only whitelisted columns."""
     allowed = {"status", "topic", "research_brief", "final_report", "sources",
-               "raw_notes", "config", "error", "coverage_incomplete"}
+               "raw_notes", "config", "error", "coverage_incomplete",
+               "profile_name", "profile_version", "profile_hash"}
     sets = {k: v for k, v in fields.items() if k in allowed}
     if not sets:
         return
