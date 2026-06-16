@@ -102,6 +102,7 @@ class AgentState(MessagesState):
     missing_information: Optional[str]
     answered_from_cache: Optional[bool]
     prealloc_run_id: Optional[int]
+    persist_error: Optional[str]
 
 class SupervisorState(TypedDict):
     """State for the supervisor that manages research tasks."""
