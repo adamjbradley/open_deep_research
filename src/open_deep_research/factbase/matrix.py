@@ -54,6 +54,8 @@ def build_matrix(
     by_instance: dict[str, dict[str, list[dict]]] = {}
     for r in grouped_rows:
         ik = r.get("instance_key")
+        if ik is None:
+            continue  # pre-migration / unresolved rows have no instance — skip, don't crash the sort
         by_instance.setdefault(ik, {}).setdefault(r.get("property_name"), []).append(r)
     out = []
     for ik, props in by_instance.items():

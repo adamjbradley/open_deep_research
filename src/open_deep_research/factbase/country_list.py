@@ -15,7 +15,10 @@ the scout strategy (Plan 7b) returns names directly and must not reach this open
 """
 from __future__ import annotations
 
+from functools import lru_cache
 
+
+@lru_cache(maxsize=1)
 def _load_groups() -> dict[str, list[str]]:
     import yaml
     from importlib.resources import files

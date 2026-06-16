@@ -1,3 +1,4 @@
+import asyncio
 from importlib.resources import files
 
 import aiosqlite
@@ -24,22 +25,24 @@ async def _seed(db_path):
         await conn.commit()
 
 
-@pytest.mark.asyncio
-async def test_matrix_subcommand_renders_rows(tmp_path):
+async def _seed_empty(db_path):
+    async with aiosqlite.connect(db_path) as conn:
+        await _storage._ensure_schema(conn)
+        await _mig.apply(conn, _schema.STEPS)
+
+
+def test_matrix_subcommand_renders_rows(tmp_path):
     db = str(tmp_path / "m.db")
-    await _seed(db)
-    out = await run(["matrix", "--profile", "country_cbdc", "--format", "md"], db_path=db)
+    asyncio.run(_seed(db))
+    out = asyncio.run(run(["matrix", "--profile", "country_cbdc", "--format", "md"], db_path=db))
     assert "cbdc_launch_status" in out
     assert "Nigeria" in out and "India" in out
     assert "launched*" in out  # trusted marker
     assert "pilot*" not in out  # provisional value must NOT get the trusted marker
 
 
-@pytest.mark.asyncio
-async def test_matrix_empty_db_reports_no_facts(tmp_path):
+def test_matrix_empty_db_reports_no_facts(tmp_path):
     db = str(tmp_path / "empty.db")
-    async with aiosqlite.connect(db) as conn:
-        await _storage._ensure_schema(conn)
-        await _mig.apply(conn, _schema.STEPS)
-    out = await run(["matrix", "--profile", "country_cbdc"], db_path=db)
+    asyncio.run(_seed_empty(db))
+    out = asyncio.run(run(["matrix", "--profile", "country_cbdc"], db_path=db))
     assert "No facts found" in out

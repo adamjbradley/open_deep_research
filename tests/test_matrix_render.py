@@ -70,3 +70,14 @@ def test_render_md_escapes_pipe():
     rows = [_grouped("NGA", "cbdc_name", "tier 1 | tier 2")]
     out = render_matrix(rows, ["cbdc_name"], lambda k: "Nigeria", fmt="md")
     assert r"tier 1 \| tier 2" in out   # pipe escaped, table not broken
+
+
+def test_build_matrix_skips_null_instance_key():
+    # A row with no instance_key (pre-migration / unresolved) must be skipped, not crash the sort.
+    rows = [
+        {"instance_key": None, "property_name": "cbdc_launch_status",
+         "value": "launched", "admission": "provisional", "in_conflict": False},
+        _grouped("NGA", "cbdc_launch_status", "launched"),
+    ]
+    m = build_matrix(rows, ["cbdc_launch_status"], lambda k: "Nigeria")
+    assert [r["instance_key"] for r in m] == ["NGA"]  # only the resolved row survives
