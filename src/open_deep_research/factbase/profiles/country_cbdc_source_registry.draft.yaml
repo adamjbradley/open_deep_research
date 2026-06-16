@@ -1,0 +1,372 @@
+# === SCAFFOLD DRAFT - machine-generated source registry; audit copy (NOT loaded) ===
+# The usable registry was written to the sibling <name>.yaml. This records the
+# generator's tier decisions + rationale so you can spot-check trust assignments.
+#
+# Tier decisions:
+#  - bis.org: authoritative ['primary', 'official', 'standard-setter', 'aggregator']  ->  Bank for International Settlements is the central bank for central banks; publishes definitive CBDC research (BIS Working Papers, CPMI reports, Project Helvetia/Mariana/mBridge), sets de-facto interoperability frameworks, and coordinates multinational CBDC pilots. The single highest-authority source for cross-country CBDC intelligence. (confidence: high)
+#  - imf.org: authoritative ['primary', 'official', 'policy']  ->  IMF publishes binding Article IV surveillance, Financial System Stability Assessments, and Fintech Notes that directly assess member-country CBDC designs, legal authority, and macro-financial risks. Uniquely authoritative on whether a CBDC has legal-tender status under domestic law. (confidence: high)
+#  - worldbank.org: authoritative ['official', 'policy', 'developing-world']  ->  World Bank provides official assessments of CBDC readiness and financial-inclusion impact for developing economies, including technical assistance programs; primary multilateral body for Global South CBDC narrative. (confidence: high)
+#  - pbc.gov.cn: authoritative ['primary', 'official', 'issuer']  ->  People's Bank of China is the issuing authority for e-CNY (Digital Yuan). Official white papers, pilot announcements, and transaction-volume disclosures originate here. The largest live retail CBDC by transaction count. (confidence: high)
+#  - ecb.europa.eu: authoritative ['primary', 'official', 'issuer']  ->  European Central Bank governs the Digital Euro project; publishes official investigation-phase reports, legislative proposals (with EU Commission), and design decisions for the Eurozone CBDC. (confidence: high)
+#  - federalreserve.gov: authoritative ['official', 'primary', 'issuer']  ->  US Federal Reserve is the authoritative source on any future US CBDC or FedNow-adjacent digital dollar; publishes official discussion papers (e.g., 'Money and Payments: The U.S. Dollar in the Digital Age'). (confidence: high)
+#  - bankofengland.co.uk: authoritative ['primary', 'official', 'issuer']  ->  Bank of England jointly leads the Digital Pound project with HM Treasury; primary issuer-authority for any future UK retail CBDC. (confidence: high)
+#  - riksbank.se: authoritative ['primary', 'official', 'issuer', 'pioneer']  ->  Swedish Riksbank pioneered the e-krona pilot (one of the world's earliest retail CBDC pilots); official pilot reports are primary-source data on CBDC technology and user adoption. (confidence: high)
+#  - cbn.gov.ng: authoritative ['primary', 'official', 'issuer', 'africa']  ->  Central Bank of Nigeria issued the eNaira (Africa's first live retail CBDC, Oct 2021). Official circulars, adoption statistics, and redesign announcements are the only primary source for eNaira facts. (confidence: high)
+#  - centralbankbahamas.com: authoritative ['primary', 'official', 'issuer', 'caribbean']  ->  Central Bank of the Bahamas issued the Sand Dollar (world's first live retail CBDC, Oct 2020). Official fact-sheets and transaction data are primary. (confidence: high)
+#  - eccb-centralbank.org: authoritative ['primary', 'official', 'issuer', 'caribbean', 'multi-country']  ->  Eastern Caribbean Central Bank issued DCash, a multi-country retail CBDC across 8 ECCU member states. Official source for launch, outage, and relaunch events. (confidence: high)
+#  - boj.org.jm: authoritative ['primary', 'official', 'issuer', 'caribbean']  ->  Bank of Jamaica issued JAM-DEX (first CBDC declared legal tender by a government, 2022). Primary source for adoption figures and wallet-provider framework. (confidence: high)
+#  - bcb.gov.br: authoritative ['primary', 'official', 'issuer', 'latam']  ->  Banco Central do Brasil leads DREX (formerly Digital Real) pilot; official sandbox results, participant lists, and tokenized-asset design specs originate here. (confidence: high)
+#  - mas.gov.sg: authoritative ['primary', 'official', 'issuer', 'asia']  ->  Monetary Authority of Singapore leads Project Orchid (purpose-bound money) and Project Ubin (wholesale CBDC); publishes official pilot whitepapers and interoperability design. (confidence: high)
+#  - hkma.gov.hk: authoritative ['primary', 'official', 'issuer', 'asia']  ->  Hong Kong Monetary Authority leads e-HKD pilot (Phase 1 completed 2023); primary source for pilot use-case results and Phase 2 design decisions. (confidence: high)
+#  - boj.or.jp: authoritative ['primary', 'official', 'issuer', 'asia']  ->  Bank of Japan conducts official CBDC pilot phases (Proof of Concept 1–3); primary source for Japan's phased CBDC experimentation timeline. (confidence: high)
+#  - rbi.org.in: authoritative ['primary', 'official', 'issuer', 'asia']  ->  Reserve Bank of India launched the Digital Rupee (e₹) in wholesale (Nov 2022) and retail (Dec 2022) pilots; official circulars and concept notes are the primary source. (confidence: high)
+#  - bok.or.kr: authoritative ['primary', 'official', 'issuer', 'asia']  ->  Bank of Korea runs the official CBDC pilot program; publishes pilot design and results. (confidence: high)
+#  - sama.gov.sa: authoritative ['primary', 'official', 'issuer', 'middle-east']  ->  Saudi Central Bank (SAMA) co-led Project Aber (wholesale CBDC with CBUAE) and participates in mBridge; official reports on cross-border CBDC experimentation. (confidence: high)
+#  - cbuae.gov.ae: authoritative ['primary', 'official', 'issuer', 'middle-east']  ->  Central Bank of UAE co-led Project Aber and leads Digital Dirham (wholesale + retail); official source for UAE CBDC design and mBridge participation. (confidence: high)
+#  - bankofcanada.ca: authoritative ['primary', 'official', 'issuer']  ->  Bank of Canada publishes official CBDC design papers ('Contingency Planning for a CBDC'); the authoritative source for Canada's stance and research outcomes. (confidence: high)
+#  - rba.gov.au: authoritative ['primary', 'official', 'issuer', 'pacific']  ->  Reserve Bank of Australia led the eAUD pilot (2023, with Digital Finance Cooperative Research Centre); official pilot report is primary source. (confidence: high)
+#  - banxico.org.mx: authoritative ['primary', 'official', 'issuer', 'latam']  ->  Banco de México publishes official CBDC research and has a legislative mandate (Financial Technology Law) that shapes any CBDC rollout; primary source for Mexico's digital currency stance. (confidence: high)
+#  - sarb.co.za: authoritative ['primary', 'official', 'issuer', 'africa']  ->  South African Reserve Bank leads Project Khokha (wholesale CBDC) and Khokha 2; official reports are primary source for South Africa's CBDC experimentation. (confidence: high)
+#  - bnm.gov.my: authoritative ['primary', 'official', 'issuer', 'asia']  ->  Bank Negara Malaysia participates in Project Dunbar (BIS Innovation Hub multi-CBDC) and publishes its own CBDC position; primary source for Malaysia. (confidence: high)
+#  - bi.go.id: authoritative ['primary', 'official', 'issuer', 'asia']  ->  Bank Indonesia leads Project Garuda (Digital Rupiah); official white paper and design documents are the primary source. (confidence: high)
+#  - nbrb.by: authoritative ['primary', 'official', 'issuer', 'eastern-europe']  ->  National Bank of the Republic of Belarus issued the Digital Ruble pilot; primary issuer source for one of the earlier Eastern European CBDC experiments. (confidence: medium)
+#  - cbr.ru: authoritative ['primary', 'official', 'issuer', 'eastern-europe']  ->  Bank of Russia is the issuing authority for the Digital Ruble (piloting since 2023 with select banks); publishes official concept and pilot-results documents. (confidence: high)
+#  - pboc.gov.cn: authoritative ['primary', 'official', 'issuer']  ->  Alternate canonical domain for People's Bank of China digital-currency bureau publications; cross-reference with pbc.gov.cn. (confidence: medium)
+#  - dnb.nl: authoritative ['official', 'issuer', 'europe']  ->  De Nederlandsche Bank (Dutch central bank) is an active contributor to ECB Digital Euro design and publishes independent CBDC research notes. (confidence: medium)
+#  - bundesbank.de: authoritative ['official', 'issuer', 'europe']  ->  Deutsche Bundesbank publishes CBDC position papers and participates in Eurosystem Digital Euro design; influential voice on the 'programmability' debate. (confidence: high)
+#  - banquedefrance.fr: authoritative ['official', 'issuer', 'europe']  ->  Banque de France led several wholesale CBDC experiments (Project Jura with SNB, interbank settlement pilots) and publishes official experiment reports. (confidence: high)
+#  - snb.ch: authoritative ['official', 'issuer', 'europe']  ->  Swiss National Bank co-led Project Helvetia (wholesale CBDC settlement on SIX Digital Exchange) and Project Jura; official reports are primary for Swiss wCBDC. (confidence: high)
+#  - atlanticcouncil.org: reputable ['aggregator', 'tracker', 'think-tank']  ->  Maintains the widely-cited CBDC Tracker (cbdctracker.org redirects here) covering 130+ countries; strong editorial standards and named-expert methodology. (confidence: high)
+#  - cbdctracker.org: reputable ['aggregator', 'tracker']  ->  Atlantic Council's dedicated CBDC tracking portal; current-status and launch-date data is well-maintained but derived from public sources, not primary issuers. (confidence: high)
+#  - omfif.org: reputable ['think-tank', 'survey', 'central-bank-focused']  ->  Official Monetary and Financial Institutions Forum conducts annual central-bank surveys and publishes CBDC-specific reports with direct input from central bank officials; near-authoritative but not a primary issuer. (confidence: high)
+#  - brookings.edu: reputable ['think-tank', 'policy']  ->  Brookings Institution publishes peer-reviewed CBDC policy analysis with named economists; credible secondary source for US and global CBDC policy framing. (confidence: high)
+#  - cfr.org: reputable ['think-tank', 'geopolitics']  ->  Council on Foreign Relations covers CBDC from a geopolitical and US foreign-policy angle; useful for dollar-competition and sanctions-evasion framing. (confidence: high)
+#  - weforum.org: reputable ['think-tank', 'multi-stakeholder']  ->  World Economic Forum publishes CBDC design toolkits and stakeholder frameworks; credible but tends toward aspirational framing over empirical data. (confidence: medium)
+#  - ft.com: reputable ['news', 'financial-press']  ->  Financial Times provides high-quality financial journalism on CBDC policy developments with named sources; reliable for breaking policy news. (confidence: high)
+#  - reuters.com: reputable ['news', 'wire']  ->  Reuters provides wire-service coverage of CBDC announcements globally including emerging-market central banks; broad geographic coverage. (confidence: high)
+#  - bloomberg.com: reputable ['news', 'financial-press']  ->  Bloomberg covers CBDC developments with financial-market context; paywalled but factually reliable for launch dates and policy decisions. (confidence: high)
+#  - coindesk.com: reputable ['news', 'crypto-media']  ->  CoinDesk provides detailed CBDC coverage from a crypto-industry perspective; strong on technical design details and pilot news, but apply editorial-bias awareness. (confidence: medium)
+#  - theblock.co: reputable ['news', 'crypto-media']  ->  The Block provides data-driven crypto and CBDC reporting; generally factually accurate for launch events and pilot results. (confidence: medium)
+#  - swift.com: reputable ['industry-body', 'interoperability']  ->  SWIFT publishes CBDC interoperability experiment reports (CBDC connector pilots with multiple central banks); relevant for cross-border use cases and corridor data. (confidence: high)
+#  - bis.org/innovation-hub: reputable ['aggregator', 'pilot-reports', 'official']  ->  BIS Innovation Hub coordinates multi-country CBDC experiments (mBridge, Dunbar, Icebreaker, Jura); sub-site of bis.org but worth tracking as a named source of pilot papers. (confidence: high)
+#  - cato.org: reputable ['think-tank', 'critical']  ->  Cato Institute publishes critical CBDC analysis (privacy, surveillance, government overreach); valuable for balanced risk framing but ideologically libertarian — apply source-context label. (confidence: medium)
+#  - nber.org: reputable ['academic', 'research']  ->  National Bureau of Economic Research publishes CBDC working papers by academic economists; pre-peer-review but from credentialed researchers. (confidence: high)
+#  - ssrn.com: unvetted ['academic', 'preprint']  ->  SSRN hosts CBDC preprints; quality is highly variable — each paper must be evaluated individually for author credentials and methodology. (confidence: medium)
+#  - cointelegraph.com: unvetted ['news', 'crypto-media']  ->  CoinTelegraph covers CBDC news but has a history of sensationalist headlines and occasional inaccuracies; verify all claims against primary sources. (confidence: medium)
+#  - decrypt.co: unvetted ['news', 'crypto-media']  ->  Decrypt covers CBDC topics but quality is variable; treat as a lead-finding source requiring primary-source verification. (confidence: medium)
+#
+version: '1'
+sources:
+- domain: bis.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - standard-setter
+  - aggregator
+- domain: imf.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - policy
+- domain: worldbank.org
+  tier: authoritative
+  flags:
+  - official
+  - policy
+  - developing-world
+- domain: pbc.gov.cn
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: ecb.europa.eu
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: federalreserve.gov
+  tier: authoritative
+  flags:
+  - official
+  - primary
+  - issuer
+- domain: bankofengland.co.uk
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: riksbank.se
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - pioneer
+- domain: cbn.gov.ng
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - africa
+- domain: centralbankbahamas.com
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - caribbean
+- domain: eccb-centralbank.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - caribbean
+  - multi-country
+- domain: boj.org.jm
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - caribbean
+- domain: bcb.gov.br
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - latam
+- domain: mas.gov.sg
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: hkma.gov.hk
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: boj.or.jp
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: rbi.org.in
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: bok.or.kr
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: sama.gov.sa
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - middle-east
+- domain: cbuae.gov.ae
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - middle-east
+- domain: bankofcanada.ca
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: rba.gov.au
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - pacific
+- domain: banxico.org.mx
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - latam
+- domain: sarb.co.za
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - africa
+- domain: bnm.gov.my
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: bi.go.id
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - asia
+- domain: nbrb.by
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - eastern-europe
+- domain: cbr.ru
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+  - eastern-europe
+- domain: pboc.gov.cn
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: dnb.nl
+  tier: authoritative
+  flags:
+  - official
+  - issuer
+  - europe
+- domain: bundesbank.de
+  tier: authoritative
+  flags:
+  - official
+  - issuer
+  - europe
+- domain: banquedefrance.fr
+  tier: authoritative
+  flags:
+  - official
+  - issuer
+  - europe
+- domain: snb.ch
+  tier: authoritative
+  flags:
+  - official
+  - issuer
+  - europe
+- domain: atlanticcouncil.org
+  tier: reputable
+  flags:
+  - aggregator
+  - tracker
+  - think-tank
+- domain: cbdctracker.org
+  tier: reputable
+  flags:
+  - aggregator
+  - tracker
+- domain: omfif.org
+  tier: reputable
+  flags:
+  - think-tank
+  - survey
+  - central-bank-focused
+- domain: brookings.edu
+  tier: reputable
+  flags:
+  - think-tank
+  - policy
+- domain: cfr.org
+  tier: reputable
+  flags:
+  - think-tank
+  - geopolitics
+- domain: weforum.org
+  tier: reputable
+  flags:
+  - think-tank
+  - multi-stakeholder
+- domain: ft.com
+  tier: reputable
+  flags:
+  - news
+  - financial-press
+- domain: reuters.com
+  tier: reputable
+  flags:
+  - news
+  - wire
+- domain: bloomberg.com
+  tier: reputable
+  flags:
+  - news
+  - financial-press
+- domain: coindesk.com
+  tier: reputable
+  flags:
+  - news
+  - crypto-media
+- domain: theblock.co
+  tier: reputable
+  flags:
+  - news
+  - crypto-media
+- domain: swift.com
+  tier: reputable
+  flags:
+  - industry-body
+  - interoperability
+- domain: bis.org/innovation-hub
+  tier: reputable
+  flags:
+  - aggregator
+  - pilot-reports
+  - official
+- domain: cato.org
+  tier: reputable
+  flags:
+  - think-tank
+  - critical
+- domain: nber.org
+  tier: reputable
+  flags:
+  - academic
+  - research
+- domain: ssrn.com
+  tier: unvetted
+  flags:
+  - academic
+  - preprint
+- domain: cointelegraph.com
+  tier: unvetted
+  flags:
+  - news
+  - crypto-media
+- domain: decrypt.co
+  tier: unvetted
+  flags:
+  - news
+  - crypto-media
