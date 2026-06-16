@@ -19,6 +19,10 @@ jobs:
     #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
     
     runs-on: ubuntu-latest
+    # Skip gracefully when no ANTHROPIC_API_KEY secret is configured, so PRs don't
+    # show a failed check. Auto-enables the day the secret is added.
+    env:
+      HAS_ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
     permissions:
       contents: read
       pull-requests: read
@@ -33,6 +37,7 @@ jobs:
 
       - name: Run Claude Code Review
         id: claude-review
+        if: ${{ env.HAS_ANTHROPIC_KEY == 'true' }}
         uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
