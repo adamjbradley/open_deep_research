@@ -42,6 +42,13 @@ class PropertyDef:
                 return 0.0 <= float(v.rstrip("%")) <= 100.0
             except ValueError:
                 return False
+        if self.value_kind == "number":
+            s = v.replace(",", "").replace("_", "").replace(" ", "")
+            try:
+                float(s)
+                return True
+            except ValueError:
+                return False
         if self.value_kind == "enum" and self.value_enum is not None:
             return v.lower() in {e.lower() for e in self.value_enum}
         return bool(v)

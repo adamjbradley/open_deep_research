@@ -70,6 +70,15 @@ def canonical_value(property_def, value: str, unit: str | None) -> tuple[str, st
             return ("false", None)
         return (v, _norm_text(unit) or None)
 
+    if kind == "number":
+        s = raw.replace(",", "").replace("_", "").replace(" ", "")
+        try:
+            f = float(s)
+        except ValueError:
+            return (_norm_text(raw), _norm_text(unit) or None)
+        canon = str(int(f)) if f == int(f) else repr(f)
+        return (canon, _norm_text(unit) or None)
+
     if kind in ("name", "name_year"):
         v = _norm_text(raw)
         v = _PAREN.sub(" ", v)
