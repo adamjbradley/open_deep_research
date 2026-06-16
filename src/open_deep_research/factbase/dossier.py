@@ -60,6 +60,21 @@ def _scaffold_model_call():
     return call
 
 
+def _registry_scaffold_model_call():
+    """Return an async model_call(prompt) -> RegistryProposal using the configured model.
+
+    Overridable in tests so the CLI needs no LLM/network.
+    """
+    from langchain_core.messages import HumanMessage
+    from open_deep_research.deep_researcher import configurable_model
+    from .registry_scaffold import RegistryProposal
+
+    async def call(prompt: str):
+        model = configurable_model.with_structured_output(RegistryProposal)
+        return await model.ainvoke([HumanMessage(content=prompt)])
+    return call
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dossier", description="Inspect the living fact base.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -105,6 +120,8 @@ def _parser() -> argparse.ArgumentParser:
     bt.add_argument("--profile", required=True)
     bt.add_argument("--countries", help="Explicit 'A,B,C', @file, or a group name (e.g. G20).")
     bt.add_argument("--scout", help="Discover the country list from this query instead.")
+    bt.add_argument("--registry", help="Source registry to use/reuse for promotion; default "
+                    "derives '<profile>_source_registry' and auto-scaffolds it if missing.")
     bt.add_argument("--concurrency", type=int, default=3)
     bt.add_argument("--format", choices=["text", "md", "csv"], default="text")
     bt.add_argument("--no-registry-autoprovision", action="store_true",
@@ -214,10 +231,23 @@ async def run(argv, db_path=None) -> str:
                 k = resolver.resolve(n)
                 lines.append(f"  {n} -> {k}" if k else f"  {n} -> UNRESOLVED")
             return f"dry-run: {len(names)} countries for {args.profile}\n" + "\n".join(lines)
+        import functools
+
         from .batch import BatchRunner, default_run_one
         from .matrix import render_matrix
+        # Auto-provision a source registry (scaffold+commit if missing) so corroborated facts
+        # can promote past 'provisional'; thread its name into each per-country run. The
+        # graph reads `registry_name` from config (deep_researcher.py) for the promotion path.
+        registry_name = args.registry or ""
+        if not args.no_registry_autoprovision:
+            from .registry_provision import ensure_registry
+            registry_name = await ensure_registry(
+                registry_name=args.registry, domain_label=args.profile,
+                description=f"trusted sources for the {args.profile} factbase profile",
+                observed_domains=[], model_call=_registry_scaffold_model_call(), autocommit=True)
+        run_one = functools.partial(default_run_one, registry_name=registry_name)
         runner = BatchRunner(profile_name=args.profile, db_path=db_path,
-                             concurrency=args.concurrency, run_one=default_run_one,
+                             concurrency=args.concurrency, run_one=run_one,
                              profile_hash=getattr(prof, "profile_hash", ""),
                              list_spec=args.countries or "")
         res = await runner.run(names)
@@ -232,7 +262,8 @@ async def run(argv, db_path=None) -> str:
         matrix = render_matrix(rows, property_names, resolver.instance_name, fmt=args.format)
         summary = ", ".join(f"{k}={v}" for k, v in sorted(res["summary"].items()))
         unresolved = (" | unresolved: " + ", ".join(res["unresolved"])) if res["unresolved"] else ""
-        return f"batch {res['batch_id']}: {summary}{unresolved}\n\n{matrix}"
+        registry_note = f" | registry: {registry_name}" if registry_name else ""
+        return f"batch {res['batch_id']}: {summary}{unresolved}{registry_note}\n\n{matrix}"
     async with aiosqlite.connect(db_path) as conn:
         q = _query.FactQuery(conn)
         if args.command == "show":

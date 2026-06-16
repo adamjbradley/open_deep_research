@@ -77,8 +77,13 @@ class BatchRunner:
                 "resolved": [k for _, k in resolved]}
 
 
-async def default_run_one(country_name, instance_key, *, profile_name, db_path) -> str:
-    """Production run_one: one deep_researcher invocation scoped to a country + profile."""
+async def default_run_one(country_name, instance_key, *, profile_name, db_path,
+                          registry_name="") -> str:
+    """Production run_one: one deep_researcher invocation scoped to a country + profile.
+
+    ``registry_name``, when given, selects the source-trust registry the graph uses for
+    promotion — so an auto-provisioned registry actually takes effect for this run.
+    """
     import uuid
 
     from langchain_core.messages import HumanMessage
@@ -95,6 +100,8 @@ async def default_run_one(country_name, instance_key, *, profile_name, db_path) 
         "max_concurrent_research_units": 2,
         "max_researcher_iterations": 2,
     }
+    if registry_name:
+        configurable["registry_name"] = registry_name
     topic = (f"Research {country_name} for the '{profile_name}' profile: cover its properties "
              f"with sources and dates.")
     result = await deep_researcher.ainvoke(
