@@ -299,6 +299,16 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     subject = state.get("subject")
     missing_information = state.get("missing_information") or ""
 
+    # Facts-first answers/sufficiency resolve the fact-base instance from `subject`, but on
+    # the research path subject is otherwise only resolved at persist time (and not at all
+    # when the KB is off). Resolve it here so the facts nodes have an instance to query.
+    if configurable.facts_first_mode and not subject:
+        try:
+            existing_names = await get_subject_names(get_db_path(config))
+            subject = await _resolve_subject(question, question, existing_names, configurable, config)
+        except Exception as e:
+            logger.warning("facts-first subject resolution failed: %s", e)
+
     # Load the dossier (if any) for the resolved subject to scope the research.
     dossier = None
     if subject:
