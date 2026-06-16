@@ -89,6 +89,7 @@ async def default_run_one(country_name, instance_key, *, profile_name, db_path) 
         "database_path": db_path,
         "use_knowledge_base": False,        # fresh research per country
         "allow_clarification": False,
+        "persist_results": True,            # explicit: each country's dossier must be saved
         "max_concurrent_research_units": 2,
         "max_researcher_iterations": 2,
     }
