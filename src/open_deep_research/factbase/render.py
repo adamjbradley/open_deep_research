@@ -5,6 +5,9 @@ import io
 
 _COLUMNS = ["instance_key", "property_name", "qualifiers", "as_of", "value",
             "source_url", "source_tier", "status"]
+# Grouped view: one row per canonical value, with corroborating-source count + raw variants.
+_GROUPED_COLUMNS = ["instance_key", "property_name", "qualifiers", "as_of", "value",
+                    "sources", "variants", "status"]
 
 
 def _status(row: dict) -> str:
@@ -25,25 +28,32 @@ def _cell(row: dict, col: str) -> str:
         v = str(row.get("value", ""))
         u = row.get("unit") or ""
         return f"{v}{u}"
+    if col == "sources":
+        return str(row.get("source_count", ""))
+    if col == "variants":
+        return "; ".join(row.get("variants") or [])
     return "" if row.get(col) is None else str(row.get(col))
 
 
 def render(rows: list[dict], fmt: str = "text") -> str:
     if not rows:
         return "No facts found."
+    # Grouped rows (from query.group_by_canonical) carry a source_count; render the
+    # canonical-value view with corroborating-source counts + variants.
+    columns = _GROUPED_COLUMNS if rows and "source_count" in rows[0] else _COLUMNS
     if fmt == "csv":
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow(_COLUMNS)
+        w.writerow(columns)
         for r in rows:
-            w.writerow([_cell(r, c) for c in _COLUMNS])
+            w.writerow([_cell(r, c) for c in columns])
         return buf.getvalue()
     if fmt == "md":
-        head = "| " + " | ".join(_COLUMNS) + " |"
-        sep = "| " + " | ".join("---" for _ in _COLUMNS) + " |"
-        body = ["| " + " | ".join(_cell(r, c) for c in _COLUMNS) + " |" for r in rows]
+        head = "| " + " | ".join(columns) + " |"
+        sep = "| " + " | ".join("---" for _ in columns) + " |"
+        body = ["| " + " | ".join(_cell(r, c) for c in columns) + " |" for r in rows]
         return "\n".join([head, sep, *body])
     # text: aligned columns
-    table = [_COLUMNS] + [[_cell(r, c) for c in _COLUMNS] for r in rows]
-    widths = [max(len(table[i][j]) for i in range(len(table))) for j in range(len(_COLUMNS))]
+    table = [columns] + [[_cell(r, c) for c in columns] for r in rows]
+    widths = [max(len(table[i][j]) for i in range(len(table))) for j in range(len(columns))]
     return "\n".join("  ".join(cell.ljust(widths[j]) for j, cell in enumerate(line)) for line in table)

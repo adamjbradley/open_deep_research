@@ -18,10 +18,12 @@ def _parser() -> argparse.ArgumentParser:
     show = sub.add_parser("show", help="Show all facts for a country.")
     show.add_argument("country")
     show.add_argument("--format", choices=["text", "md", "csv"], default="text")
+    show.add_argument("--raw", action="store_true", help="One row per source (no canonical grouping).")
 
     compare = sub.add_parser("compare", help="Compare a property across all instances.")
     compare.add_argument("property")
     compare.add_argument("--format", choices=["text", "md", "csv"], default="text")
+    compare.add_argument("--raw", action="store_true", help="One row per source (no canonical grouping).")
 
     sub.add_parser("stats", help="Fact-base health metrics")
 
@@ -37,10 +39,10 @@ async def run(argv, db_path=None) -> str:
             key = CountryResolver().resolve(args.country)
             if key is None:
                 return f"Unknown country: {args.country!r} (could not resolve to a canonical key)."
-            rows = await q.show(key)
+            rows = await (q.show(key) if args.raw else q.show_grouped(key))
             return _render.render(rows, fmt=args.format)
         if args.command == "compare":
-            rows = await q.compare(args.property)
+            rows = await (q.compare(args.property) if args.raw else q.compare_grouped(args.property))
             return _render.render(rows, fmt=args.format)
         if args.command == "stats":
             m = await _metrics.compute(conn)

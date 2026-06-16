@@ -1,4 +1,52 @@
-from open_deep_research.factbase import identity
+from open_deep_research.factbase import identity, profile
+
+_DI = profile.load("country_digital_identity")
+_SCHEME = _DI.property("foundational_id_scheme")
+_PCT = _DI.property("id_coverage_pct")
+_LAW = _DI.property("legal_basis")
+_STATUS = _DI.property("scheme_status")
+
+
+def _cv(pd, value, unit=None):
+    return identity.canonical_value(pd, value, unit)
+
+
+def test_canonical_value_percentage_collapses_variants():
+    assert _cv(_PCT, "~99")[0] == "99"
+    assert _cv(_PCT, "99%")[0] == "99"
+    assert _cv(_PCT, "99 percent")[0] == "99"
+    assert _cv(_PCT, "about 99")[0] == "99"
+    assert _cv(_PCT, "~99") == _cv(_PCT, "99%") == ("99", "%")
+
+
+def test_canonical_value_percentage_out_of_range_falls_back_no_raise():
+    # 412 is not a valid percent -> text fallback (stays distinct, never raises).
+    assert _cv(_PCT, "412%")[0] != "412"
+    assert _cv(_PCT, "n/a")  # no exception
+
+
+def test_canonical_value_name_collapses_scheme_variants():
+    base = _cv(_SCHEME, "Aadhaar")[0]
+    assert base == "aadhaar"
+    assert _cv(_SCHEME, "Aadhaar Card")[0] == base          # noise-word strip
+    assert _cv(_SCHEME, "Unique Identity (UID) scheme or Aadhaar")[0] == base  # alias
+    assert _cv(_SCHEME, "UIDAI")[0] == base                 # alias
+
+
+def test_canonical_value_name_year_collapses_act_variants():
+    base = _cv(_LAW, "Aadhaar Act")[0]
+    assert _cv(_LAW, "Aadhaar Act, 2016")[0] == base
+    assert _cv(_LAW, "Aadhaar (Targeted Delivery of Financial and other Subsidies, "
+                     "Benefits and Services) Act, 2016")[0] == base
+
+
+def test_canonical_value_does_not_overmerge():
+    # Different acts stay distinct; "statutory authority" is NOT merged into the Act.
+    assert _cv(_LAW, "Aadhaar Act")[0] != _cv(_LAW, "IT Act")[0]
+    assert _cv(_LAW, "Statutory authority")[0] != _cv(_LAW, "Aadhaar Act")[0]
+    # An out-of-enum value does not silently collapse into an enum member.
+    assert _cv(_STATUS, "operational")[0] == "operational"
+    assert _cv(_STATUS, "fully rolled out")[0] != "operational"
 
 
 def test_canonicalize_normalizes_whitespace_and_case_within_same_unit():

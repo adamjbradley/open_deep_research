@@ -268,6 +268,16 @@ class Configuration(BaseModel):
             }
         }
     )
+    normalize_fact_values: bool = Field(
+        default=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "default": True,
+                "description": "Collapse semantically-equal fact values that differ only in surface form (e.g. 'Aadhaar' / 'Aadhaar Card', 'Aadhaar Act' / 'Aadhaar Act, 2016', '~99' / '99%') onto one canonical value for dedup and conflict detection. Kill-switch: turn off if it over-merges genuinely-distinct values."
+            }
+        }
+    )
     use_knowledge_base: bool = Field(
         default=True,
         metadata={

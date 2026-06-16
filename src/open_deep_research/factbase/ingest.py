@@ -14,11 +14,15 @@ def _trusted_threshold(pd) -> str:
 
 
 class Ingestor:
-    def __init__(self, conn: aiosqlite.Connection, *, profile, resolver, registry):
+    def __init__(self, conn: aiosqlite.Connection, *, profile, resolver, registry,
+                 normalize_values: bool = True):
         self._conn = conn
         self._profile = profile
         self._resolver = resolver
         self._registry = registry
+        # When True, dedup/conflict group on the canonical value (collapsing surface
+        # variants like "Aadhaar"/"Aadhaar Card"); a kill-switch in case of over-merge.
+        self._normalize_values = normalize_values
 
     async def ingest(self, *, run_id: int, records: list[dict]) -> None:
         now = datetime.now(timezone.utc).isoformat()
@@ -49,9 +53,11 @@ class Ingestor:
                     for q in req
                 )
                 as_of = int(rec["as_of"]) if str(rec.get("as_of", "")).isdigit() else None
+                cval, cunit = identity.canonical_value(pd, rec["value"], rec.get("unit"))
                 f = model.Fact(fact_id=None, tuple_key=tk, as_of=as_of, value=rec["value"],
                                unit=rec.get("unit"), source_meets_bar=meets_bar,
-                               has_unspecified_required=has_unspec)
+                               has_unspecified_required=has_unspec,
+                               canonical_value=cval, canonical_unit=cunit)
                 candidates.append((rec, f, source_id, instance_key, pd.name, quals))
 
             # Group by (tuple_key, as_of), insert facts, then detect conflicts + promote.
@@ -62,20 +68,30 @@ class Ingestor:
 
             for (tk, as_of), items in buckets.items():
                 for rec, f, sid, instance_key, property_name, quals in items:
-                    # dedup: same tuple/as_of/value/unit/source already present?
-                    cur = await self._conn.execute(
-                        "SELECT id FROM fact WHERE tuple_key=? AND IFNULL(as_of,-1)=IFNULL(?,-1) "
-                        "AND value=? AND IFNULL(unit,'')=IFNULL(?,'') AND source_id=?",
-                        (tk, as_of, f.value, f.unit, sid),
-                    )
+                    # Dedup within (tuple, as_of, source): on the CANONICAL value when
+                    # normalization is on (so "Aadhaar"/"Aadhaar Card" from one source
+                    # collapse to one row), else on the raw value (legacy behavior).
+                    if self._normalize_values:
+                        cur = await self._conn.execute(
+                            "SELECT id FROM fact WHERE tuple_key=? AND IFNULL(as_of,-1)=IFNULL(?,-1) "
+                            "AND IFNULL(canonical_value,value)=? AND IFNULL(canonical_unit,IFNULL(unit,''))"
+                            "=IFNULL(?,'') AND source_id=?",
+                            (tk, as_of, f.canonical_value, f.canonical_unit, sid),
+                        )
+                    else:
+                        cur = await self._conn.execute(
+                            "SELECT id FROM fact WHERE tuple_key=? AND IFNULL(as_of,-1)=IFNULL(?,-1) "
+                            "AND value=? AND IFNULL(unit,'')=IFNULL(?,'') AND source_id=?",
+                            (tk, as_of, f.value, f.unit, sid),
+                        )
                     if await cur.fetchone():
                         continue
                     c = await self._conn.execute(
                         "INSERT INTO fact (tuple_key, instance_key, property_name, qualifiers_json, as_of, "
-                        "value, unit, source_id, admission, lifecycle, run_id, created_at) "
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (tk, instance_key, property_name, json.dumps(quals), as_of, f.value, f.unit, sid,
-                         "provisional", "current", run_id, now),
+                        "value, unit, canonical_value, canonical_unit, source_id, admission, lifecycle, "
+                        "run_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (tk, instance_key, property_name, json.dumps(quals), as_of, f.value, f.unit,
+                         f.canonical_value, f.canonical_unit, sid, "provisional", "current", run_id, now),
                     )
                     f.fact_id = c.lastrowid
                     await self._conn.execute(
@@ -84,7 +100,8 @@ class Ingestor:
                     )
                     await self._conn.execute(
                         "INSERT INTO fact_revision (fact_id, change, cause, why, created_at) VALUES (?,?,?,?,?)",
-                        (f.fact_id, f"value={f.value}", "ingest", "new fact from run", now),
+                        (f.fact_id, f"value={f.value} canonical={f.canonical_value}", "ingest",
+                         "new fact from run", now),
                     )
 
                 # Conflict detection over the bucket's freshly-inserted facts (run once).

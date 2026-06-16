@@ -5,7 +5,23 @@ from open_deep_research.factbase.profile import Profile, PropertyDef
 PROFILE = Profile(
     entity_type="country",
     properties=[
-        PropertyDef("foundational_id_scheme", "name"),
+        PropertyDef(
+            "foundational_id_scheme",
+            "name",
+            # Variants are matched AFTER identity.canonical_value's text normalization
+            # (lowercase, parentheticals/punctuation stripped, trailing "card"/"scheme"
+            # removed -- so "Aadhaar Card" already collapses to "aadhaar" without an alias).
+            # These catch India-specific phrasings the deterministic rules can't infer.
+            value_aliases={
+                "aadhaar": [
+                    "uidai",
+                    "aadhaar uid",
+                    "uid aadhaar",
+                    "unique identity scheme or aadhaar",
+                    "unique identity uid scheme or aadhaar",
+                ],
+            },
+        ),
         PropertyDef(
             "scheme_status",
             "enum",

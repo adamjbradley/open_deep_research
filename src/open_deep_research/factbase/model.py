@@ -14,6 +14,8 @@ class Fact:
     has_unspecified_required: bool
     admission: str = "provisional"
     lifecycle: str = "current"
+    canonical_value: str | None = None
+    canonical_unit: str | None = None
 
 
 @dataclass
