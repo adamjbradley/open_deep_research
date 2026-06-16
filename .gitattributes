@@ -1,0 +1,21 @@
+# Normalize all text files to LF in the repo and on checkout. This ends the
+# recurring CRLF/LF diff-noise from editing on Windows/WSL. Git auto-detects text
+# vs binary; the explicit rules below are future-proofing for binaries that may be
+# added later, so they're never line-ending-mangled.
+* text=auto eol=lf
+
+# Binary assets (never touch line endings)
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.db    binary
+*.sqlite binary
+*.sqlite3 binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.zip   binary
+*.gz    binary
