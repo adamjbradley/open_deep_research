@@ -93,6 +93,8 @@ def _parser() -> argparse.ArgumentParser:
     sc.add_argument("entity_type")
     sc.add_argument("description")
     sc.add_argument("--out", help="Usable profile path (default factbase/profiles/<slug>.yaml).")
+    sc.add_argument("--seed", action="append", default=[], metavar="URL",
+                    help="Seed source URL(s) to ground the schema in real vocabulary (fetched as data; repeatable).")
 
     return parser
 
@@ -138,7 +140,13 @@ async def run(argv, db_path=None) -> str:
         import os
         from open_deep_research.storage import slugify
         from .scaffold import induce, render_draft_yaml, render_profile_yaml
-        proposal = await induce(args.entity_type, args.description, [], [], _scaffold_model_call())
+        from . import fetch as _fetch
+        sources = []
+        for url in (getattr(args, "seed", None) or []):
+            txt = await _fetch.fetch_text(url)  # SSRF-safe; returns None on any failure
+            if txt:
+                sources.append(txt)
+        proposal = await induce(args.entity_type, args.description, sources, [], _scaffold_model_call())
         out_yaml = args.out or os.path.join(
             os.path.dirname(__file__), "profiles", f"{slugify(args.description)}.yaml")
         out_draft = (out_yaml[:-5] + ".draft.yaml") if out_yaml.endswith(".yaml") else out_yaml + ".draft.yaml"
