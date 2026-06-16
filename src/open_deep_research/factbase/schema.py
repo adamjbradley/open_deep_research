@@ -142,4 +142,23 @@ STEPS: list[tuple[int, str]] = [
     ALTER TABLE research_runs ADD COLUMN profile_version TEXT;
     ALTER TABLE research_runs ADD COLUMN profile_hash TEXT;
     """),
+    (7, """
+    CREATE TABLE IF NOT EXISTS batch_run (
+        batch_id TEXT PRIMARY KEY,
+        profile_name TEXT,
+        profile_hash TEXT,
+        list_spec TEXT,
+        created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS batch_item (
+        batch_id TEXT,
+        instance_key TEXT,
+        country_name TEXT,
+        status TEXT,
+        run_id TEXT,
+        error TEXT,
+        updated_at TEXT,
+        PRIMARY KEY (batch_id, instance_key)
+    );
+    """),
 ]
