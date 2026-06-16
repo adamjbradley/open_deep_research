@@ -1,0 +1,312 @@
+entity_type: country
+version: '1'
+properties:
+- name: cbdc_launch_status
+  kind: enum
+  description: "Lifecycle stage of the national CBDC program \u2014 where on the research-to-launch\
+    \ continuum the effort currently sits."
+  identity_qualifiers:
+  - cbdc_type
+  required_qualifiers:
+  - cbdc_type
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
+  value_enum:
+  - none
+  - research
+  - design
+  - pilot
+  - launched
+  - suspended
+  - abandoned
+  value_aliases:
+    none:
+    - no_program
+    design:
+    - proof_of_concept
+    - poc
+    launched:
+    - live
+    - operational
+- name: cbdc_name
+  kind: name
+  description: Official name or brand of the CBDC (e.g., e-CNY, e-Naira, Sand Dollar,
+    Digital Ruble, DCash).
+  identity_qualifiers:
+  - cbdc_type
+  required_qualifiers:
+  - cbdc_type
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
+- name: cbdc_launch_year
+  kind: name_year
+  description: "Year (optionally quarter-precise) when the CBDC reached a given phase\
+    \ \u2014 pilot start or full public launch."
+  identity_qualifiers:
+  - cbdc_type
+  - phase
+  required_qualifiers:
+  - cbdc_type
+  - phase
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
+    phase:
+    - pilot
+    - limited_launch
+    - full_launch
+- name: cbdc_pilot_scope
+  kind: enum
+  description: Geographic or demographic breadth of the CBDC pilot or restricted early-launch
+    phase.
+  identity_qualifiers:
+  - cbdc_type
+  - phase
+  required_qualifiers:
+  - cbdc_type
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
+    phase:
+    - pilot
+    - limited_launch
+    - full_launch
+  value_enum:
+  - internal_staff_only
+  - limited_geographic
+  - sector_specific
+  - nationwide_limited
+  - nationwide_open
+  - cross_border_trial
+  value_aliases:
+    limited_geographic:
+    - city_trial
+    - regional_trial
+    - municipal_pilot
+    nationwide_limited:
+    - closed_pilot
+    - invitation_only
+    - waitlist
+    cross_border_trial:
+    - bilateral_trial
+    - multilateral_trial
+- name: cbdc_ledger_architecture
+  kind: enum
+  description: 'Architecture of the ledger underpinning the CBDC: single authoritative
+    database, permissioned distributed ledger, or a hybrid combining both layers.'
+  identity_qualifiers:
+  - cbdc_type
+  required_qualifiers:
+  - cbdc_type
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
+  value_enum:
+  - centralized
+  - permissioned_dlt
+  - hybrid
+  value_aliases:
+    centralized:
+    - single_ledger
+    - cbl
+    - direct_ledger
+    permissioned_dlt:
+    - dlt
+    - distributed_ledger
+    - permissioned_blockchain
+    hybrid:
+    - two_layer
+    - tiered_ledger
+- name: cbdc_bearer_model
+  kind: enum
+  description: 'How CBDC value is held and transferred: account-based (identity verified
+    at each transaction) vs. token-based (value embedded in a cryptographic token
+    transferable peer-to-peer, like digital cash).'
+  identity_qualifiers:
+  - cbdc_type
+  required_qualifiers:
+  - cbdc_type
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
+  value_enum:
+  - account_based
+  - token_based
+  - hybrid
+  value_aliases:
+    token_based:
+    - e_cash
+    - digital_cash
+    - ecash
+    - bearer_token
+    hybrid:
+    - tiered
+    - two_tier_bearer
+- name: cbdc_intermediary_model
+  kind: enum
+  description: Whether the central bank issues CBDC directly to end users or routes
+    issuance and account-holding through licensed intermediaries (commercial banks,
+    payment institutions, MNOs).
+  identity_qualifiers:
+  - cbdc_type
+  required_qualifiers:
+  - cbdc_type
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
+  value_enum:
+  - direct
+  - two_tier
+  - hybrid
+  value_aliases:
+    two_tier:
+    - indirect
+    - intermediated
+    - synthetic_cbdc
+    direct:
+    - single_tier
+    - central_bank_accounts
+- name: cbdc_legal_instrument
+  kind: enum
+  description: "Category of legal instrument that authorizes CBDC issuance or testing\
+    \ \u2014 signals the permanence and legislative depth of the authorization."
+  identity_qualifiers:
+  - cbdc_type
+  required_qualifiers:
+  - cbdc_type
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
+  value_enum:
+  - standalone_cbdc_law
+  - central_bank_act_amendment
+  - payment_system_law
+  - executive_decree
+  - sandbox_regulation
+  - no_dedicated_instrument
+  value_aliases:
+    no_dedicated_instrument:
+    - existing_authority
+    - none
+    - implicit
+    sandbox_regulation:
+    - regulatory_sandbox
+    - innovation_framework
+    executive_decree:
+    - presidential_decree
+    - ministerial_order
+- name: cbdc_enabling_legislation
+  kind: name_year
+  description: "Name and enactment year of the specific statute or regulation that\
+    \ provides primary legal basis for the CBDC (e.g., 'Finance Act 2021', 'Central\
+    \ Bank of Nigeria CBDC Regulatory Framework 2021', 'Loi relative \xE0 la finance\
+    \ num\xE9rique 2022')."
+  identity_qualifiers:
+  - cbdc_type
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
+- name: cbdc_offline_capable
+  kind: boolean
+  description: "Whether the CBDC design supports peer-to-peer offline transactions\
+    \ without network connectivity \u2014 critical for financial inclusion in low-infrastructure\
+    \ or disaster-affected regions."
+  identity_qualifiers:
+  - cbdc_type
+  required_qualifiers:
+  - cbdc_type
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
+- name: cbdc_programmable
+  kind: boolean
+  description: "Whether the CBDC supports programmable logic \u2014 conditional payments,\
+    \ expiry dates, earmarking for specific purposes, or smart-contract integration."
+  identity_qualifiers:
+  - cbdc_type
+  required_qualifiers:
+  - cbdc_type
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
+- name: cbdc_privacy_model
+  kind: enum
+  description: How transaction privacy and user anonymity are handled in the CBDC
+    design, spanning full state traceability to cryptographic anonymity.
+  identity_qualifiers:
+  - cbdc_type
+  required_qualifiers:
+  - cbdc_type
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
+  value_enum:
+  - fully_traceable
+  - pseudonymous_tiered
+  - privacy_preserving_cryptographic
+  - offline_anonymous
+  value_aliases:
+    pseudonymous_tiered:
+    - tiered_anonymity
+    - tiered_kyc
+    - low_value_anonymous
+    privacy_preserving_cryptographic:
+    - zero_knowledge
+    - zkp
+    - homomorphic_encryption
+    offline_anonymous:
+    - bearer_anonymous
+    - cash_like
+- name: cbdc_cross_border_role
+  kind: enum
+  description: The country's participation role in a named multilateral cross-border
+    CBDC project (e.g., mBridge, Nexus, Icebreaker, Project Dunbar, Project Aber,
+    Project Jura, SWIFT CBDC connector trials).
+  identity_qualifiers:
+  - project_name
+  - cbdc_type
+  required_qualifiers:
+  - project_name
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
+  value_enum:
+  - founding_participant
+  - full_participant
+  - observer
+  - bilateral_partner
+  - withdrawn
+  value_aliases:
+    founding_participant:
+    - founding_member
+    - founding_central_bank
+    - co-founder
+    bilateral_partner:
+    - corridor_partner
+- name: cbdc_interest_bearing
+  kind: boolean
+  description: Whether CBDC holdings are designed to earn interest, a key variable
+    for bank disintermediation risk and monetary policy transmission.
+  identity_qualifiers:
+  - cbdc_type
+  required_qualifiers:
+  - cbdc_type
+  qualifier_enums:
+    cbdc_type:
+    - retail
+    - wholesale
