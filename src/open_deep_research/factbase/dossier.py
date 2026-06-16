@@ -96,6 +96,11 @@ def _parser() -> argparse.ArgumentParser:
     sc.add_argument("--seed", action="append", default=[], metavar="URL",
                     help="Seed source URL(s) to ground the schema in real vocabulary (fetched as data; repeatable).")
 
+    mx = sub.add_parser("matrix", help="Cross-country matrix: rows=instances, cols=profile properties.")
+    mx.add_argument("--profile", default="country_digital_identity",
+                    help="Profile whose properties form the matrix columns.")
+    mx.add_argument("--format", choices=["text", "md", "csv"], default="text")
+
     return parser
 
 
@@ -160,6 +165,22 @@ async def run(argv, db_path=None) -> str:
         note = " (replaced existing)" if replaced else ""
         return (f"Wrote usable profile {out_yaml}{note} -- live now -- and annotated comparison copy "
                 f"{out_draft} (not loaded). Diff them to review what the generator decided.")
+    if args.command == "matrix":
+        from open_deep_research import storage as _storage
+        from open_deep_research.factbase import migrations as _mig, schema as _schema
+        from .matrix import render_matrix
+        from .profile import load as _load_profile
+        prof = _load_profile(args.profile)
+        property_names = [pd.name for pd in prof.properties]
+        resolver = CountryResolver()
+        async with aiosqlite.connect(db_path) as conn:
+            await _storage._ensure_schema(conn)
+            await _mig.apply(conn, _schema.STEPS)
+            q = _query.FactQuery(conn)
+            rows = []
+            for name in property_names:
+                rows.extend(await q.compare_grouped(name))
+        return render_matrix(rows, property_names, resolver.instance_name, fmt=args.format)
     async with aiosqlite.connect(db_path) as conn:
         q = _query.FactQuery(conn)
         if args.command == "show":
