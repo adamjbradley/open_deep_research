@@ -430,6 +430,36 @@ Write a clear, direct answer to the question in markdown. Then add a final itali
 the latest to update it.*
 """
 
+target_properties_prompt = """You are scoping a STRUCTURED fact-gathering task.
+
+Given a research question and the list of available fact properties (with short glosses),
+return ONLY the properties needed to answer the question. Use names EXACTLY as listed.
+Do not include properties the question does not ask about. If unsure, return an empty list.
+
+Question:
+{question}
+
+Available properties:
+{properties}
+
+Return the needed property names.
+"""
+
+facts_answer_polish_prompt = """Rewrite the facts below into a concise, direct answer to the question.
+
+STRICT RULES:
+- Use ONLY the facts provided. Do NOT add, infer, or embellish any information.
+- Preserve each value's status (trusted / provisional / in-conflict) and note when a needed
+  fact is missing.
+- Keep it short and factual. No preamble.
+
+Question:
+{question}
+
+Facts (canonical value | status | corroborating sources):
+{facts}
+"""
+
 merge_reports_prompt = """You maintain an evolving research dossier about a single SUBJECT: "{subject}".
 
 You are given the EXISTING dossier and a NEW research report. The new report may cover

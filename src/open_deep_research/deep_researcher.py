@@ -28,12 +28,14 @@ from open_deep_research.prompts import (
     clarify_with_user_instructions,
     compress_research_simple_human_message,
     compress_research_system_prompt,
+    facts_answer_polish_prompt,
     final_report_generation_prompt,
     knowledge_assessment_prompt,
     lead_researcher_prompt,
     merge_reports_prompt,
     research_system_prompt,
     subject_resolution_prompt,
+    target_properties_prompt,
     transform_messages_into_research_topic_prompt,
 )
 from open_deep_research.state import (
@@ -48,6 +50,7 @@ from open_deep_research.state import (
     ResearchQuestion,
     SubjectResolution,
     SupervisorState,
+    TargetProperties,
 )
 from open_deep_research.storage import (
     extract_sources,
@@ -296,6 +299,16 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     subject = state.get("subject")
     missing_information = state.get("missing_information") or ""
 
+    # Facts-first answers/sufficiency resolve the fact-base instance from `subject`, but on
+    # the research path subject is otherwise only resolved at persist time (and not at all
+    # when the KB is off). Resolve it here so the facts nodes have an instance to query.
+    if configurable.facts_first_mode and not subject:
+        try:
+            existing_names = await get_subject_names(get_db_path(config))
+            subject = await _resolve_subject(question, question, existing_names, configurable, config)
+        except Exception as e:
+            logger.warning("facts-first subject resolution failed: %s", e)
+
     # Load the dossier (if any) for the resolved subject to scope the research.
     dossier = None
     if subject:
@@ -329,13 +342,26 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
         ))])
         research_brief = response.research_brief
 
+    # Facts-first: resolve which fact properties the question needs and steer research at them.
+    target_properties = state.get("target_properties")
+    if configurable.facts_first_mode and not target_properties:
+        from open_deep_research.factbase import profile as _fbprofile
+        target_properties = await resolve_target_properties(
+            question, _fbprofile.load("country_digital_identity"), configurable, config
+        )
+    if configurable.facts_first_mode and target_properties:
+        research_brief = (
+            f"{research_brief}\n\nGather the specific facts needed to answer this. Focus on these "
+            f"properties: {', '.join(target_properties)}. For each, find the value with a citation."
+        )
+
     supervisor_system_prompt = lead_researcher_prompt.format(
         date=get_today_str(),
         max_concurrent_research_units=configurable.max_concurrent_research_units,
         max_researcher_iterations=configurable.max_researcher_iterations
     )
-    # Static edge to research_supervisor (see graph wiring).
-    return {
+    # Routed to research_supervisor (see graph wiring).
+    update = {
         "research_brief": research_brief,
         "subject": subject,
         "supervisor_messages": {
@@ -346,6 +372,9 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
             ]
         }
     }
+    if target_properties:
+        update["target_properties"] = target_properties
+    return update
 
 
 def _lead_researcher_tools(conducted_research: bool) -> list:
@@ -1044,6 +1073,36 @@ async def _resolve_subject(topic, research_brief, existing_subjects, configurabl
     return response.subject.strip()
 
 
+async def resolve_target_properties(question, prof, configurable, config) -> list[str]:
+    """Map a question to the subset of profile properties needed to answer it (facts-first).
+
+    A cheap structured call; names are validated against the profile and unknowns dropped.
+    Falls back to ALL property names on any failure or empty/all-invalid result, so the
+    fact path is never starved.
+    """
+    all_names = [pd.name for pd in prof.properties]
+    try:
+        model = (
+            configurable_model
+            .with_structured_output(TargetProperties)
+            .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+            .with_config({
+                "model": configurable.summarization_model,
+                "max_tokens": configurable.summarization_model_max_tokens,
+                "api_key": get_api_key_for_model(configurable.summarization_model, config),
+                "tags": ["langsmith:nostream"],
+            })
+        )
+        listing = "\n".join(f"- {pd.name} ({pd.value_kind})" for pd in prof.properties)
+        prompt = target_properties_prompt.format(question=question, properties=listing)
+        response = await model.ainvoke([HumanMessage(content=prompt)])
+        valid = [n for n in (response.property_names or []) if n in all_names]
+        return valid or all_names
+    except Exception as e:
+        logger.warning("resolve_target_properties failed; using all properties: %s", e)
+        return all_names
+
+
 async def _merge_dossier(subject, existing_report, new_report, configurable, config):
     """Merge a new report into a subject's existing dossier (preserve + integrate)."""
     model = configurable_model.with_config({
@@ -1232,17 +1291,18 @@ class ExtractionResult(BaseModel):
     facts: list[FactRecord] = Field(default_factory=list)
 
 
-def _make_fact_model_call(configurable, config):
+def _make_fact_model_call(configurable, config, target_properties=None):
     """Build an async model_call(source_text, prof) -> list[dict] for the extractor.
 
     Mirrors the structured-output invocation pattern used elsewhere in this graph
     (singleton ``configurable_model`` -> ``with_structured_output`` -> ``with_config``
     -> ``ainvoke``). Best-effort: returns [] on any error so extraction never fails
-    a completed run.
+    a completed run. ``target_properties`` (facts-first mode) narrows extraction to the
+    properties the question needs; default = all profile properties.
     """
     async def model_call(source_text, prof):
         try:
-            prop_names = [pd.name for pd in prof.properties]
+            prop_names = target_properties or [pd.name for pd in prof.properties]
             prompt = (
                 "Extract Digital-Identity facts about a COUNTRY from the source text below. "
                 f"Only use these property names: {prop_names}. "
@@ -1322,7 +1382,8 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
         )
         prof = fbprofile.load("country_digital_identity")
         reg = fbregistry.SourceRegistry.load("di_source_registry")
-        model_call = _make_fact_model_call(configurable, config)
+        model_call = _make_fact_model_call(
+            configurable, config, target_properties=state.get("target_properties"))
         # _make_fact_model_call is normally a sync factory returning an async model_call,
         # but tests (and any async factory) may return a coroutine -- await it if so.
         if asyncio.iscoroutine(model_call):
@@ -1362,10 +1423,16 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                     from open_deep_research.storage import set_coverage_incomplete
                     await set_coverage_incomplete(get_db_path(config), run_id, True)
 
-            # 3. Extract facts from all 'raw_text' sources in parallel
-            valid_sources = [s for s in sources if s["capture_status"] == "raw_text" and s["text"]]
+            # 3. Extract facts from 'raw_text' sources NOT already mined this run (the
+            #    facts-first loop re-extracts only newly-fetched sources -> bounded cost).
+            already_extracted = set(state.get("extracted_source_urls") or [])
+            valid_sources = [
+                s for s in sources
+                if s["capture_status"] == "raw_text" and s["text"]
+                and s["source_url"] not in already_extracted
+            ]
             if not valid_sources:
-                logger.info("No raw_text sources available for fact extraction in thread %s", thread_id)
+                logger.info("No new raw_text sources to extract for thread %s", thread_id)
                 return {}
 
             logger.info("Extracting facts from %d sources in parallel...", len(valid_sources))
@@ -1399,11 +1466,129 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                     registry=reg,
                     normalize_values=configurable.normalize_fact_values,
                 ).ingest(run_id=run_id, records=all_records)
+            # Record which sources we mined so a facts-first gap round skips them.
+            return {"extracted_source_urls": [s["source_url"] for s in valid_sources]}
     except Exception as e:
         logger.warning("extract_facts failed (non-fatal): %s", e)
         import traceback
         logger.debug(traceback.format_exc())
     return {}
+
+
+def _target_property_coverage(grouped_rows, target_properties):
+    """For each target property, whether the fact base has it (present) and a trusted value."""
+    present = {p: False for p in target_properties}
+    trusted = {p: False for p in target_properties}
+    for r in grouped_rows:
+        p = r.get("property_name")
+        if p in present:
+            present[p] = True
+            if r.get("admission") == "trusted" and not r.get("in_conflict"):
+                trusted[p] = True
+    return present, trusted
+
+
+async def assess_sufficiency(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "answer_from_facts"]]:
+    """Facts-first: are the question's target properties covered? If not, loop to research the gaps.
+
+    Routes back to write_research_brief (a gap round) when target properties are still missing and
+    the round budget (max_fact_rounds) allows; otherwise to answer_from_facts.
+    """
+    configurable = Configuration.from_runnable_config(config)
+    targets = state.get("target_properties") or []
+    subject = state.get("subject")
+    rounds_used = state.get("fact_rounds_used", 0) or 0
+
+    missing = []
+    if targets and subject:
+        try:
+            import aiosqlite
+            from open_deep_research.factbase import entities as fbentities, query as fbquery
+            instance_key = fbentities.CountryResolver().resolve(subject)
+            if instance_key:
+                async with aiosqlite.connect(get_db_path(config)) as conn:
+                    grouped = await fbquery.FactQuery(conn).show_grouped(instance_key)
+                present, _trusted = _target_property_coverage(grouped, targets)
+                missing = [p for p in targets if not present[p]]
+        except Exception as e:
+            logger.warning("assess_sufficiency check failed (treating as sufficient): %s", e)
+
+    if missing and rounds_used + 1 < configurable.max_fact_rounds:
+        logger.info("Facts insufficient (missing %s); gap round %d", missing, rounds_used + 1)
+        gap = (
+            "The following facts are still missing and MUST be found: "
+            + ", ".join(missing) + ". Search specifically for these."
+        )
+        return Command(
+            goto="write_research_brief",
+            update={"missing_information": gap, "fact_rounds_used": rounds_used + 1},
+        )
+    if missing:
+        logger.info("Facts still missing %s but round budget exhausted; answering with what we have", missing)
+    return Command(goto="answer_from_facts", update={"fact_rounds_used": rounds_used})
+
+
+def _facts_answer_text(subject, grouped_rows, targets) -> str:
+    """Deterministic, grounded answer from the grouped fact base: one line per target
+    property (value | status | sources); missing targets flagged explicitly."""
+    by_prop = {}
+    for r in grouped_rows:
+        by_prop.setdefault(r.get("property_name"), []).append(r)
+    lines = [f"# {subject or 'Subject'} — facts"]
+    for p in (targets or sorted(by_prop)):
+        rows = by_prop.get(p)
+        if not rows:
+            lines.append(f"- **{p}**: missing — not found in sources.")
+            continue
+        for r in rows:
+            status = "trusted" if (r.get("admission") == "trusted" and not r.get("in_conflict")) else \
+                ("in-conflict" if r.get("in_conflict") else "provisional")
+            lines.append(f"- **{p}**: {r.get('value')} ({status}, {r.get('source_count', 0)} sources)")
+    return "\n".join(lines)
+
+
+async def answer_from_facts(state: AgentState, config: RunnableConfig) -> dict:
+    """Facts-first: answer the question directly from the structured fact base (no prose report)."""
+    configurable = Configuration.from_runnable_config(config)
+    subject = state.get("subject")
+    question = get_buffer_string(state.get("messages", []))
+    targets = state.get("target_properties") or []
+
+    import aiosqlite
+    from open_deep_research.factbase import entities as fbentities, query as fbquery
+    instance_key = fbentities.CountryResolver().resolve(subject) if subject else None
+    grouped = []
+    if instance_key:
+        async with aiosqlite.connect(get_db_path(config)) as conn:
+            grouped = await fbquery.FactQuery(conn).show_grouped(instance_key)
+    if targets:
+        grouped = [r for r in grouped if r.get("property_name") in targets]
+
+    deterministic = _facts_answer_text(subject, grouped, targets)
+
+    # Optional cheap-LLM polish, grounded ONLY in the deterministic facts (best-effort).
+    answer = deterministic
+    try:
+        polish_model_name = configurable.facts_answer_polish_model or configurable.summarization_model
+        polish_model = configurable_model.with_config({
+            "model": polish_model_name,
+            "max_tokens": configurable.summarization_model_max_tokens,
+            "api_key": get_api_key_for_model(polish_model_name, config),
+            "tags": ["langsmith:nostream"],
+        })
+        resp = await polish_model.ainvoke([HumanMessage(content=facts_answer_polish_prompt.format(
+            question=question, facts=deterministic))])
+        polished = str(resp.content).strip()
+        if polished:
+            answer = polished
+    except Exception as e:
+        logger.warning("facts answer polish failed; using deterministic answer: %s", e)
+
+    return {
+        "final_report": answer,
+        "messages": [AIMessage(content=answer)],
+        "subject": subject,
+    }
 
 
 # Main Deep Researcher Graph Construction
@@ -1423,17 +1608,38 @@ deep_researcher_builder.add_node("write_research_brief", write_research_brief)  
 deep_researcher_builder.add_node("research_supervisor", supervisor_subgraph)       # Research execution phase
 deep_researcher_builder.add_node("final_report_generation", final_report_generation)  # Report generation phase
 deep_researcher_builder.add_node("extract_facts", extract_facts)                   # Per-source fact extraction (research path)
+deep_researcher_builder.add_node("assess_sufficiency", assess_sufficiency)         # Facts-first: enough to answer?
+deep_researcher_builder.add_node("answer_from_facts", answer_from_facts)           # Facts-first: answer from the fact base
 deep_researcher_builder.add_node("persist_research", persist_research)             # Persist results to SQLite
 
+
+def route_after_research(state: AgentState, config: RunnableConfig) -> str:
+    """Facts-first mode skips the prose report and goes straight to fact extraction."""
+    return "extract_facts" if Configuration.from_runnable_config(config).facts_first_mode \
+        else "final_report_generation"
+
+
+def route_after_extract(state: AgentState, config: RunnableConfig) -> str:
+    """Facts-first mode checks sufficiency next; report mode persists as before."""
+    return "assess_sufficiency" if Configuration.from_runnable_config(config).facts_first_mode \
+        else "persist_research"
+
+
 # Define main workflow edges. assess_knowledge (entry) branches via Command(goto)
-# to answer_from_dossier / write_research_brief / clarify_with_user.
+# to answer_from_dossier / write_research_brief / clarify_with_user; assess_sufficiency
+# branches via Command(goto) to write_research_brief (gap round) / answer_from_facts.
 deep_researcher_builder.add_edge(START, "preallocate_run")                          # Entry point: preallocate the run id
 deep_researcher_builder.add_edge("preallocate_run", "assess_knowledge")             # Then check the knowledge base
 deep_researcher_builder.add_edge("answer_from_dossier", "persist_research")         # Cached answer -> log the run
 deep_researcher_builder.add_edge("write_research_brief", "research_supervisor")     # Brief to research
-deep_researcher_builder.add_edge("research_supervisor", "final_report_generation") # Research to report
+deep_researcher_builder.add_conditional_edges(                                      # Research -> report (default) | facts (facts-first)
+    "research_supervisor", route_after_research,
+    {"final_report_generation": "final_report_generation", "extract_facts": "extract_facts"})
 deep_researcher_builder.add_edge("final_report_generation", "extract_facts")       # Report to fact extraction
-deep_researcher_builder.add_edge("extract_facts", "persist_research")              # Fact extraction to persistence
+deep_researcher_builder.add_conditional_edges(                                      # Facts -> persist (default) | sufficiency (facts-first)
+    "extract_facts", route_after_extract,
+    {"persist_research": "persist_research", "assess_sufficiency": "assess_sufficiency"})
+deep_researcher_builder.add_edge("answer_from_facts", "persist_research")           # Facts answer -> persist
 deep_researcher_builder.add_edge("persist_research", END)                          # Final exit point
 
 # Compile the complete deep researcher workflow
