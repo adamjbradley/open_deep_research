@@ -410,13 +410,25 @@ async def _offload_subprocess(make_coro: Callable[[], Any]) -> Any:
     If the current loop can spawn subprocesses (POSIX, or a Windows Proactor loop)
     we await directly. Otherwise (Windows SelectorEventLoop under ``langgraph dev``)
     we run the work in a worker thread that owns its own ProactorEventLoop.
+
+    Teardown semantics: the per-call timeout lives *inside* ``make_coro`` (see
+    ``_drain_query_with_timeout``), so on the worker-thread path the CLI subprocess is
+    always reaped within ``_SDK_TIMEOUT_S`` -- that inner timeout is the authoritative
+    upper bound on teardown latency. An *outer* cancellation (e.g. an enclosing
+    ``wait_for`` such as ``summarize_webpage``'s, or a client disconnect) cannot cross
+    the ``to_thread`` boundary on its own; we forward it by stopping the worker loop so
+    the in-flight subprocess is torn down promptly rather than lingering until the inner
+    timeout. (This worker-thread branch only runs on the Windows Selector loop; on POSIX
+    the direct path above is used and is what the tests exercise.)
     """
     if _loop_handles_subprocess():
         return await make_coro()
     box: dict = {}
+    loop_box: dict = {}
 
     def runner():
         loop = asyncio.ProactorEventLoop()
+        loop_box["loop"] = loop
         try:
             asyncio.set_event_loop(loop)
             box["value"] = loop.run_until_complete(make_coro())
@@ -424,7 +436,13 @@ async def _offload_subprocess(make_coro: Callable[[], Any]) -> Any:
             asyncio.set_event_loop(None)
             loop.close()
 
-    await asyncio.to_thread(runner)
+    try:
+        await asyncio.to_thread(runner)  # re-raises any exception from runner
+    except asyncio.CancelledError:
+        loop = loop_box.get("loop")
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(loop.stop)  # forward cancellation -> tear down subprocess
+        raise
     return box.get("value")
 
 

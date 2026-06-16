@@ -120,7 +120,7 @@ async def tavily_search(
                 await _fbmig.apply(_conn, _fbschema.STEPS)
                 await record_search_sources(_fb_store.RunSourceStore(_conn), str(_thread_id), unique_results)
     except Exception as _e:
-        logger.warning("run_source capture failed (non-fatal): %s", _e)
+        logger.warning("run_source capture failed (non-fatal): %s", _e, exc_info=True)
 
     # Step 3: Set up the summarization model with configuration
     configurable = Configuration.from_runnable_config(config)
@@ -155,18 +155,21 @@ async def tavily_search(
         for result in unique_results.values()
     ]
     
-    # Step 5: Execute all summarization tasks in parallel
-    summaries = await asyncio.gather(*summarization_tasks)
-    
+    # Step 5: Execute all summarization tasks in parallel. return_exceptions so a single
+    # summarization blowing up (beyond summarize_webpage's own fallback) can't sink the
+    # whole search tool -- a failed summary falls back to the result's short content.
+    summaries = await asyncio.gather(*summarization_tasks, return_exceptions=True)
+    summaries = [None if isinstance(s, BaseException) else s for s in summaries]
+
     # Step 6: Combine results with their summaries
     summarized_results = {
         url: {
-            'title': result['title'], 
+            'title': result['title'],
             'content': result['content'] if summary is None else summary
         }
         for url, result, summary in zip(
-            unique_results.keys(), 
-            unique_results.values(), 
+            unique_results.keys(),
+            unique_results.values(),
             summaries
         )
     }

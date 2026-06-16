@@ -54,6 +54,33 @@ def test_preallocate_run_reaps_stale_running_rows(tmp_path):
     asyncio.run(run())
 
 
+def test_reap_works_on_fresh_db_without_premigration(tmp_path):
+    """reap_stale_running must not crash on a DB lacking the last_heartbeat column.
+
+    Regression: the reaper runs at the very start of a run, before the first preallocate
+    applies the factbase migrations -- so on a fresh DB last_heartbeat didn't exist yet
+    and the reaper errored ('no such column'). It must apply the migrations itself.
+    """
+    db = str(tmp_path / "fresh.db")
+
+    async def run():
+        # Base schema only -- NO factbase migrations (no last_heartbeat column yet).
+        async with aiosqlite.connect(db) as conn:
+            await storage._ensure_schema(conn)
+            await conn.execute("INSERT INTO research_runs (status) VALUES ('running')")
+            await conn.commit()
+
+        # Must not raise; nothing to reap (the row's last_heartbeat is NULL after migration).
+        n = await storage.reap_stale_running(db, older_than_iso="2099-01-01T00:00:00+00:00")
+        assert n == 0
+
+        async with aiosqlite.connect(db) as conn:
+            cols = [r[1] for r in await (await conn.execute("PRAGMA table_info(research_runs)")).fetchall()]
+            assert "last_heartbeat" in cols  # migration was applied
+
+    asyncio.run(run())
+
+
 def test_preallocate_run_skips_reap_when_persistence_off(tmp_path):
     """With persist_results off the node is a no-op (no DB writes, no reap)."""
     db = str(tmp_path / "f2.db")
