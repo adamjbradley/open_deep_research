@@ -27,6 +27,12 @@ def test_batch_id_is_deterministic():
     assert a == b and a != c
 
 
+def test_batch_id_is_order_insensitive():
+    # Same country set in any order -> same batch (re-run reattaches regardless of order).
+    assert (batch_id_for("country_cbdc", "India, Nigeria")
+            == batch_id_for("country_cbdc", "Nigeria, India"))
+
+
 def test_ledger_resume_skips_done(tmp_path):
     import asyncio
 
