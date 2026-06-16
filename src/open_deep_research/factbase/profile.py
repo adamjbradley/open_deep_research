@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 
@@ -40,6 +41,12 @@ class PropertyDef:
         if self.value_kind == "percentage":
             try:
                 return 0.0 <= float(v.rstrip("%")) <= 100.0
+            except ValueError:
+                return False
+        if self.value_kind == "number":
+            s = v.replace(",", "").replace("_", "").replace(" ", "")
+            try:
+                return math.isfinite(float(s))  # reject inf/nan -- not valid counts
             except ValueError:
                 return False
         if self.value_kind == "enum" and self.value_enum is not None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import hashlib
+import math
 import re
 
 _WS = re.compile(r"\s+")
@@ -69,6 +70,17 @@ def canonical_value(property_def, value: str, unit: str | None) -> tuple[str, st
         if v in {"false", "no", "0", "absent", "none", ""}:
             return ("false", None)
         return (v, _norm_text(unit) or None)
+
+    if kind == "number":
+        s = raw.replace(",", "").replace("_", "").replace(" ", "")
+        try:
+            f = float(s)
+        except ValueError:
+            f = None
+        if f is None or not math.isfinite(f):  # non-numeric or inf/nan -> text fallback (never raise)
+            return (_norm_text(raw), _norm_text(unit) or None)
+        canon = str(int(f)) if f == int(f) else str(f)  # str==repr for float in py3; match _parse_percent
+        return (canon, _norm_text(unit) or None)
 
     if kind in ("name", "name_year"):
         v = _norm_text(raw)

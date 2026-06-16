@@ -130,6 +130,9 @@ def _parser() -> argparse.ArgumentParser:
     bt.add_argument("--dry-run", action="store_true",
                     help="Resolve the list (+report unresolved) without running research.")
 
+    sub.add_parser("population-load",
+                   help="Load country population from vendored World Bank data into the fact base.")
+
     return parser
 
 
@@ -212,6 +215,12 @@ async def run(argv, db_path=None) -> str:
         if not rows:
             return f"No facts found for profile '{args.profile}' in the database."
         return render_matrix(rows, property_names, resolver.instance_name, fmt=args.format)
+    if args.command == "population-load":
+        from .population_loader import load_population
+        res = await load_population(db_path)
+        return (f"loaded {res['loaded']} ({res['trusted']} trusted) across "
+                f"{res['instances']} countries"
+                + (f" | skipped: {', '.join(res['skipped'])}" if res['skipped'] else ""))
     if args.command == "batch":
         from open_deep_research import storage as _storage
         from open_deep_research.factbase import migrations as _mig, schema as _schema
