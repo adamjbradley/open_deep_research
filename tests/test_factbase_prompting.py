@@ -40,3 +40,8 @@ def test_names_only_prompt_when_not_compiled():
     assert "scheme_status" in p
     assert "operational" not in p
     assert "Only use these property names" in p
+
+
+def test_compile_flag_default_on():
+    from open_deep_research.configuration import Configuration
+    assert Configuration().compile_extraction_prompt is True
