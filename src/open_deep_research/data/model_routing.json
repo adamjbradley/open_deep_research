@@ -30,6 +30,18 @@
       },
       "search": "tavily",
       "step_overrides": {}
+    },
+    "codex": {
+      "comment": "ChatGPT/Codex CLI. NB codex exec is agentic (runs repo commands); keep its backend sandbox read-only before using in anger (see .env.example).",
+      "roles": {
+        "supervisor": "codex:gpt-5.5",
+        "researcher": "codex:gpt-5.5",
+        "summarization": "codex:gpt-5.5",
+        "compression": "codex:gpt-5.5",
+        "final_report": "codex:gpt-5.5"
+      },
+      "search": "tavily",
+      "step_overrides": {}
     }
   }
 }
