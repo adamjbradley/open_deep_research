@@ -31,8 +31,9 @@ properties:
       measured_modeled: [measured, modeled]
   - name: biometric_capture
     kind: enum
-    description: "Biometric modality captured at enrolment."
-    value_enum: [none, photo, fingerprint, iris, multi]
+    multi: true
+    description: "Biometric modalities captured at enrolment (one or more)."
+    value_enum: [photo, fingerprint, iris, face]
   - name: data_protection_law
     kind: boolean
     description: "Whether a data-protection law applies to the ID system."
