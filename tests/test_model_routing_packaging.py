@@ -10,11 +10,22 @@ def _head(spec):
 def test_bundled_routing_is_importable_and_valid_json():
     text = files("open_deep_research.data").joinpath("model_routing.json").read_text(encoding="utf-8")
     data = json.loads(text)
-    assert data["active_preset"] == "claude"  # benchmark recommendation (claude.feedback)
-    assert "gemini" in data["presets"] and "claude" in data["presets"]
-    # primaries (chain heads) are unchanged; chains add cross-backend backups.
+    assert data["active_preset"] == "balanced"  # Claude reasoning seams + Gemini throughput
+    assert {"balanced", "gemini", "claude"} <= set(data["presets"])
+    # primaries (chain heads): pure presets unchanged; balanced runs researcher on gemini.
     assert _head(data["presets"]["gemini"]["roles"]["researcher"]) == "gemini:gemini-2.5-flash"
     assert _head(data["presets"]["claude"]["roles"]["supervisor"]) == "claude-opus-4-8"
+
+
+def test_balanced_preset_is_claude_reasoning_gemini_researcher():
+    """The active 'balanced' preset keeps Claude on the reasoning seams but runs the
+    researcher (throughput) on gemini-2.5-flash, with a cross-backend backup either way."""
+    text = files("open_deep_research.data").joinpath("model_routing.json").read_text(encoding="utf-8")
+    roles = json.loads(text)["presets"]["balanced"]["roles"]
+    assert _head(roles["researcher"]) == "gemini:gemini-2.5-flash"      # throughput king
+    assert "claude" in roles["researcher"][1]                           # Claude quality backup
+    assert _head(roles["supervisor"]) == "claude-opus-4-8"              # reasoning seam stays Claude
+    assert _head(roles["final_report"]) == "claude-opus-4-8"
 
 
 def test_bundled_presets_ship_cross_backend_backups():
