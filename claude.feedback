@@ -296,3 +296,58 @@ Reviewed the revision against round 1 (claude conditions + codex HOLD + agy/gemi
 
 ### Convergence
 **ADVANCE to the plan stage.** Both blockers are properly designed away; the remaining items are plan-level scoping (split 6a/6b) and two specifics (rename/remove mapping; orphan policy). No re-block.
+
+---
+
+## Round — 2026-06-17 — Per-role Claude model micro-benchmark (best model per graph task)
+
+**Method.** Component micro-benchmark (`/tmp/bench_claude.py`): each graph LLM role isolated on a
+**fixed** Tavily-sourced input (ORF "A Decade of Aadhaar", India digital identity), every Claude
+model run through the role's actual call path, objective signal + latency recorded. **7 models**
+(Fable excluded per standing instruction; all ids probed-available on this subscription:
+opus-4-8/4-7/4-6/4-5, sonnet-4-6/4-5, haiku-4-5) × 6 roles = **42 cells**, default effort. Subscription
+mode (`ANTHROPIC_API_KEY=""`). Soft-failure retry (3×) + 1.5s spacing to keep transient SDK
+"error result: success" blips from scoring a model 0.
+
+**Source-selection bug found + fixed mid-run.** Initial run extracted **0 facts for every model** —
+not model quality: the benchmark sliced `raw_content[:8000]`, but scraped pages lead with nav/menu
+chrome and bury the article body (facts were at offset ~18k of a 52k-char page). Fix: `get_source()`
+now picks the **densest fact-bearing 8000-char window** (sliding key-term count), with canned fallback
+if even the best window is sparse. Validated: haiku `raw=0 → raw=4`. Lesson for the graph: extraction
+must run on summarized/cleaned text, never raw scraped HTML head — which the real graph does (summarize
+→ extract), so this was a benchmark artifact, not a graph bug.
+
+### Best model per role
+
+| Role | Winner | Signal |
+|---|---|---|
+| **supervisor / planning** | **opus-4-8** | Only opus-4-8 & opus-4-7 dispatched research (`conduct=2`). All others `conduct=0`. opus-4-8 fastest (48s). |
+| **researcher / extraction** | **opus-4-6** | `raw=4, kept=3` @ 33.5s; opus-4-7 ties quality @ 30.3s; opus-4-5 kept only 2. |
+| **summarization** | **haiku-4-5** | Quality tied (~3/7 key terms); fastest (34s), cheapest. opus-4-5 alone hit 4/7. |
+| **target-property resolution** | **haiku-4-5** | ALL models identical perfect result (`n=2, focused, has_key_props`). Pure tie → cheapest/fastest. |
+| **compression** | **haiku-4-5** | All tied 6/7 key terms; haiku fastest (14.6s). |
+| **final report** | **opus-4-8** | 7/7 terms, 2 cites, focused ~6.6k chars @ 35s. opus-4-6/sonnet-4-6 hit 7/7 but ran 12–14k (padded). haiku-4-5 strong budget pick (7/7, 5k, 26s). |
+
+### The finding that matters most
+**Most models silently fail the supervisor role** (`conduct=0` — they call `think_tool`/`ResearchComplete`
+but never `ConductResearch`, i.e. dispatch ZERO research — the historical supervisor-dispatch failure
+class). Only **opus-4-8 and opus-4-7** reliably fanned out. **Pin the supervisor to opus-4-8/4-7
+regardless of cost**; a cheaper supervisor model produces no research at all.
+
+### Recommended graph mix
+```
+supervisor_model    = claude-opus-4-8     # dispatch reliability non-negotiable
+researcher_model    = claude-opus-4-6     # full extraction, low latency
+summarization_model = claude-haiku-4-5    # also drives target-prop resolution
+compression_model   = claude-haiku-4-5
+final_report_model  = claude-opus-4-8     # (or haiku-4-5 to optimize cost)
+```
+
+### Caveats
+- **Single sample/cell** — latency is noisy (sonnet-4-5 96s, opus-4-6 report 88s look like load spikes).
+  Quality signals (`conduct`, `raw`/`kept`, key-term coverage) are far more stable than `sec`.
+- **Crude quality proxies** — key-term counts / char lengths don't measure factual accuracy or report
+  quality; the supervisor `conduct` count is the most decision-relevant signal.
+- **No effort axis** — all default thinking. Parked: 3× re-run to de-noise + confirm the supervisor
+  `conduct` result; effort sub-sweep (`MAX_THINKING_TOKENS`) on supervisor + final-report only, to test
+  whether more thinking lets a cheaper model dispatch research.

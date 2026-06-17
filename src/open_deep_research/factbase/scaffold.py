@@ -63,23 +63,25 @@ def build_scaffold_prompt(entity_type, description, existing_property_names, sou
     )
 
 
+def _property_to_dict(p: "ScaffoldProperty") -> dict:
+    d = {"name": p.name, "kind": p.kind}
+    if p.description:
+        d["description"] = p.description
+    if p.identity_qualifiers:
+        d["identity_qualifiers"] = list(p.identity_qualifiers)
+    if p.required_qualifiers:
+        d["required_qualifiers"] = list(p.required_qualifiers)
+    if p.qualifier_enums:
+        d["qualifier_enums"] = {k: list(v) for k, v in p.qualifier_enums.items()}
+    if p.value_enum is not None:
+        d["value_enum"] = list(p.value_enum)
+    if p.value_aliases:
+        d["value_aliases"] = {k: list(v) for k, v in p.value_aliases.items()}
+    return d
+
+
 def _proposal_to_profile_dict(proposal: "ScaffoldProposal") -> dict:
-    props = []
-    for p in proposal.properties:
-        d = {"name": p.name, "kind": p.kind}
-        if p.description:
-            d["description"] = p.description
-        if p.identity_qualifiers:
-            d["identity_qualifiers"] = list(p.identity_qualifiers)
-        if p.required_qualifiers:
-            d["required_qualifiers"] = list(p.required_qualifiers)
-        if p.qualifier_enums:
-            d["qualifier_enums"] = {k: list(v) for k, v in p.qualifier_enums.items()}
-        if p.value_enum is not None:
-            d["value_enum"] = list(p.value_enum)
-        if p.value_aliases:
-            d["value_aliases"] = {k: list(v) for k, v in p.value_aliases.items()}
-        props.append(d)
+    props = [_property_to_dict(p) for p in proposal.properties]
     return {"entity_type": proposal.entity_type, "version": "1", "properties": props}
 
 
@@ -116,6 +118,59 @@ def render_draft_yaml(proposal: "ScaffoldProposal") -> str:
 def render_profile_yaml(proposal: "ScaffoldProposal") -> str:
     """Clean, loadable profile YAML (no annotations) -- the immediately-usable output."""
     return yaml.safe_dump(_proposal_to_profile_dict(proposal), sort_keys=False, default_flow_style=False)
+
+
+def write_extension_draft(profile_name: str, entity_type: str, proposal: "ScaffoldProposal") -> tuple[str, list[str]]:
+    """Merge newly-proposed properties into ``<profile_name>.extension.draft.yaml`` for review.
+
+    Captures "valuable facts the profile doesn't yet model": dedups proposed properties against
+    BOTH the production profile (any file of this ``entity_type``) and anything already in the
+    draft, so repeated runs accumulate only genuinely-new proposals. NEVER edits the production
+    profile -- a human reviews the draft and merges by hand. Returns ``(draft_path, added_names)``;
+    ``added_names`` is empty when nothing new was proposed (no file is rewritten in that case).
+    """
+    from importlib.resources import files
+    from pathlib import Path
+
+    prof_dir = Path(str(files("open_deep_research.factbase.profiles")))
+    draft_path = prof_dir / f"{profile_name}.extension.draft.yaml"
+
+    # Names already locked in: production properties for this entity_type + prior draft entries.
+    existing = set(existing_property_names_for(entity_type))
+    drafted: list[dict] = []
+    if draft_path.exists():
+        try:
+            prior = yaml.safe_load(draft_path.read_text(encoding="utf-8")) or {}
+            drafted = list(prior.get("properties", []) or [])
+        except Exception:  # noqa: BLE001 - a corrupt draft shouldn't block new proposals
+            drafted = []
+    existing |= {p.get("name") for p in drafted if isinstance(p, dict) and p.get("name")}
+
+    new_props = [p for p in proposal.properties if p.name not in existing]
+    if not new_props:
+        return (str(draft_path), [])
+
+    merged = drafted + [_property_to_dict(p) for p in new_props]
+    body = yaml.safe_dump(
+        {"entity_type": entity_type, "properties": merged},
+        sort_keys=False, default_flow_style=False,
+    )
+    header = [
+        f"# === PROFILE EXTENSION DRAFT for {profile_name}.yaml - machine-generated; NOT loaded ===",
+        "# Properties below were observed during research as VALUABLE facts the production",
+        f"# profile '{profile_name}.yaml' does not yet capture. Review/edit and MANUALLY merge the",
+        "# ones you want into the production profile. This file is never loaded at runtime.",
+        "#",
+        "# Newest proposals (rationale + confidence):",
+    ]
+    for p in new_props:
+        header.append(
+            f"#  - {p.name} ({p.kind}): {p.identity_rationale or p.description or '(no rationale)'}"
+            f" (confidence: {p.confidence})"
+        )
+    header.append("#")
+    draft_path.write_text("\n".join(header) + "\n" + body, encoding="utf-8")
+    return (str(draft_path), [p.name for p in new_props])
 
 
 def existing_property_names_for(entity_type: str) -> list[str]:

@@ -59,6 +59,9 @@ logs/
 # Dependencies
 node_modules/
 
+# Claude Code worktrees (agent-created, ephemeral)
+.claude/worktrees/
+
 # LangGraph specific
 .langgraph/
 

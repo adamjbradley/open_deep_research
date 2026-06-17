@@ -161,4 +161,7 @@ STEPS: list[tuple[int, str]] = [
         PRIMARY KEY (batch_id, instance_key)
     );
     """),
+    (8, """
+    ALTER TABLE fact ADD COLUMN narrative TEXT;
+    """),
 ]

@@ -15,7 +15,12 @@ def detect(bucket: list[model.Fact], had_open_conflict: bool = False) -> list:
     if not bucket:
         return []
 
-    trust_bar = [f for f in bucket if f.source_meets_bar]
+    # Free-text values (kind=="text") can't be compared for equality, so they never open a
+    # conflict -- each source's prose accumulates rather than contradicting the others.
+    trust_bar = [
+        f for f in bucket
+        if f.source_meets_bar and getattr(f, "value_kind", None) != "text"
+    ]
 
     groups: dict[int | None, list[model.Fact]] = {}
     for f in trust_bar:

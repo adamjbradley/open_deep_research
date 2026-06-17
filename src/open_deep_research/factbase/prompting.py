@@ -63,8 +63,11 @@ def build_extraction_prompt(prof, target_properties, source_text, *, compiled: b
             "Rules: emit a qualifier ONLY if the source explicitly states it (do not guess); "
             "for enum properties use the listed values; when a property says 'select all "
             "that apply', return every applicable value separated by commas; when it allows "
-            "literals, you may give a value outside the list; "
+            "literals, you may give a value outside the list; for 'text' properties give the "
+            "relevant prose verbatim or lightly condensed; "
             "evidence_span MUST be a verbatim substring of the source text supporting the value; "
+            "narrative is a short (1-3 sentence) prose note of context the source gives around "
+            "the value (caveats, scope, methodology) -- omit it if the source adds nothing; "
             "if nothing is stated, return an empty list.\n\nSOURCE:\n" + src
         )
     prop_names = target_properties or [pd.name for pd in prof.properties]
@@ -73,5 +76,6 @@ def build_extraction_prompt(prof, target_properties, source_text, *, compiled: b
         f"Only use these property names: {prop_names}. "
         "Emit a qualifier ONLY if the source explicitly states it; otherwise omit it (do not guess). "
         "evidence_span MUST be a verbatim substring of the source text supporting the value. "
+        "narrative is an optional short (1-3 sentence) prose note of context around the value. "
         "If nothing is stated, return an empty list.\n\nSOURCE:\n" + src
     )

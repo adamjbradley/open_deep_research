@@ -304,6 +304,22 @@ class Configuration(BaseModel):
             "description": "Name of the factbase source registry (YAML file stem under factbase/profiles/) used for source-trust tiers.",
         }},
     )
+    auto_select_profile: bool = Field(
+        default=True,
+        metadata={"x_oap_ui_config": {
+            "type": "boolean",
+            "default": True,
+            "description": "Pick the factbase domain profile that best matches the user's question (from the profiles shipped under factbase/profiles/) instead of always using profile_name. profile_name is the fallback when no profile clearly fits.",
+        }},
+    )
+    propose_profile_extensions: bool = Field(
+        default=False,
+        metadata={"x_oap_ui_config": {
+            "type": "boolean",
+            "default": False,
+            "description": "After extraction, ask the model whether the sources contain valuable, recurring facts the active profile does NOT capture, and append them as proposed new properties to <profile>.extension.draft.yaml for manual review/merge. Never edits the production profile.",
+        }},
+    )
     compile_extraction_prompt: bool = Field(
         default=True,
         metadata={"x_oap_ui_config": {

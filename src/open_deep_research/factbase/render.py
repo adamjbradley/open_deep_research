@@ -4,10 +4,10 @@ import csv
 import io
 
 _COLUMNS = ["instance_key", "property_name", "qualifiers", "as_of", "value",
-            "source_url", "source_tier", "status"]
+            "narrative", "source_url", "source_tier", "status"]
 # Grouped view: one row per canonical value, with corroborating-source count + raw variants.
 _GROUPED_COLUMNS = ["instance_key", "property_name", "qualifiers", "as_of", "value",
-                    "sources", "variants", "status"]
+                    "narrative", "sources", "variants", "status"]
 
 
 def _status(row: dict) -> str:

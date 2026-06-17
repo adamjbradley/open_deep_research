@@ -16,6 +16,11 @@ class Fact:
     lifecycle: str = "current"
     canonical_value: str | None = None
     canonical_unit: str | None = None
+    # The property's kind (e.g. "enum", "text"). Free-text values can't be compared for
+    # equality, so text-kind facts are exempted from conflict detection (they accumulate).
+    value_kind: str | None = None
+    # Optional prose narrative attached to this fact (context/caveats around the value).
+    narrative: str | None = None
 
 
 @dataclass
