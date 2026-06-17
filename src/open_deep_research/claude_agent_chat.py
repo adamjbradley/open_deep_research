@@ -1173,7 +1173,8 @@ class configurable_claude_model(Runnable):
                 tracker.record_failover(stage, model_string, next_model, reason)
                 logger.warning("failover[%s]: %s unavailable (%s) -> %s",
                                stage, model_string, reason, next_model)
-        raise last_exc  # unreachable: the loop raises on the last attempt
+        assert last_exc is not None  # unreachable: the loop raises on its last attempt
+        raise last_exc
 
     def invoke(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
         return self._materialize(config).invoke(input, config, **kwargs)
@@ -1181,6 +1182,9 @@ class configurable_claude_model(Runnable):
     async def astream(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
         from open_deep_research.failover import get_tracker
 
+        # astream honours already-marked-down models but does not itself fail over or
+        # mark-down on a mid-stream error: a partial stream can't be replayed. Full
+        # reactive failover lives in ainvoke (the path every graph stage uses).
         chain, _ = self._resolve_chain(config)
         model_override = None
         if chain:

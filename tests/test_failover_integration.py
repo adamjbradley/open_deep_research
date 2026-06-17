@@ -87,6 +87,7 @@ def test_transient_does_not_mark_down(monkeypatch):
     })
     assert asyncio.run(model.ainvoke("x")) == "OK"
     assert not tracker.is_down("gemini:gemini-2.5-flash")
+    assert len(tracker.failovers) == 1  # a transient that survived backend retries is still recorded
 
 
 def test_single_model_chain_has_no_failover_and_raises(monkeypatch):
@@ -114,3 +115,26 @@ def test_exhausted_chain_raises_last_error(monkeypatch):
     })
     with pytest.raises(Exception, match="model not found"):
         asyncio.run(model.ainvoke("x"))
+
+
+def test_no_chain_key_behaves_like_before(monkeypatch):
+    """A plain {"model": ...} caller (no model_chain) keeps old behaviour: raise, no failover."""
+    new_run_tracker()
+    constructed = []
+    script = {"claude-opus-4-8": Exception("quota exceeded")}
+    _patch_build(monkeypatch, script, constructed)
+    model = configurable_claude_model().with_config({"model": "claude-opus-4-8"})
+    with pytest.raises(Exception, match="quota exceeded"):
+        asyncio.run(model.ainvoke("x"))
+    assert constructed == ["claude-opus-4-8"]  # single model, tried once, no failover
+
+
+def test_no_chain_key_success(monkeypatch):
+    """A plain {"model": ...} caller returns the model result unchanged on success."""
+    new_run_tracker()
+    constructed = []
+    script = {"claude-opus-4-8": "PLAIN-OK"}
+    _patch_build(monkeypatch, script, constructed)
+    model = configurable_claude_model().with_config({"model": "claude-opus-4-8"})
+    assert asyncio.run(model.ainvoke("x")) == "PLAIN-OK"
+    assert constructed == ["claude-opus-4-8"]
