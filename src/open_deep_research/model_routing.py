@@ -123,3 +123,34 @@ def load_routing() -> RoutingConfig:
     path = _routing_path()
     mtime = os.path.getmtime(path) if path else 0.0
     return _load_cached(path, mtime)
+
+
+def resolve_model(role: str, *, routing: RoutingConfig | None = None, step: str | None = None,
+                  env_value: str | None = None, configurable_value: str | None = None,
+                  code_default: str | None = None) -> str | None:
+    """Resolve a model string: env > step_override > role > configurable > code default."""
+    if env_value:
+        return env_value
+    routing = routing or load_routing()
+    preset = routing.active()
+    if step and step in preset.step_overrides:
+        return preset.step_overrides[step]
+    if role in preset.roles:
+        return preset.roles[role]
+    if configurable_value is not None:
+        return configurable_value
+    return code_default
+
+
+def resolve_search(*, routing: RoutingConfig | None = None, env_value: str | None = None,
+                   configurable_value: str | None = None, code_default: str | None = None) -> str | None:
+    """Resolve the search backend: env > active preset search > configurable > code default."""
+    if env_value:
+        return env_value
+    routing = routing or load_routing()
+    preset = routing.active()
+    if preset.search:
+        return preset.search
+    if configurable_value is not None:
+        return configurable_value
+    return code_default
