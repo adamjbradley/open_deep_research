@@ -1,6 +1,6 @@
-"""Model/search routing as data: a validated, dynamically-read model_routing.json that
-holds named presets, per-role models, per-step overrides, and per-backend settings.
+"""Model/search routing as data: a validated, dynamically-read model_routing.json.
 
+Holds named presets, per-role models, per-step overrides, and per-backend settings.
 Resolution order (highest wins): explicit env var > preset step_override > preset role >
 code default. The graph and claude_agent_chat.py are unchanged: model roles are resolved
 into Configuration fields, and backend settings are pushed into os.environ via setdefault.
@@ -32,6 +32,8 @@ def _check_model_string(value: str, where: str) -> None:
 
 
 class BackendSettings(BaseModel):
+    """Per-backend CLI/runtime settings pushed into the environment for a backend."""
+
     cli_bin: Optional[str] = None
     cli_args: list[str] = []
     trust_workspace: Optional[bool] = None
@@ -41,12 +43,14 @@ class BackendSettings(BaseModel):
 
 
 class Preset(BaseModel):
+    """A named backend bundle: per-role models, a search backend, and per-step overrides."""
+
     roles: dict[str, str] = {}
     search: Optional[str] = None
     step_overrides: dict[str, str] = {}
 
     @model_validator(mode="after")
-    def _check(self) -> "Preset":
+    def _check(self) -> Preset:
         for role, model in self.roles.items():
             if role not in KNOWN_ROLES:
                 raise ValueError(f"unknown role {role!r} (known: {sorted(KNOWN_ROLES)})")
@@ -61,13 +65,15 @@ class Preset(BaseModel):
 
 
 class RoutingConfig(BaseModel):
+    """The whole routing file: version, active preset, backend settings, and presets."""
+
     version: str = "1"
     active_preset: str
     backends: dict[str, BackendSettings] = {}
     presets: dict[str, Preset]
 
     @model_validator(mode="after")
-    def _check(self) -> "RoutingConfig":
+    def _check(self) -> RoutingConfig:
         if self.active_preset not in self.presets:
             raise ValueError(f"active_preset {self.active_preset!r} not in presets {sorted(self.presets)}")
         for name in self.backends:
@@ -75,7 +81,8 @@ class RoutingConfig(BaseModel):
                 raise ValueError(f"unknown backend {name!r} (known: {sorted(KNOWN_BACKENDS)})")
         return self
 
-    def active(self) -> "Preset":
+    def active(self) -> Preset:
+        """Return the active preset (MODEL_ROUTING_PRESET env overrides active_preset)."""
         name = os.environ.get("MODEL_ROUTING_PRESET") or self.active_preset
         if name not in self.presets:
             raise ValueError(f"MODEL_ROUTING_PRESET {name!r} not in presets {sorted(self.presets)}")
