@@ -31,6 +31,19 @@ def _check_model_string(value: str, where: str) -> None:
             raise ValueError(f"{where}: unknown backend prefix {prefix!r} in {value!r}")
 
 
+def _as_chain(spec: str | list[str]) -> list[str]:
+    """Normalise a model spec (string or list) to a primary-first chain."""
+    return [spec] if isinstance(spec, str) else list(spec)
+
+
+def _check_model_spec(spec: str | list[str], where: str) -> None:
+    chain = _as_chain(spec)
+    if not chain:
+        raise ValueError(f"{where}: empty model chain")
+    for model in chain:
+        _check_model_string(model, where)
+
+
 class BackendSettings(BaseModel):
     """Per-backend CLI/runtime settings pushed into the environment for a backend."""
 
@@ -45,20 +58,20 @@ class BackendSettings(BaseModel):
 class Preset(BaseModel):
     """A named backend bundle: per-role models, a search backend, and per-step overrides."""
 
-    roles: dict[str, str] = {}
+    roles: dict[str, str | list[str]] = {}
     search: Optional[str] = None
-    step_overrides: dict[str, str] = {}
+    step_overrides: dict[str, str | list[str]] = {}
 
     @model_validator(mode="after")
     def _check(self) -> Preset:
-        for role, model in self.roles.items():
+        for role, spec in self.roles.items():
             if role not in KNOWN_ROLES:
                 raise ValueError(f"unknown role {role!r} (known: {sorted(KNOWN_ROLES)})")
-            _check_model_string(model, f"roles.{role}")
-        for step, model in self.step_overrides.items():
+            _check_model_spec(spec, f"roles.{role}")
+        for step, spec in self.step_overrides.items():
             if step not in KNOWN_STEPS:
                 raise ValueError(f"unknown step_override {step!r} (known: {sorted(KNOWN_STEPS)})")
-            _check_model_string(model, f"step_overrides.{step}")
+            _check_model_spec(spec, f"step_overrides.{step}")
         if self.search is not None and self.search not in KNOWN_SEARCH:
             raise ValueError(f"unknown search {self.search!r} (known: {sorted(KNOWN_SEARCH)})")
         return self
@@ -125,21 +138,36 @@ def load_routing() -> RoutingConfig:
     return _load_cached(path, mtime)
 
 
-def resolve_model(role: str, *, routing: RoutingConfig | None = None, step: str | None = None,
-                  env_value: str | None = None, configurable_value: str | None = None,
-                  code_default: str | None = None) -> str | None:
-    """Resolve a model string: env > configurable > step_override > role > code default."""
+def model_chain(role: str, *, routing: RoutingConfig | None = None, step: str | None = None,
+                env_value: str | None = None, configurable_value: str | list[str] | None = None,
+                code_default: str | None = None) -> list[str]:
+    """Resolve a model failover chain (primary first): env > configurable > step_override > role > code default.
+
+    Same precedence as ``resolve_model``; whatever wins is normalised to a list.
+    An explicit env/configurable override yields a one-element chain (an override
+    deliberately opts out of failover).
+    Returns [] when nothing matches and no code_default is given; callers that index [0] must guard against an empty chain.
+    """
     if env_value:
-        return env_value
+        return [env_value]
     if configurable_value is not None:
-        return configurable_value
+        return _as_chain(configurable_value)
     routing = routing or load_routing()
     preset = routing.active()
     if step and step in preset.step_overrides:
-        return preset.step_overrides[step]
+        return _as_chain(preset.step_overrides[step])
     if role in preset.roles:
-        return preset.roles[role]
-    return code_default
+        return _as_chain(preset.roles[role])
+    return [code_default] if code_default else []
+
+
+def resolve_model(role: str, *, routing: RoutingConfig | None = None, step: str | None = None,
+                  env_value: str | None = None, configurable_value: str | None = None,
+                  code_default: str | None = None) -> str | None:
+    """Resolve a single model string (the chain head): env > configurable > step_override > role > code default."""
+    chain = model_chain(role, routing=routing, step=step, env_value=env_value,
+                        configurable_value=configurable_value, code_default=code_default)
+    return chain[0] if chain else None
 
 
 def resolve_search(*, routing: RoutingConfig | None = None, env_value: str | None = None,

@@ -1097,11 +1097,11 @@ class configurable_claude_model(Runnable):
         source = dict(config or {})
         source.update(kwargs)
         # Capture the flat model settings the codebase passes in.
-        for key in ("model", "max_tokens", "api_key"):
+        for key in ("model", "max_tokens", "api_key", "model_chain", "stage", "run_key"):
             if key in source:
                 merged[key] = source[key]
         configurable = source.get("configurable") or {}
-        for key in ("model", "max_tokens", "api_key"):
+        for key in ("model", "max_tokens", "api_key", "model_chain", "stage", "run_key"):
             if key in configurable:
                 merged[key] = configurable[key]
         return self._copy(default_config=merged)
@@ -1116,26 +1116,94 @@ class configurable_claude_model(Runnable):
         return self._copy(queue=self._queue + [("with_retry", args, kwargs)])
 
     # -- materialisation ----------------------------------------------------
-    def _materialize(self, config: Optional[RunnableConfig] = None) -> Runnable:
+    def _materialize(self, config: Optional[RunnableConfig] = None,
+                     model_override: Optional[str] = None) -> Runnable:
         cfg = dict(self._default_config)
         if config:
             configurable = config.get("configurable") or {}
             for key in ("model", "max_tokens", "api_key"):
                 if key in configurable:
                     cfg[key] = configurable[key]
-        model: Runnable = build_chat_model(cfg.get("model"), cfg.get("max_tokens"))
+        model_string = model_override if model_override is not None else cfg.get("model")
+        model: Runnable = build_chat_model(model_string, cfg.get("max_tokens"))
         for name, args, kwargs in self._queue:
             model = getattr(model, name)(*args, **kwargs)
         return model
 
+    def _resolve_chain(self, config: Optional[RunnableConfig] = None) -> "tuple[list[str], str, str | None]":
+        """The model chain to try (primary first), the stage label for logging, and the run key.
+
+        Returns a 3-tuple: (chain, stage, run_key).  ``run_key`` is an explicit
+        thread-scoped key for the registry-backed tracker (set via ``with_config``
+        or the ``configurable`` sub-dict); it is ``None`` when no key was provided.
+        """
+        cfg = dict(self._default_config)
+        if config:
+            configurable = config.get("configurable") or {}
+            for key in ("model", "model_chain", "stage", "run_key"):
+                if key in configurable:
+                    cfg[key] = configurable[key]
+        chain = cfg.get("model_chain") or ([cfg["model"]] if cfg.get("model") else [])
+        chain = [m for m in chain if m]
+        return chain, (cfg.get("stage") or "model"), cfg.get("run_key")
+
     # -- Runnable interface -------------------------------------------------
     async def ainvoke(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
-        return await self._materialize(config).ainvoke(input, config, **kwargs)
+        from open_deep_research.failover import classify_error, get_tracker, reason_for
+
+        chain, stage, run_key = self._resolve_chain(config)
+        if len(chain) <= 1:
+            model_override = chain[0] if chain else None
+            return await self._materialize(config, model_override=model_override).ainvoke(
+                input, config, **kwargs)
+
+        if run_key is None:
+            try:
+                from langchain_core.runnables.config import ensure_config
+                ambient = ensure_config(config)
+                run_key = (ambient.get("configurable") or {}).get("thread_id")
+            except Exception:  # noqa: BLE001 - config propagation is best-effort
+                run_key = None
+
+        tracker = get_tracker(run_key)
+        # Skip models already marked down this run; if all are down, still try the last
+        # so a real error surfaces rather than silently returning nothing.
+        available = tracker.available_chain(chain) or chain[-1:]
+        last_exc: Optional[BaseException] = None
+        for idx, model_string in enumerate(available):
+            try:
+                return await self._materialize(config, model_override=model_string).ainvoke(
+                    input, config, **kwargs)
+            except Exception as exc:  # noqa: BLE001 - re-raised below when the chain is exhausted
+                last_exc = exc
+                kind = classify_error(exc)
+                if kind == "hard":
+                    tracker.mark_down(model_string)  # sticky only for hard failures
+                if idx >= len(available) - 1:
+                    raise  # nothing left to fail over to
+                next_model = available[idx + 1]
+                reason = reason_for(exc, kind)
+                tracker.record_failover(stage, model_string, next_model, reason)
+                logger.warning("failover[%s]: %s unavailable (%s) -> %s",
+                               stage, model_string, reason, next_model)
+        assert last_exc is not None  # unreachable: the loop raises on its last attempt
+        raise last_exc
 
     def invoke(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
         return self._materialize(config).invoke(input, config, **kwargs)
 
     async def astream(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
-        async for chunk in self._materialize(config).astream(input, config, **kwargs):
+        from open_deep_research.failover import get_tracker
+
+        # astream honours already-marked-down models but does not itself fail over or
+        # mark-down on a mid-stream error: a partial stream can't be replayed. Full
+        # reactive failover lives in ainvoke (the path every graph stage uses).
+        chain, _, _ = self._resolve_chain(config)
+        model_override = None
+        if chain:
+            available = get_tracker().available_chain(chain) or chain
+            model_override = available[0]
+        async for chunk in self._materialize(config, model_override=model_override).astream(
+                input, config, **kwargs):
             yield chunk
 

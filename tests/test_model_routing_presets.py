@@ -48,9 +48,12 @@ def test_existing_shipped_config_valid_and_covers_all_backends():
     r = routing_from_dict(json.loads(text))  # raises if the shipped file is invalid
     assert {"claude", "gemini", "codex"} <= set(r.presets)
     for name, expected in (("claude", "claude"), ("gemini", "gemini:"), ("codex", "codex:")):
-        models = list(r.presets[name].roles.values())
-        assert models, f"{name} preset has no roles"
-        assert all(expected in m for m in models), f"{name} preset roles not all {expected!r}: {models}"
+        specs = list(r.presets[name].roles.values())
+        assert specs, f"{name} preset has no roles"
+        # a spec is a string OR a failover chain (list, primary first); the PRIMARY
+        # (head) must be the preset's own backend.
+        heads = [s[0] if isinstance(s, list) else s for s in specs]
+        assert all(expected in h for h in heads), f"{name} preset primaries not all {expected!r}: {heads}"
 
 
 def test_load_routing_reads_existing_on_disk_file(monkeypatch, tmp_path):
