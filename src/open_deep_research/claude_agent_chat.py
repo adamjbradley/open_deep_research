@@ -1097,11 +1097,11 @@ class configurable_claude_model(Runnable):
         source = dict(config or {})
         source.update(kwargs)
         # Capture the flat model settings the codebase passes in.
-        for key in ("model", "max_tokens", "api_key", "model_chain", "stage"):
+        for key in ("model", "max_tokens", "api_key", "model_chain", "stage", "run_key"):
             if key in source:
                 merged[key] = source[key]
         configurable = source.get("configurable") or {}
-        for key in ("model", "max_tokens", "api_key", "model_chain", "stage"):
+        for key in ("model", "max_tokens", "api_key", "model_chain", "stage", "run_key"):
             if key in configurable:
                 merged[key] = configurable[key]
         return self._copy(default_config=merged)
@@ -1130,29 +1130,42 @@ class configurable_claude_model(Runnable):
             model = getattr(model, name)(*args, **kwargs)
         return model
 
-    def _resolve_chain(self, config: Optional[RunnableConfig] = None) -> tuple[list[str], str]:
-        """The model chain to try (primary first) and the stage label for logging."""
+    def _resolve_chain(self, config: Optional[RunnableConfig] = None) -> "tuple[list[str], str, str | None]":
+        """The model chain to try (primary first), the stage label for logging, and the run key.
+
+        Returns a 3-tuple: (chain, stage, run_key).  ``run_key`` is an explicit
+        thread-scoped key for the registry-backed tracker (set via ``with_config``
+        or the ``configurable`` sub-dict); it is ``None`` when no key was provided.
+        """
         cfg = dict(self._default_config)
         if config:
             configurable = config.get("configurable") or {}
-            for key in ("model", "model_chain", "stage"):
+            for key in ("model", "model_chain", "stage", "run_key"):
                 if key in configurable:
                     cfg[key] = configurable[key]
         chain = cfg.get("model_chain") or ([cfg["model"]] if cfg.get("model") else [])
         chain = [m for m in chain if m]
-        return chain, (cfg.get("stage") or "model")
+        return chain, (cfg.get("stage") or "model"), cfg.get("run_key")
 
     # -- Runnable interface -------------------------------------------------
     async def ainvoke(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
         from open_deep_research.failover import classify_error, get_tracker, reason_for
 
-        chain, stage = self._resolve_chain(config)
+        chain, stage, run_key = self._resolve_chain(config)
         if len(chain) <= 1:
             model_override = chain[0] if chain else None
             return await self._materialize(config, model_override=model_override).ainvoke(
                 input, config, **kwargs)
 
-        tracker = get_tracker()
+        if run_key is None:
+            try:
+                from langchain_core.runnables.config import ensure_config
+                ambient = ensure_config(config)
+                run_key = (ambient.get("configurable") or {}).get("thread_id")
+            except Exception:  # noqa: BLE001 - config propagation is best-effort
+                run_key = None
+
+        tracker = get_tracker(run_key)
         # Skip models already marked down this run; if all are down, still try the last
         # so a real error surfaces rather than silently returning nothing.
         available = tracker.available_chain(chain) or chain[-1:]
@@ -1185,7 +1198,7 @@ class configurable_claude_model(Runnable):
         # astream honours already-marked-down models but does not itself fail over or
         # mark-down on a mid-stream error: a partial stream can't be replayed. Full
         # reactive failover lives in ainvoke (the path every graph stage uses).
-        chain, _ = self._resolve_chain(config)
+        chain, _, _ = self._resolve_chain(config)
         model_override = None
         if chain:
             available = get_tracker().available_chain(chain) or chain

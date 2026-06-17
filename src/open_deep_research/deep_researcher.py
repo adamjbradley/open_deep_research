@@ -23,7 +23,7 @@ from open_deep_research.claude_agent_chat import configurable_claude_model
 from open_deep_research.configuration import (
     Configuration,
 )
-from open_deep_research.failover import get_tracker, new_run_tracker
+from open_deep_research.failover import discard_tracker, get_tracker, new_run_tracker
 from open_deep_research.prompts import (
     answer_from_dossier_prompt,
     clarify_with_user_instructions,
@@ -1182,7 +1182,9 @@ async def persist_research(state: AgentState, config: RunnableConfig):
 
     config_used = configurable.model_dump(mode="json")
     config_used.pop("mcp_config", None)
-    config_used["failovers"] = [f.as_dict() for f in get_tracker().failovers]
+    _thread_id = (config.get("configurable") or {}).get("thread_id")
+    config_used["failovers"] = [f.as_dict() for f in get_tracker(_thread_id).failovers]
+    discard_tracker(_thread_id)
 
     run = {
         "thread_id": (config.get("configurable") or {}).get("thread_id"),
@@ -1364,11 +1366,11 @@ def _make_fact_model_call(configurable, config, target_properties=None):
 
 async def preallocate_run(state: AgentState, config: RunnableConfig) -> dict:
     """Create the research_runs row early so the tool layer/extract_facts share a run id."""
-    new_run_tracker()  # fresh per-run failover state (down-set + recorded failovers)
+    thread_id = (config.get("configurable") or {}).get("thread_id")
+    new_run_tracker(thread_id)  # fresh per-run failover state keyed by thread_id for cross-node visibility
     configurable = Configuration.from_runnable_config(config)
     if not configurable.persist_results:
         return {}
-    thread_id = (config.get("configurable") or {}).get("thread_id")
     db_path = get_db_path(config)
     # Reap abandoned runs: any row still 'running' past the staleness window belongs to a
     # crashed/killed prior run (the in-memory graph state is gone, so it will never finalize).

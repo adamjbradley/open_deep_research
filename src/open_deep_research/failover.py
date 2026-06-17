@@ -121,26 +121,52 @@ class AvailabilityTracker:
 _current_tracker: contextvars.ContextVar["AvailabilityTracker | None"] = \
     contextvars.ContextVar("odr_failover_tracker", default=None)
 
+# Module-level registry keyed by thread_id (or any run key).  Module globals are
+# shared across all LangGraph node contexts (unlike ContextVars, which each node
+# sees in a *copied* context), so this survives the node-boundary that broke the
+# ContextVar-only approach.
+_registry: dict[str, AvailabilityTracker] = {}
 
-def new_run_tracker() -> AvailabilityTracker:
-    """Install a fresh tracker for the current run/context and return it.
 
-    Call once at graph entry. Concurrent runs launched via ``asyncio.gather`` each
-    run in a copied context, so each gets its own tracker.
+def new_run_tracker(key: str | None = None) -> AvailabilityTracker:
+    """Install a fresh tracker for the current run and return it.
+
+    When ``key`` (e.g. the run's thread_id) is given, the tracker is stored in a
+    module-level registry so it survives across LangGraph nodes (each node runs in
+    its own copied context, so a ContextVar alone would not). Always also set the
+    ContextVar so key-less ``get_tracker()`` in the same context still works. A
+    fresh tracker overwrites any previous one for the same key, so re-running with a
+    reused thread_id starts clean (run-scoped).
     """
     t = AvailabilityTracker()
+    if key is not None:
+        _registry[key] = t
     _current_tracker.set(t)
     return t
 
 
-def get_tracker() -> AvailabilityTracker:
-    """The current run's tracker, lazily creating a detached one if none exists.
+def get_tracker(key: str | None = None) -> AvailabilityTracker:
+    """The current run's tracker.
 
-    A detached tracker still gives correct single-call behaviour (e.g. a one-off
-    model call or a unit test); it simply shares state with nothing else.
+    With ``key`` (thread_id): return the registry's tracker for that run, creating
+    and storing one if absent. Without a key: fall back to the ContextVar (lazily
+    creating a detached tracker), preserving the original single-context behaviour
+    used by unit tests and key-less callers.
     """
+    if key is not None:
+        t = _registry.get(key)
+        if t is None:
+            t = AvailabilityTracker()
+            _registry[key] = t
+        return t
     t = _current_tracker.get()
     if t is None:
         t = AvailabilityTracker()
         _current_tracker.set(t)
     return t
+
+
+def discard_tracker(key: str | None) -> None:
+    """Drop a run's tracker from the registry (call after persisting). No-op if absent."""
+    if key is not None:
+        _registry.pop(key, None)
