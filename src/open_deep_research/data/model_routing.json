@@ -1,0 +1,36 @@
+{
+  "version": "1",
+  "active_preset": "gemini",
+  "backends": {
+    "gemini": { "cli_bin": "gemini", "cli_args": [], "trust_workspace": true,
+                "model_aliases": { "flash": "gemini-2.5-flash" } },
+    "codex":  { "cli_bin": "codex", "sandbox": "read-only" },
+    "claude": { "subscription": true }
+  },
+  "presets": {
+    "gemini": {
+      "roles": {
+        "supervisor": "gemini:gemini-2.5-flash",
+        "researcher": "gemini:gemini-2.5-flash",
+        "summarization": "gemini:gemini-2.5-flash",
+        "compression": "gemini:gemini-2.5-flash",
+        "final_report": "gemini:gemini-2.5-flash",
+        "facts_answer_polish": "gemini:gemini-2.5-flash"
+      },
+      "search": "tavily",
+      "step_overrides": {}
+    },
+    "claude": {
+      "roles": {
+        "supervisor": "claude:sonnet",
+        "researcher": "claude:sonnet",
+        "summarization": "claude:sonnet",
+        "compression": "claude:sonnet",
+        "final_report": "claude:sonnet",
+        "facts_answer_polish": "claude:sonnet"
+      },
+      "search": "tavily",
+      "step_overrides": {}
+    }
+  }
+}

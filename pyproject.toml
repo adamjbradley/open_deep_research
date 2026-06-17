@@ -62,6 +62,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = [
     "open_deep_research",
+    "open_deep_research.data",
     "open_deep_research.factbase",
     "open_deep_research.factbase.profiles",
     "open_deep_research.factbase.data",
@@ -76,6 +77,7 @@ packages = [
 
 [tool.setuptools.package-data]
 "*" = ["py.typed"]
+"open_deep_research.data" = ["*.json"]
 "open_deep_research.factbase.profiles" = ["*.yaml"]
 "open_deep_research.factbase.data" = ["*.yaml"]
 
