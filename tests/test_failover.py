@@ -188,3 +188,65 @@ def test_model_for_list_step_override_returns_head(monkeypatch, tmp_path):
         monkeypatch.delenv(k, raising=False)
     c = Configuration.from_runnable_config({})
     assert c.model_for("extract_facts", "researcher") == "claude:sonnet"   # head, not the list
+
+
+def test_configuration_model_chain_uses_preset_list(monkeypatch, tmp_path):
+    import json
+
+    from open_deep_research.configuration import Configuration
+
+    f = tmp_path / "model_routing.json"
+    f.write_text(json.dumps({
+        "version": "1", "active_preset": "mix",
+        "presets": {"mix": {"roles": {
+            "supervisor": ["gemini:gemini-2.5-pro", "claude-opus-4-8"],
+            "researcher": "gemini:gemini-2.5-flash",
+        }}},
+    }), encoding="utf-8")
+    monkeypatch.setenv("MODEL_ROUTING_FILE", str(f))
+    for k in ("MODEL_ROUTING_PRESET", "SUPERVISOR_MODEL", "RESEARCHER_MODEL"):
+        monkeypatch.delenv(k, raising=False)
+    c = Configuration.from_runnable_config({})
+    assert c.supervisor_model == "gemini:gemini-2.5-pro"          # head still on the field
+    assert c.model_chain("supervisor") == ["gemini:gemini-2.5-pro", "claude-opus-4-8"]
+    assert c.model_chain("researcher") == ["gemini:gemini-2.5-flash"]
+
+
+def test_configuration_model_chain_env_override_is_single(monkeypatch, tmp_path):
+    import json
+
+    from open_deep_research.configuration import Configuration
+
+    f = tmp_path / "model_routing.json"
+    f.write_text(json.dumps({
+        "version": "1", "active_preset": "mix",
+        "presets": {"mix": {"roles": {"supervisor": ["gemini:gemini-2.5-pro", "claude-opus-4-8"]}}},
+    }), encoding="utf-8")
+    monkeypatch.setenv("MODEL_ROUTING_FILE", str(f))
+    monkeypatch.delenv("MODEL_ROUTING_PRESET", raising=False)
+    monkeypatch.setenv("SUPERVISOR_MODEL", "claude:opus")
+    c = Configuration.from_runnable_config({})
+    assert c.supervisor_model == "claude:opus"
+    assert c.model_chain("supervisor") == ["claude:opus"]   # override opts out of failover
+
+
+def test_configuration_model_chain_step_override(monkeypatch, tmp_path):
+    import json
+
+    from open_deep_research.configuration import Configuration
+
+    f = tmp_path / "model_routing.json"
+    f.write_text(json.dumps({
+        "version": "1", "active_preset": "mix",
+        "presets": {"mix": {
+            "roles": {"researcher": "gemini:gemini-2.5-flash"},
+            "step_overrides": {"extract_facts": ["claude:sonnet", "gemini:gemini-2.5-flash"]},
+        }},
+    }), encoding="utf-8")
+    monkeypatch.setenv("MODEL_ROUTING_FILE", str(f))
+    for k in ("MODEL_ROUTING_PRESET", "RESEARCHER_MODEL"):
+        monkeypatch.delenv(k, raising=False)
+    c = Configuration.from_runnable_config({})
+    assert c.model_chain("researcher") == ["gemini:gemini-2.5-flash"]
+    # the step override must drive the extract_facts chain, not the researcher role
+    assert c.model_chain("researcher", "extract_facts") == ["claude:sonnet", "gemini:gemini-2.5-flash"]
