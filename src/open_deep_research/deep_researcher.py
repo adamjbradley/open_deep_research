@@ -23,6 +23,7 @@ from open_deep_research.claude_agent_chat import configurable_claude_model
 from open_deep_research.configuration import (
     Configuration,
 )
+from open_deep_research.failover import new_run_tracker
 from open_deep_research.prompts import (
     answer_from_dossier_prompt,
     clarify_with_user_instructions,
@@ -148,11 +149,13 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
     messages = state["messages"]
     model_config = {
         "model": configurable.supervisor_model,
+        "model_chain": configurable.model_chain("supervisor"),
+        "stage": "supervisor",
         "max_tokens": configurable.researcher_model_max_tokens,
         "api_key": get_api_key_for_model(configurable.supervisor_model, config),
         "tags": ["langsmith:nostream"]
     }
-    
+
     # Configure model with structured output and retry logic
     clarification_model = (
         configurable_model
@@ -232,6 +235,8 @@ async def assess_knowledge(state: AgentState, config: RunnableConfig) -> Command
             .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
             .with_config({
                 "model": configurable.supervisor_model,
+                "model_chain": configurable.model_chain("supervisor"),
+                "stage": "supervisor",
                 "max_tokens": configurable.researcher_model_max_tokens,
                 "api_key": get_api_key_for_model(configurable.supervisor_model, config),
                 "tags": ["langsmith:nostream"],
@@ -266,6 +271,8 @@ async def answer_from_dossier(state: AgentState, config: RunnableConfig) -> dict
 
     answer_model = configurable_model.with_config({
         "model": configurable.final_report_model,
+        "model_chain": configurable.model_chain("final_report"),
+        "stage": "final_report",
         "max_tokens": configurable.final_report_model_max_tokens,
         "api_key": get_api_key_for_model(configurable.final_report_model, config),
         "tags": ["langsmith:nostream"],
@@ -335,6 +342,8 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
             .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
             .with_config({
                 "model": configurable.supervisor_model,
+                "model_chain": configurable.model_chain("supervisor"),
+                "stage": "supervisor",
                 "max_tokens": configurable.researcher_model_max_tokens,
                 "api_key": get_api_key_for_model(configurable.supervisor_model, config),
                 "tags": ["langsmith:nostream"],
@@ -415,6 +424,8 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
     configurable = Configuration.from_runnable_config(config)
     supervisor_model_config = {
         "model": configurable.supervisor_model,
+        "model_chain": configurable.model_chain("supervisor"),
+        "stage": "supervisor",
         "max_tokens": configurable.researcher_model_max_tokens,
         "api_key": get_api_key_for_model(configurable.supervisor_model, config),
         "tags": ["langsmith:nostream"]
@@ -710,6 +721,8 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
     # Step 2: Configure the researcher model with tools
     researcher_model_config = {
         "model": configurable.researcher_model,
+        "model_chain": configurable.model_chain("researcher"),
+        "stage": "researcher",
         "max_tokens": configurable.researcher_model_max_tokens,
         "api_key": get_api_key_for_model(configurable.researcher_model, config),
         "tags": ["langsmith:nostream"]
@@ -876,6 +889,8 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
     configurable = Configuration.from_runnable_config(config)
     synthesizer_model = configurable_model.with_config({
         "model": configurable.compression_model,
+        "model_chain": configurable.model_chain("compression"),
+        "stage": "compression",
         "max_tokens": configurable.compression_model_max_tokens,
         "api_key": get_api_key_for_model(configurable.compression_model, config),
         "tags": ["langsmith:nostream"]
@@ -981,6 +996,8 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     configurable = Configuration.from_runnable_config(config)
     writer_model_config = {
         "model": configurable.final_report_model,
+        "model_chain": configurable.model_chain("final_report"),
+        "stage": "final_report",
         "max_tokens": configurable.final_report_model_max_tokens,
         "api_key": get_api_key_for_model(configurable.final_report_model, config),
         "tags": ["langsmith:nostream"]
@@ -1065,6 +1082,8 @@ async def _resolve_subject(topic, research_brief, existing_subjects, configurabl
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
         .with_config({
             "model": configurable.summarization_model,
+            "model_chain": configurable.model_chain("summarization"),
+            "stage": "summarization",
             "max_tokens": configurable.summarization_model_max_tokens,
             "api_key": get_api_key_for_model(configurable.summarization_model, config),
             "tags": ["langsmith:nostream"],
@@ -1087,12 +1106,15 @@ async def resolve_target_properties(question, prof, configurable, config) -> lis
     """
     all_names = [pd.name for pd in prof.properties]
     try:
+        _chain = getattr(configurable, "model_chain", lambda *a: [])("summarization")
         model = (
             configurable_model
             .with_structured_output(TargetProperties)
             .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
             .with_config({
                 "model": configurable.summarization_model,
+                "model_chain": _chain,
+                "stage": "summarization",
                 "max_tokens": configurable.summarization_model_max_tokens,
                 "api_key": get_api_key_for_model(configurable.summarization_model, config),
                 "tags": ["langsmith:nostream"],
@@ -1112,6 +1134,8 @@ async def _merge_dossier(subject, existing_report, new_report, configurable, con
     """Merge a new report into a subject's existing dossier (preserve + integrate)."""
     model = configurable_model.with_config({
         "model": configurable.final_report_model,
+        "model_chain": configurable.model_chain("final_report"),
+        "stage": "final_report",
         "max_tokens": configurable.final_report_model_max_tokens,
         "api_key": get_api_key_for_model(configurable.final_report_model, config),
         "tags": ["langsmith:nostream"],
@@ -1159,6 +1183,8 @@ async def persist_research(state: AgentState, config: RunnableConfig):
 
     config_used = configurable.model_dump(mode="json")
     config_used.pop("mcp_config", None)
+    from open_deep_research.failover import get_tracker
+    config_used["failovers"] = [f.as_dict() for f in get_tracker().failovers]
 
     run = {
         "thread_id": (config.get("configurable") or {}).get("thread_id"),
@@ -1323,6 +1349,8 @@ def _make_fact_model_call(configurable, config, target_properties=None):
                 .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
                 .with_config({
                     "model": extraction_model,
+                    "model_chain": configurable.model_chain("researcher", "extract_facts"),
+                    "stage": "extract_facts",
                     "max_tokens": configurable.researcher_model_max_tokens,
                     "api_key": get_api_key_for_model(configurable.researcher_model, config),
                     "tags": ["langsmith:nostream"],
@@ -1338,6 +1366,7 @@ def _make_fact_model_call(configurable, config, target_properties=None):
 
 async def preallocate_run(state: AgentState, config: RunnableConfig) -> dict:
     """Create the research_runs row early so the tool layer/extract_facts share a run id."""
+    new_run_tracker()  # fresh per-run failover state (down-set + recorded failovers)
     configurable = Configuration.from_runnable_config(config)
     if not configurable.persist_results:
         return {}
@@ -1604,6 +1633,8 @@ async def answer_from_facts(state: AgentState, config: RunnableConfig) -> dict:
         polish_model_name = configurable.facts_answer_polish_model or configurable.summarization_model
         polish_model = configurable_model.with_config({
             "model": polish_model_name,
+            "model_chain": configurable.model_chain("facts_answer_polish"),
+            "stage": "facts_answer_polish",
             "max_tokens": configurable.summarization_model_max_tokens,
             "api_key": get_api_key_for_model(polish_model_name, config),
             "tags": ["langsmith:nostream"],

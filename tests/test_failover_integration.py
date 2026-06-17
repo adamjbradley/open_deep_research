@@ -138,3 +138,40 @@ def test_no_chain_key_success(monkeypatch):
     model = configurable_claude_model().with_config({"model": "claude-opus-4-8"})
     assert asyncio.run(model.ainvoke("x")) == "PLAIN-OK"
     assert constructed == ["claude-opus-4-8"]
+
+
+def test_node_style_config_shape_drives_failover(monkeypatch, tmp_path):
+    """A config dict built the way a graph node builds it (model + model_chain +
+    stage, sourced from a Configuration) actually engages reactive failover."""
+    import json
+
+    from open_deep_research.configuration import Configuration
+
+    f = tmp_path / "model_routing.json"
+    f.write_text(json.dumps({
+        "version": "1", "active_preset": "mix",
+        "presets": {"mix": {"roles": {
+            "supervisor": ["gemini:gemini-2.5-pro", "claude-opus-4-8"],
+        }}},
+    }), encoding="utf-8")
+    monkeypatch.setenv("MODEL_ROUTING_FILE", str(f))
+    for k in ("MODEL_ROUTING_PRESET", "SUPERVISOR_MODEL"):
+        monkeypatch.delenv(k, raising=False)
+    c = Configuration.from_runnable_config({})
+    assert c.model_chain("supervisor") == ["gemini:gemini-2.5-pro", "claude-opus-4-8"]
+
+    new_run_tracker()
+    constructed = []
+    script = {
+        "gemini:gemini-2.5-pro": Exception("429 quota exceeded"),
+        "claude-opus-4-8": "BACKUP-OK",
+    }
+    _patch_build(monkeypatch, script, constructed)
+    # exactly the keys a node attaches (see step 3b)
+    model = configurable_claude_model().with_config({
+        "model": c.supervisor_model,
+        "model_chain": c.model_chain("supervisor"),
+        "stage": "supervisor",
+    })
+    assert asyncio.run(model.ainvoke("hi")) == "BACKUP-OK"
+    assert constructed == ["gemini:gemini-2.5-pro", "claude-opus-4-8"]
