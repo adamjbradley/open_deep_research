@@ -42,7 +42,7 @@ async def main(args: argparse.Namespace) -> None:
     configurable = {"thread_id": str(uuid.uuid4())}
     if not args.full:
         configurable.update(
-            max_concurrent_research_units=2,
+            max_concurrent_research_units=args.concurrency,
             max_researcher_iterations=args.iterations,
             max_react_tool_calls=4,
         )
@@ -88,6 +88,7 @@ def parse_args(argv: list) -> argparse.Namespace:
     p.add_argument("prompt", nargs="+", help="The research question.")
     p.add_argument("--kb-off", action="store_true", help="Disable the knowledge base (fresh research).")
     p.add_argument("--iterations", type=int, default=2, help="max_researcher_iterations (default 2; use >=2, see module docstring).")
+    p.add_argument("--concurrency", type=int, default=4, help="max_concurrent_research_units: parallel researchers per supervisor turn (default 4; raises fan-out throughput).")
     p.add_argument("--db", help="SQLite DB path (default: isolated temp DB).")
     p.add_argument("--full", action="store_true", help="Use the graph's default (deeper) limits.")
     p.add_argument("--no-persist", action="store_true", help="Do not write to any SQLite DB.")

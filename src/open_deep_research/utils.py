@@ -246,30 +246,35 @@ async def summarize_webpage(model: BaseChatModel, webpage_content: str) -> str:
     Returns:
         Formatted summary with key excerpts, or original content if summarization fails
     """
+    # Per-source summarize cap. Tunable via SUMMARIZE_TIMEOUT_S (default 120s); lower
+    # it to stop a slow/throttled backend from spending up to 2 minutes per source on
+    # large fan-outs (the dominant runtime cost observed on throttled-Claude runs).
+    summarize_timeout_s = float(os.getenv("SUMMARIZE_TIMEOUT_S", "120"))
     try:
         # Create prompt with current date context
         prompt_content = summarize_webpage_prompt.format(
-            webpage_content=webpage_content, 
+            webpage_content=webpage_content,
             date=get_today_str()
         )
-        
+
         # Execute summarization with timeout to prevent hanging
         summary = await asyncio.wait_for(
             model.ainvoke([HumanMessage(content=prompt_content)]),
-            timeout=120.0  # 120 second timeout for summarization
+            timeout=summarize_timeout_s
         )
-        
+
         # Format the summary with structured sections
         formatted_summary = (
             f"<summary>\n{summary.summary}\n</summary>\n\n"
             f"<key_excerpts>\n{summary.key_excerpts}\n</key_excerpts>"
         )
-        
+
         return formatted_summary
-        
+
     except asyncio.TimeoutError:
         # Timeout during summarization - return original content
-        logging.warning("Summarization timed out after 120 seconds, returning original content")
+        logging.warning("Summarization timed out after %.0f seconds, returning original content",
+                        summarize_timeout_s)
         return webpage_content
     except Exception as e:
         # Other errors during summarization - log and return original content
