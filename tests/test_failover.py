@@ -2,7 +2,14 @@ import asyncio
 
 import pytest
 
-from open_deep_research.failover import classify_error, reason_for
+from open_deep_research.failover import (
+    AvailabilityTracker,
+    FailoverRecord,
+    classify_error,
+    get_tracker,
+    new_run_tracker,
+    reason_for,
+)
 
 
 @pytest.mark.parametrize("message,expected", [
@@ -53,11 +60,6 @@ def test_reason_for_empty_message():
     assert reason_for(Exception(""), "hard") == "hard: Exception"
 
 
-from open_deep_research.failover import (
-    AvailabilityTracker, FailoverRecord, get_tracker, new_run_tracker,
-)
-
-
 def test_tracker_mark_down_and_available_chain():
     t = AvailabilityTracker()
     chain = ["gemini:gemini-2.5-pro", "claude-opus-4-8"]
@@ -91,13 +93,23 @@ def test_new_run_tracker_resets_state():
 
 def test_get_tracker_creates_detached_when_none():
     import contextvars
-    from open_deep_research import failover  # noqa: F401
+
+    from open_deep_research.failover import _current_tracker
 
     def _in_fresh_context():
-        t = get_tracker()
+        _current_tracker.set(None)          # guarantee no prior tracker
+        t = get_tracker()                   # should lazy-create
         assert isinstance(t, AvailabilityTracker)
-        assert get_tracker() is t  # stable within the context
+        assert get_tracker() is t           # stable within the context
         return "ok"
 
     ctx = contextvars.copy_context()
     assert ctx.run(_in_fresh_context) == "ok"
+
+
+def test_available_chain_all_down_returns_empty():
+    t = AvailabilityTracker()
+    chain = ["model-a", "model-b"]
+    t.mark_down("model-a")
+    t.mark_down("model-b")
+    assert t.available_chain(chain) == []
