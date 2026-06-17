@@ -114,3 +114,18 @@ def test_toggling_multi_changes_semantic_hash():
     multi = {"entity_type": "country", "properties": [
         {"name": "b", "kind": "enum", "multi": True, "value_enum": ["photo", "iris"]}]}
     assert profile_from_dict(base).profile_hash != profile_from_dict(multi).profile_hash
+
+
+def test_open_on_non_enum_rejected():
+    bad = {"entity_type": "country", "properties": [
+        {"name": "x", "kind": "name", "open": True}]}
+    with pytest.raises(ValueError, match="open.*only allowed for kind 'enum'"):
+        profile_from_dict(bad)
+
+
+def test_toggling_open_changes_semantic_hash():
+    base = {"entity_type": "country", "properties": [
+        {"name": "r", "kind": "enum", "value_enum": ["sender", "receiver"]}]}
+    open_ = {"entity_type": "country", "properties": [
+        {"name": "r", "kind": "enum", "open": True, "value_enum": ["sender", "receiver"]}]}
+    assert profile_from_dict(base).profile_hash != profile_from_dict(open_).profile_hash
