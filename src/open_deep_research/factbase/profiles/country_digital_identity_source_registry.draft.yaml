@@ -1,0 +1,727 @@
+# === SCAFFOLD DRAFT - machine-generated source registry; audit copy (NOT loaded) ===
+# The usable registry was written to the sibling <name>.yaml. This records the
+# generator's tier decisions + rationale so you can spot-check trust assignments.
+#
+# Tier decisions:
+#  - worldbank.org: authoritative ['primary', 'official', 'multilateral']  ->  World Bank publishes official Digital ID/ID4D research, datasets, principles, and country diagnostics used globally for digital identity policy and implementation. (confidence: high)
+#  - id4d.worldbank.org: authoritative ['primary', 'official', 'multilateral', 'specialist']  ->  Dedicated World Bank Identification for Development program site with primary guidance, country data, and implementation resources for digital identity systems. (confidence: high)
+#  - undp.org: authoritative ['primary', 'official', 'multilateral']  ->  UNDP supports and publishes official guidance on legal identity, digital public infrastructure, and country digital transformation programs. (confidence: high)
+#  - unstats.un.org: authoritative ['primary', 'official', 'multilateral', 'statistics']  ->  UN Statistics Division is an official source for civil registration, vital statistics, and legal identity frameworks underpinning national digital identity. (confidence: high)
+#  - unicef.org: authoritative ['primary', 'official', 'multilateral']  ->  UNICEF publishes official work on birth registration, child identity, and legal identity inclusion, especially in low- and middle-income countries. (confidence: high)
+#  - itu.int: authoritative ['primary', 'official', 'standards', 'multilateral']  ->  International Telecommunication Union is a UN specialized agency and standards body covering digital public infrastructure, e-government, and identity-related telecom policy. (confidence: high)
+#  - iso.org: authoritative ['primary', 'standards']  ->  ISO publishes international standards relevant to identity documents, biometrics, information security, and identity management. (confidence: high)
+#  - icao.int: authoritative ['primary', 'official', 'standards']  ->  ICAO sets official international standards for machine-readable travel documents and e-passports, central to national identity ecosystems. (confidence: high)
+#  - w3.org: authoritative ['primary', 'standards']  ->  W3C publishes web standards relevant to decentralized identifiers, verifiable credentials, authentication, and interoperable digital identity. (confidence: high)
+#  - openid.net: authoritative ['primary', 'standards', 'industry']  ->  OpenID Foundation maintains widely adopted identity standards including OpenID Connect and identity assurance specifications. (confidence: high)
+#  - fidoalliance.org: authoritative ['primary', 'standards', 'industry']  ->  FIDO Alliance develops authentication standards used in digital identity and secure access systems worldwide. (confidence: high)
+#  - gsma.com: authoritative ['primary', 'industry', 'association']  ->  GSMA is the global mobile industry association and publishes primary material on mobile identity, SIM registration, and digital inclusion. (confidence: high)
+#  - oecd.org: authoritative ['primary', 'official', 'multilateral']  ->  OECD publishes official comparative policy research on digital government, trust frameworks, privacy, and identity governance across member and partner countries. (confidence: high)
+#  - ec.europa.eu: authoritative ['primary', 'official', 'government']  ->  European Commission is the official issuer of EU digital identity policy, eIDAS rules, and European Digital Identity Wallet materials. (confidence: high)
+#  - digital-strategy.ec.europa.eu: authoritative ['primary', 'official', 'government', 'specialist']  ->  Official European Commission digital strategy domain for primary EU digital identity, eIDAS, and wallet policy updates. (confidence: high)
+#  - eudiwalletconsortium.org: reputable ['implementation', 'consortium']  ->  Consortium source for EU Digital Identity Wallet pilots and implementation activity; useful but not itself the policy issuer. (confidence: medium)
+#  - europa.eu: authoritative ['primary', 'official', 'government']  ->  Official EU portal hosting legal and policy information relevant to digital identity and cross-border trust services. (confidence: high)
+#  - nidw.gov.bd: authoritative ['primary', 'official', 'government']  ->  Official Bangladesh Election Commission National Identity Wing site, primary source for Bangladesh national ID services and policy. (confidence: high)
+#  - uidai.gov.in: authoritative ['primary', 'official', 'government']  ->  Unique Identification Authority of India is the official Aadhaar issuer and primary source for India digital identity rules, services, and statistics. (confidence: high)
+#  - mygov.in: authoritative ['official', 'government']  ->  Official Government of India citizen engagement platform, useful for official digital identity announcements and service integration context. (confidence: medium)
+#  - ndhm.gov.in: authoritative ['primary', 'official', 'government', 'health']  ->  Official Indian digital health mission domain covering Ayushman Bharat Health Account and identity-linked health infrastructure. (confidence: medium)
+#  - digital.go.jp: authoritative ['primary', 'official', 'government']  ->  Japan Digital Agency is the official source for My Number Card, digital government, and identity policy in Japan. (confidence: high)
+#  - gov.uk: authoritative ['primary', 'official', 'government']  ->  Official UK government domain for GOV.UK One Login, identity verification policy, and digital government service guidance. (confidence: high)
+#  - login.gov: authoritative ['primary', 'official', 'government']  ->  Official U.S. federal shared sign-in and identity verification service operated by GSA. (confidence: high)
+#  - nist.gov: authoritative ['primary', 'official', 'standards', 'government']  ->  NIST publishes authoritative U.S. digital identity guidelines and security standards widely referenced internationally. (confidence: high)
+#  - gsa.gov: authoritative ['primary', 'official', 'government']  ->  U.S. General Services Administration operates Login.gov and publishes official federal identity service information. (confidence: high)
+#  - ssa.gov: authoritative ['primary', 'official', 'government']  ->  U.S. Social Security Administration is the official issuer of Social Security numbers and related identity records in the United States. (confidence: high)
+#  - canada.ca: authoritative ['primary', 'official', 'government']  ->  Official Government of Canada domain for digital government, identity services, and federal-provincial identity policy announcements. (confidence: high)
+#  - digitalidentity.nz: authoritative ['primary', 'official', 'government']  ->  Official New Zealand government source for the Digital Identity Services Trust Framework and related policy. (confidence: high)
+#  - dia.govt.nz: authoritative ['primary', 'official', 'government']  ->  New Zealand Department of Internal Affairs administers identity services and official digital identity framework information. (confidence: high)
+#  - my.gov.au: authoritative ['primary', 'official', 'government']  ->  Official Australian government portal for myGov, the national digital access and identity service interface. (confidence: high)
+#  - digitalidentity.gov.au: authoritative ['primary', 'official', 'government']  ->  Official Australian Government Digital ID source for policy, accreditation, and implementation of the national Digital ID system. (confidence: high)
+#  - servicesaustralia.gov.au: authoritative ['primary', 'official', 'government']  ->  Services Australia operates major identity-linked digital services including myGov and publishes official service information. (confidence: high)
+#  - gov.za: authoritative ['primary', 'official', 'government']  ->  Official South African government portal with primary information on national identity documents and digital public services. (confidence: medium)
+#  - dha.gov.za: authoritative ['primary', 'official', 'government']  ->  South Africa Department of Home Affairs is the official issuer for identity documents and related civic identity services. (confidence: high)
+#  - nia.gov.gh: authoritative ['primary', 'official', 'government']  ->  Ghana National Identification Authority is the official issuer and administrator of the Ghana Card national identity system. (confidence: high)
+#  - nimc.gov.ng: authoritative ['primary', 'official', 'government']  ->  Nigeria National Identity Management Commission is the official authority for National Identification Number and national identity management. (confidence: high)
+#  - hudumakenya.go.ke: authoritative ['primary', 'official', 'government']  ->  Official Kenya government service portal associated with Huduma services and national digital service access. (confidence: medium)
+#  - immigration.go.ke: authoritative ['primary', 'official', 'government']  ->  Kenya Directorate of Immigration and Citizen Services provides official identity, passport, and citizen service information. (confidence: medium)
+#  - nidmc.gov.rw: authoritative ['primary', 'official', 'government']  ->  Rwanda National Identification Agency/identity management authority domain provides official national ID information. (confidence: medium)
+#  - irembo.gov.rw: authoritative ['primary', 'official', 'government']  ->  Official Rwanda e-government services portal, relevant for digital identity-enabled public services. (confidence: high)
+#  - gob.mx: authoritative ['primary', 'official', 'government']  ->  Official Government of Mexico portal for national identity, digital government, and public service policy information. (confidence: high)
+#  - gov.br: authoritative ['primary', 'official', 'government']  ->  Official Brazilian government digital services and identity platform, primary source for gov.br account and digital identity policy. (confidence: high)
+#  - registrocivil.cl: authoritative ['primary', 'official', 'government']  ->  Chile Civil Registry and Identification Service is the official source for identity documents and related digital services. (confidence: high)
+#  - argentina.gob.ar: authoritative ['primary', 'official', 'government']  ->  Official Argentine government portal for digital identity, national ID, and digital public service information. (confidence: high)
+#  - registraduria.gov.co: authoritative ['primary', 'official', 'government']  ->  Colombia National Civil Registry is the official authority for identity documents and electoral identity records. (confidence: high)
+#  - id.ee: authoritative ['primary', 'official', 'government']  ->  Official Estonian ID-card and eID information portal, central to Estonia's digital identity ecosystem. (confidence: high)
+#  - ria.ee: authoritative ['primary', 'official', 'government', 'cybersecurity']  ->  Estonian Information System Authority publishes official information on national eID, digital services, and cybersecurity infrastructure. (confidence: high)
+#  - e-resident.gov.ee: authoritative ['primary', 'official', 'government']  ->  Official Estonia e-Residency program source for cross-border digital identity services. (confidence: high)
+#  - eid.belgium.be: authoritative ['primary', 'official', 'government']  ->  Official Belgian eID source for national electronic identity card services and guidance. (confidence: high)
+#  - bsi.bund.de: authoritative ['primary', 'official', 'standards', 'government']  ->  Germany's Federal Office for Information Security publishes official technical guidance for eID, trust services, and secure identity systems. (confidence: high)
+#  - personalausweisportal.de: authoritative ['primary', 'official', 'government']  ->  Official German identity card portal for online ID function and electronic identity usage. (confidence: high)
+#  - france-identite.gouv.fr: authoritative ['primary', 'official', 'government']  ->  Official French digital identity service source for France Identite and national identity card integration. (confidence: high)
+#  - agid.gov.it: authoritative ['primary', 'official', 'government']  ->  Italy's Agency for Digital Italy publishes official SPID, CIE, and digital identity governance information. (confidence: high)
+#  - spid.gov.it: authoritative ['primary', 'official', 'government']  ->  Official Italian Public Digital Identity System source for SPID services, rules, and accredited providers. (confidence: high)
+#  - digdir.no: authoritative ['primary', 'official', 'government']  ->  Norwegian Digitalisation Agency publishes official national digital identity and e-government trust framework information. (confidence: high)
+#  - bankid.no: authoritative ['primary', 'industry', 'issuer']  ->  Primary source for Norway's BankID scheme, a nationally significant digital identity mechanism operated by the banking sector. (confidence: high)
+#  - bankid.com: authoritative ['primary', 'industry', 'issuer']  ->  Primary source for Swedish BankID, a dominant national digital identity solution in Sweden. (confidence: high)
+#  - digst.dk: authoritative ['primary', 'official', 'government']  ->  Denmark Agency for Digital Government publishes official MitID and digital identity policy information. (confidence: high)
+#  - mitid.dk: authoritative ['primary', 'official', 'issuer']  ->  Official MitID source for Denmark's national digital identity and authentication service. (confidence: high)
+#  - dvv.fi: authoritative ['primary', 'official', 'government']  ->  Digital and Population Data Services Agency is Finland's official source for population data, identity, and digital public service trust infrastructure. (confidence: high)
+#  - admin.ch: authoritative ['primary', 'official', 'government']  ->  Official Swiss federal portal for e-ID policy, legislation, and public consultation information. (confidence: high)
+#  - mas.gov.sg: authoritative ['primary', 'official', 'government', 'financial']  ->  Monetary Authority of Singapore publishes official guidance relevant to digital identity, eKYC, and financial sector trust frameworks. (confidence: high)
+#  - smartnation.gov.sg: authoritative ['primary', 'official', 'government']  ->  Official Singapore Smart Nation source for Singpass, National Digital Identity, and digital government strategy. (confidence: high)
+#  - singpass.gov.sg: authoritative ['primary', 'official', 'issuer']  ->  Official Singapore Singpass portal for national digital identity authentication and services. (confidence: high)
+#  - govtech.gov.sg: authoritative ['primary', 'official', 'government']  ->  Singapore Government Technology Agency builds and operates national digital services including Singpass and digital identity infrastructure. (confidence: high)
+#  - etda.or.th: authoritative ['primary', 'official', 'government']  ->  Thailand Electronic Transactions Development Agency publishes official digital ID, e-transaction, and trust service policy material. (confidence: high)
+#  - dga.or.th: authoritative ['primary', 'official', 'government']  ->  Thailand Digital Government Development Agency provides official digital government and identity-related service information. (confidence: medium)
+#  - mdec.my: authoritative ['official', 'government', 'agency']  ->  Malaysia Digital Economy Corporation publishes official digital economy and digital ID ecosystem material, though some identity authority sits elsewhere. (confidence: medium)
+#  - jpn.gov.my: authoritative ['primary', 'official', 'government']  ->  Malaysia National Registration Department is the official source for national identity cards and citizen identity records. (confidence: high)
+#  - moc.gov.sa: authoritative ['official', 'government']  ->  Saudi official government sources can host digital service and identity-related announcements; use alongside specialized Saudi authority domains. (confidence: medium)
+#  - sdaia.gov.sa: authoritative ['primary', 'official', 'government']  ->  Saudi Data and AI Authority publishes official material on national data platforms and digital identity-linked services. (confidence: high)
+#  - absher.sa: authoritative ['primary', 'official', 'issuer']  ->  Official Saudi Absher platform for digital access to government services and identity-linked transactions. (confidence: high)
+#  - u.ae: authoritative ['primary', 'official', 'government']  ->  Official UAE government portal for UAE Pass, digital government, and identity-linked public services. (confidence: high)
+#  - uaepass.ae: authoritative ['primary', 'official', 'issuer']  ->  Official UAE Pass source for the national digital identity and signature platform. (confidence: high)
+#  - ica.gov.ae: authoritative ['primary', 'official', 'government']  ->  UAE Federal Authority for Identity, Citizenship, Customs and Port Security is an official identity authority source. (confidence: high)
+#  - gov.il: authoritative ['primary', 'official', 'government']  ->  Official Israeli government portal for national digital services and identity-related policy information. (confidence: high)
+#  - piba.gov.il: authoritative ['primary', 'official', 'government']  ->  Israel Population and Immigration Authority is the official authority for identity cards and population registry services. (confidence: high)
+#  - egov.kz: authoritative ['primary', 'official', 'government']  ->  Official Kazakhstan e-government portal for digital public services and identity-enabled access. (confidence: high)
+#  - nca.gov.kz: authoritative ['primary', 'official', 'issuer']  ->  Kazakhstan National Certification Authority is the official digital certificate and electronic signature issuer for e-government access. (confidence: high)
+#  - gov.kr: authoritative ['primary', 'official', 'government']  ->  Official Korean government portal for digital services and identity-linked public administration. (confidence: high)
+#  - mois.go.kr: authoritative ['primary', 'official', 'government']  ->  South Korea Ministry of the Interior and Safety is an official source for resident registration, digital government, and identity administration. (confidence: high)
+#  - digital.go.th: authoritative ['official', 'government']  ->  Official Thai digital government material relevant to digital public services and identity initiatives. (confidence: medium)
+#  - digital.govt.nz: authoritative ['primary', 'official', 'government']  ->  Official New Zealand digital government source for identity, trust frameworks, and public service digital standards. (confidence: high)
+#  - govtech.com: reputable ['media', 'analyst']  ->  Reputable technology media covering government digital identity developments, mainly useful for secondary context and announcements. (confidence: medium)
+#  - biometricupdate.com: reputable ['media', 'specialist']  ->  Specialist trade publication covering biometrics and digital identity globally; useful for monitoring but not primary authority. (confidence: medium)
+#  - findbiometrics.com: reputable ['media', 'specialist']  ->  Specialist biometrics and identity industry publication; useful for sector news and vendor developments. (confidence: medium)
+#  - thalesgroup.com: reputable ['vendor', 'analyst']  ->  Major identity technology vendor with country digital identity explainers and market analysis; useful but commercially interested. (confidence: medium)
+#  - gemalto.com: reputable ['vendor', 'legacy']  ->  Legacy Gemalto identity materials are now largely under Thales; useful historically but should be cross-checked with current primary sources. (confidence: medium)
+#  - secureidentityalliance.org: reputable ['industry', 'association']  ->  Industry association focused on secure identity; provides useful frameworks and case studies but represents vendor and ecosystem interests. (confidence: medium)
+#  - privacyinternational.org: reputable ['civil-society', 'watchdog']  ->  Civil society source with detailed analysis of privacy, surveillance, and rights risks in national identity systems. (confidence: high)
+#  - accessnow.org: reputable ['civil-society', 'watchdog']  ->  Digital rights organization covering digital ID risks, inclusion, privacy, and human rights impacts across regions. (confidence: high)
+#  - eff.org: reputable ['civil-society', 'watchdog']  ->  Digital rights organization with analysis of identity, surveillance, privacy, and authentication policy issues. (confidence: high)
+#  - caribou.digital: reputable ['research', 'consultancy']  ->  Research organization publishing digital identity, digital public infrastructure, and inclusion work, especially in emerging markets. (confidence: medium)
+#  - cgdev.org: reputable ['think-tank', 'research']  ->  Center for Global Development publishes policy research on identification systems, inclusion, and development outcomes. (confidence: high)
+#  - brookings.edu: reputable ['think-tank', 'research']  ->  Think tank source for digital governance and identity policy analysis; secondary source rather than official issuer. (confidence: high)
+#  - weforum.org: reputable ['forum', 'analysis']  ->  World Economic Forum publishes digital identity and trust framework reports with public-private ecosystem perspectives. (confidence: medium)
+#  - centerforfinancialinclusion.org: reputable ['research', 'financial-inclusion']  ->  Research and policy source for financial inclusion aspects of digital ID and eKYC, especially in emerging markets. (confidence: medium)
+#  - good-id.org: reputable ['research', 'advocacy']  ->  Digital identity research and advocacy source focused on inclusion, rights, and responsible identity design. (confidence: medium)
+#  - mosip.io: authoritative ['primary', 'open-source', 'platform']  ->  MOSIP is the primary source for the Modular Open Source Identity Platform used by multiple countries for foundational digital ID implementation. (confidence: high)
+#  - docs.mosip.io: authoritative ['primary', 'documentation', 'open-source']  ->  Official MOSIP documentation for architecture, deployment, and implementation of open-source national identity systems. (confidence: high)
+#  - github.com: reputable ['repository', 'primary-code', 'aggregator']  ->  Can host primary source code and specifications for digital identity projects, but trust depends on repository ownership and provenance. (confidence: medium)
+#  - ssi-ambassador.medium.com: unvetted ['blog']  ->  Individual or community blog content may be useful for leads but should not be treated as verified without corroboration. (confidence: low)
+#  - medium.com: unvetted ['blog', 'platform']  ->  Open publishing platform with variable provenance; use only as a lead unless author and claims are independently verified. (confidence: low)
+#  - wikipedia.org: reputable ['aggregator', 'encyclopedia']  ->  Useful for orientation and references, but not a primary source for country digital identity facts. (confidence: medium)
+#
+version: '1'
+sources:
+- domain: worldbank.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - multilateral
+- domain: id4d.worldbank.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - multilateral
+  - specialist
+- domain: undp.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - multilateral
+- domain: unstats.un.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - multilateral
+  - statistics
+- domain: unicef.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - multilateral
+- domain: itu.int
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - standards
+  - multilateral
+- domain: iso.org
+  tier: authoritative
+  flags:
+  - primary
+  - standards
+- domain: icao.int
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - standards
+- domain: w3.org
+  tier: authoritative
+  flags:
+  - primary
+  - standards
+- domain: openid.net
+  tier: authoritative
+  flags:
+  - primary
+  - standards
+  - industry
+- domain: fidoalliance.org
+  tier: authoritative
+  flags:
+  - primary
+  - standards
+  - industry
+- domain: gsma.com
+  tier: authoritative
+  flags:
+  - primary
+  - industry
+  - association
+- domain: oecd.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - multilateral
+- domain: ec.europa.eu
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: digital-strategy.ec.europa.eu
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+  - specialist
+- domain: eudiwalletconsortium.org
+  tier: reputable
+  flags:
+  - implementation
+  - consortium
+- domain: europa.eu
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: nidw.gov.bd
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: uidai.gov.in
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: mygov.in
+  tier: authoritative
+  flags:
+  - official
+  - government
+- domain: ndhm.gov.in
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+  - health
+- domain: digital.go.jp
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: gov.uk
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: login.gov
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: nist.gov
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - standards
+  - government
+- domain: gsa.gov
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: ssa.gov
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: canada.ca
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: digitalidentity.nz
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: dia.govt.nz
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: my.gov.au
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: digitalidentity.gov.au
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: servicesaustralia.gov.au
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: gov.za
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: dha.gov.za
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: nia.gov.gh
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: nimc.gov.ng
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: hudumakenya.go.ke
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: immigration.go.ke
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: nidmc.gov.rw
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: irembo.gov.rw
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: gob.mx
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: gov.br
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: registrocivil.cl
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: argentina.gob.ar
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: registraduria.gov.co
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: id.ee
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: ria.ee
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+  - cybersecurity
+- domain: e-resident.gov.ee
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: eid.belgium.be
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: bsi.bund.de
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - standards
+  - government
+- domain: personalausweisportal.de
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: france-identite.gouv.fr
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: agid.gov.it
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: spid.gov.it
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: digdir.no
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: bankid.no
+  tier: authoritative
+  flags:
+  - primary
+  - industry
+  - issuer
+- domain: bankid.com
+  tier: authoritative
+  flags:
+  - primary
+  - industry
+  - issuer
+- domain: digst.dk
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: mitid.dk
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: dvv.fi
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: admin.ch
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: mas.gov.sg
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+  - financial
+- domain: smartnation.gov.sg
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: singpass.gov.sg
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: govtech.gov.sg
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: etda.or.th
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: dga.or.th
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: mdec.my
+  tier: authoritative
+  flags:
+  - official
+  - government
+  - agency
+- domain: jpn.gov.my
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: moc.gov.sa
+  tier: authoritative
+  flags:
+  - official
+  - government
+- domain: sdaia.gov.sa
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: absher.sa
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: u.ae
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: uaepass.ae
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: ica.gov.ae
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: gov.il
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: piba.gov.il
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: egov.kz
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: nca.gov.kz
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: gov.kr
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: mois.go.kr
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: digital.go.th
+  tier: authoritative
+  flags:
+  - official
+  - government
+- domain: digital.govt.nz
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: govtech.com
+  tier: reputable
+  flags:
+  - media
+  - analyst
+- domain: biometricupdate.com
+  tier: reputable
+  flags:
+  - media
+  - specialist
+- domain: findbiometrics.com
+  tier: reputable
+  flags:
+  - media
+  - specialist
+- domain: thalesgroup.com
+  tier: reputable
+  flags:
+  - vendor
+  - analyst
+- domain: gemalto.com
+  tier: reputable
+  flags:
+  - vendor
+  - legacy
+- domain: secureidentityalliance.org
+  tier: reputable
+  flags:
+  - industry
+  - association
+- domain: privacyinternational.org
+  tier: reputable
+  flags:
+  - civil-society
+  - watchdog
+- domain: accessnow.org
+  tier: reputable
+  flags:
+  - civil-society
+  - watchdog
+- domain: eff.org
+  tier: reputable
+  flags:
+  - civil-society
+  - watchdog
+- domain: caribou.digital
+  tier: reputable
+  flags:
+  - research
+  - consultancy
+- domain: cgdev.org
+  tier: reputable
+  flags:
+  - think-tank
+  - research
+- domain: brookings.edu
+  tier: reputable
+  flags:
+  - think-tank
+  - research
+- domain: weforum.org
+  tier: reputable
+  flags:
+  - forum
+  - analysis
+- domain: centerforfinancialinclusion.org
+  tier: reputable
+  flags:
+  - research
+  - financial-inclusion
+- domain: good-id.org
+  tier: reputable
+  flags:
+  - research
+  - advocacy
+- domain: mosip.io
+  tier: authoritative
+  flags:
+  - primary
+  - open-source
+  - platform
+- domain: docs.mosip.io
+  tier: authoritative
+  flags:
+  - primary
+  - documentation
+  - open-source
+- domain: github.com
+  tier: reputable
+  flags:
+  - repository
+  - primary-code
+  - aggregator
+- domain: ssi-ambassador.medium.com
+  tier: unvetted
+  flags:
+  - blog
+- domain: medium.com
+  tier: unvetted
+  flags:
+  - blog
+  - platform
+- domain: wikipedia.org
+  tier: reputable
+  flags:
+  - aggregator
+  - encyclopedia
