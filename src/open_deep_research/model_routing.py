@@ -128,17 +128,17 @@ def load_routing() -> RoutingConfig:
 def resolve_model(role: str, *, routing: RoutingConfig | None = None, step: str | None = None,
                   env_value: str | None = None, configurable_value: str | None = None,
                   code_default: str | None = None) -> str | None:
-    """Resolve a model string: env > step_override > role > configurable > code default."""
+    """Resolve a model string: env > configurable > step_override > role > code default."""
     if env_value:
         return env_value
+    if configurable_value is not None:
+        return configurable_value
     routing = routing or load_routing()
     preset = routing.active()
     if step and step in preset.step_overrides:
         return preset.step_overrides[step]
     if role in preset.roles:
         return preset.roles[role]
-    if configurable_value is not None:
-        return configurable_value
     return code_default
 
 

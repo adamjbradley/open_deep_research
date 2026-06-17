@@ -33,9 +33,10 @@ def test_code_default_when_role_absent():
                          configurable_value=None, code_default="claude:haiku") == "claude:haiku"
 
 
-def test_configurable_beats_code_default():
-    assert resolve_model("compression", routing=_R, env_value=None,
-                         configurable_value="claude:opus", code_default="claude:haiku") == "claude:opus"
+def test_configurable_beats_preset_role():
+    # researcher IS in the preset; configurable must still win
+    assert resolve_model("researcher", routing=_R, env_value=None,
+                         configurable_value="claude:opus", code_default="x") == "claude:opus"
 
 
 def test_preset_switch_via_env(monkeypatch):

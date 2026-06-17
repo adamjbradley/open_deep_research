@@ -14,8 +14,7 @@
         "researcher": "gemini:gemini-2.5-flash",
         "summarization": "gemini:gemini-2.5-flash",
         "compression": "gemini:gemini-2.5-flash",
-        "final_report": "gemini:gemini-2.5-flash",
-        "facts_answer_polish": "gemini:gemini-2.5-flash"
+        "final_report": "gemini:gemini-2.5-flash"
       },
       "search": "tavily",
       "step_overrides": {}
@@ -26,8 +25,7 @@
         "researcher": "claude:sonnet",
         "summarization": "claude:sonnet",
         "compression": "claude:sonnet",
-        "final_report": "claude:sonnet",
-        "facts_answer_polish": "claude:sonnet"
+        "final_report": "claude:sonnet"
       },
       "search": "tavily",
       "step_overrides": {}

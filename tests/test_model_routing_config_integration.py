@@ -40,3 +40,11 @@ def test_model_for_step_override(monkeypatch, tmp_path):
     c = Configuration.from_runnable_config({})
     assert c.researcher_model == "gemini:gemini-2.5-flash"
     assert c.model_for("extract_facts", "researcher") == "claude:sonnet"
+
+
+def test_configurable_beats_preset(monkeypatch):
+    for k in ("RESEARCHER_MODEL", "MODEL_ROUTING_FILE", "MODEL_ROUTING_PRESET"):
+        monkeypatch.delenv(k, raising=False)
+    # bundled gemini preset has researcher = gemini:gemini-2.5-flash; configurable must win
+    c = Configuration.from_runnable_config({"configurable": {"researcher_model": "codex:gpt-5.5"}})
+    assert c.researcher_model == "codex:gpt-5.5"

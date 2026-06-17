@@ -392,15 +392,9 @@ class Configuration(BaseModel):
             default = cls.model_fields[field_name].default
             if field_name in role_fields:
                 role = field_name[: -len("_model")]
-                # Precedence: env > configurable (explicit per-run override) > preset > code default
-                if env_v is not None:
-                    values[field_name] = env_v
-                elif cfg_v is not None:
-                    values[field_name] = cfg_v
-                else:
-                    values[field_name] = resolve_model(
-                        role, routing=routing, env_value=None, configurable_value=None,
-                        code_default=default)
+                values[field_name] = resolve_model(
+                    role, routing=routing, env_value=env_v, configurable_value=cfg_v,
+                    code_default=default)
             elif field_name == "search_api":
                 code_default = default.value if hasattr(default, "value") else default
                 # Precedence: env > configurable > preset > code default
