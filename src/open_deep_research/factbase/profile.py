@@ -52,6 +52,16 @@ class PropertyDef:
             except ValueError:
                 return False
         if self.value_kind == "enum" and self.value_enum is not None:
+            if self.multi:
+                members = [m.strip().lower() for m in v.split(",") if m.strip()]
+                if not members:
+                    return True  # empty set == none captured
+                if self.open_world:
+                    return True  # any non-empty member set ok; unknowns kept verbatim
+                allowed = {e.lower() for e in self.value_enum}
+                return all(m in allowed for m in members)
+            if self.open_world:
+                return bool(v)  # single, open: any non-empty literal
             return v.lower() in {e.lower() for e in self.value_enum}
         return bool(v)
 
