@@ -43,3 +43,11 @@ def test_reason_for_is_short_single_line():
     assert r.startswith("hard: boom: line one")
     assert "\n" not in r
     assert len(r) <= 140
+
+
+def test_classify_error_empty_message():
+    assert classify_error(Exception("")) == "transient"
+
+
+def test_reason_for_empty_message():
+    assert reason_for(Exception(""), "hard") == "hard: Exception"

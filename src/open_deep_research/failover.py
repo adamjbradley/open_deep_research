@@ -22,7 +22,6 @@ _HARD_MARKERS = (
     "quota",
     "insufficient_quota",
     "resource_exhausted",
-    "exhausted",
     "billing",
     "model not found",
     "model_not_found",
