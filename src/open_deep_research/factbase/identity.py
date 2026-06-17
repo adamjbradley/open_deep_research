@@ -56,6 +56,10 @@ def canonical_value(property_def, value: str, unit: str | None) -> tuple[str, st
         num = _parse_percent(raw)
         return (num, "%") if num is not None else (_norm_text(raw), _norm_text(unit) or None)
 
+    if kind == "enum" and getattr(property_def, "multi", False):
+        members = sorted({m.strip().lower() for m in raw.split(",") if m.strip()})
+        return (", ".join(members), None)
+
     if kind == "enum":
         v = _norm_text(raw)
         for e in (getattr(property_def, "value_enum", None) or []):
