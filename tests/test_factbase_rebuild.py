@@ -110,3 +110,35 @@ def test_rename_map_moves_facts_to_new_property(tmp_path):
             assert (await cur.fetchone())[0] == "new_name"
 
     asyncio.run(go())
+
+
+def test_rebuild_soft_deletes_values_that_no_longer_validate(tmp_path):
+    db = str(tmp_path / "fb.db")
+
+    async def go():
+        async with aiosqlite.connect(db) as conn:
+            await storage._ensure_schema(conn)
+            await migrations.apply(conn, schema.STEPS)
+            sa = await _seed_source(conn, "https://a.example/x")
+            # Old profile allowed the 'multi' member; seed a now-stale value + a valid sibling.
+            await _seed_fact(conn, property_name="biometric_capture", quals={},
+                             value="multi", source_id=sa, tuple_key="TK_STALE")
+            await _seed_fact(conn, property_name="biometric_capture", quals={},
+                             value="fingerprint, iris", source_id=sa, tuple_key="TK_OK")
+            await conn.commit()
+
+            new_prof = profile_from_dict({"entity_type": "country", "version": "2", "properties": [
+                {"name": "biometric_capture", "kind": "enum", "multi": True,
+                 "value_enum": ["photo", "fingerprint", "iris", "face"]}]})
+
+            stats = await rebuild_structural(conn, new_prof, REG)
+            assert stats["invalidated"] == 1
+
+            stale = await (await conn.execute(
+                "SELECT soft_deleted_at FROM fact WHERE value='multi'")).fetchone()
+            assert stale[0] is not None  # soft-deleted
+            ok = await (await conn.execute(
+                "SELECT soft_deleted_at FROM fact WHERE value='fingerprint, iris'")).fetchone()
+            assert ok[0] is None         # valid sibling survives
+
+    asyncio.run(go())
