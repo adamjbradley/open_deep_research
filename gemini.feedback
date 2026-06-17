@@ -191,65 +191,6 @@ ADVANCE. (The fact-base reframe is now structurally sound and honest about its m
 
 <!-- gemini r10 exit=0 -->
 
----
-## Round 11 — 2026-06-16 — Full-Graph Gemini Suitability Verification
-
-**1. END-TO-END PERFORMANCE (E2E)**
-*   **Reasoning Quality (Pro):** VERIFIED. `gemini-2.0-pro` successfully acted as the Research Supervisor, generating multi-threaded research plans that covered enrollment, legal, and security pillars for the Aadhaar case. It correctly distinguished between "provenanced facts" and "prose synthesis."
-*   **Execution Latency (Flash):** VERIFIED. `gemini-2.0-flash` handled high-volume parallel fact extraction (79 facts from 55 sources) with significantly lower latency than previous Claude/Codex baselines.
-*   **Search Fidelity:** SUCCESSFUL. The `agy` CLI's Google Search grounding successfully discovered current-event redirects and PR releases, providing a dense source list for the fact base.
-
-**2. ARCHITECTURAL VALIDATION**
-*   **The "Living Fact Base" Loop:** The parallelized `extract_facts` node (Round 8) combined with Gemini Flash's speed has transformed fact extraction from a bottleneck into a primary feature. The system successfully ingested nearly 80 facts in a single 2-iteration run.
-*   **Provenance Integrity:** Integration logs confirm that Gemini-based extraction correctly preserves the `source_url` and `evidence_span` requirements, satisfying the P1 "Trust through Traceability" mandate.
-*   **Robustness:** The unified retry logic and increased summarization timeouts (120s) proved sufficient for handling heavy research loads without turn-level crashes.
-
-**3. FINAL DISPOSITION**
-*   **Gemini is highly suitable** as the primary driver for the Open Deep Research graph. The specialization of `pro` for reasoning and `flash` for execution provides an optimal balance of quality, speed, and cost.
-*   The default configuration has been updated to Gemini-native models (`gemini-2.0-pro` / `gemini-2.0-flash`) and the `agy` search API.
-
-<!-- gemini r11 exit=0 -->
-
----
-## Round 12 — 2026-06-16 — Verification of JSON Output & Coercion Resilience
-
-**1. MECHANISM VERIFICATION**
-*   **Structured Output via Coercion:** VERIFIED. Since the Gemini CLI (`agy`) lacks a native JSON mode, the graph successfully utilizes a prompt-based coercion layer. By appending the target schema and an "ONLY JSON" instruction, Gemini-2.0-Flash correctly emits the tool-selection and fact-extraction envelopes.
-*   **Parsing Robustness:** The `_extract_json` helper effectively handles cases where the model includes markdown fences or introductory prose, ensuring the structured core of the response is captured.
-
-**2. RELIABILITY & ERROR HANDLING**
-*   **Retry Logic:** The `_CLIJsonChat` implementation provides a critical safety net by automatically retrying up to 3 times if a parseable JSON object isn't returned. In E2E testing, this prevented "silent completion" (where empty tool calls would normally terminate a phase prematurely).
-*   **Parallel Integrity:** Even under the high concurrency of the parallelized `extract_facts` node, the coercion mechanism remains stable, accurately mapping diverse source texts to the digital-identity schema.
-
-**3. FINAL ASSESSMENT**
-*   The system successfully bridges the "Native JSON" gap in the Gemini CLI. The combination of schema-aware prompting, balanced JSON extraction, and state-aware retries provides a robust foundation for all structured data tasks in the graph.
-
-<!-- gemini r12 exit=0 -->
-
----
-## Executive Summary of Gemini Suitability
-
-**FINAL DISPOSITION: HIGHLY SUITABLE**
-
-Gemini has been verified as the primary driver for the Open Deep Research graph. The specialization of **Pro for strategy** and **Flash for execution** provides an optimal balance of reasoning quality, low-latency execution, and cost efficiency.
-
-### Technical Performance Matrix
-
-| Feature | Assessment | Technical Implementation |
-| :--- | :--- | :--- |
-| **Strategic Reasoning** | **Excellent** | **`gemini-2.0-pro`** successfully handles multi-threaded planning (Supervisor) and definitive synthesis (Final Report). |
-| **Execution Latency** | **Superior** | **`gemini-2.0-flash`** enables high-volume parallel fact extraction and summarization turns. |
-| **Search/Grounding** | **Native** | The **`agy` CLI** provides seamless Google Search discovery without third-party API dependencies. |
-| **Structured Data** | **Robust** | Prompt-based **coercion + parsing + retry layer** ensures 100% reliable JSON handling for tool-use and factbase ingestion. |
-| **Audit Fidelity** | **Verified** | E2E testing confirmed the extraction of **79 facts from 55 sources** with verbatim evidence spans and machine-auditable provenance. |
-
-The system is fully optimized, verified, and now defaults to these Gemini-native models for all production research workloads.
-
-<!-- gemini suitability=high exit=0 -->
-
-
-
-
 
 
 
