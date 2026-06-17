@@ -51,3 +51,53 @@ def test_classify_error_empty_message():
 
 def test_reason_for_empty_message():
     assert reason_for(Exception(""), "hard") == "hard: Exception"
+
+
+from open_deep_research.failover import (
+    AvailabilityTracker, FailoverRecord, get_tracker, new_run_tracker,
+)
+
+
+def test_tracker_mark_down_and_available_chain():
+    t = AvailabilityTracker()
+    chain = ["gemini:gemini-2.5-pro", "claude-opus-4-8"]
+    assert t.available_chain(chain) == chain
+    assert not t.is_down("gemini:gemini-2.5-pro")
+    t.mark_down("gemini:gemini-2.5-pro")
+    assert t.is_down("gemini:gemini-2.5-pro")
+    assert t.available_chain(chain) == ["claude-opus-4-8"]
+
+
+def test_tracker_records_failovers():
+    t = AvailabilityTracker()
+    t.record_failover("supervisor", "gemini:gemini-2.5-pro", "claude-opus-4-8", "hard: quota")
+    assert t.failovers == [
+        FailoverRecord("supervisor", "gemini:gemini-2.5-pro", "claude-opus-4-8", "hard: quota")
+    ]
+    assert t.failovers[0].as_dict() == {
+        "stage": "supervisor", "from": "gemini:gemini-2.5-pro",
+        "to": "claude-opus-4-8", "reason": "hard: quota",
+    }
+
+
+def test_new_run_tracker_resets_state():
+    first = new_run_tracker()
+    first.mark_down("gemini:gemini-2.5-flash")
+    assert get_tracker() is first
+    second = new_run_tracker()
+    assert second is not first
+    assert not second.is_down("gemini:gemini-2.5-flash")  # fresh run -> nothing down
+
+
+def test_get_tracker_creates_detached_when_none():
+    import contextvars
+    from open_deep_research import failover  # noqa: F401
+
+    def _in_fresh_context():
+        t = get_tracker()
+        assert isinstance(t, AvailabilityTracker)
+        assert get_tracker() is t  # stable within the context
+        return "ok"
+
+    ctx = contextvars.copy_context()
+    assert ctx.run(_in_fresh_context) == "ok"

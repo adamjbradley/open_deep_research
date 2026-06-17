@@ -76,3 +76,71 @@ def reason_for(exc: BaseException, kind: str) -> str:
     text = str(exc).strip()
     first = text.splitlines()[0] if text else exc.__class__.__name__
     return f"{kind}: {first}"[:140]
+
+
+@dataclass(eq=True)
+class FailoverRecord:
+    """One failover event, for logging + persistence on the run."""
+
+    stage: str
+    from_model: str
+    to_model: str
+    reason: str
+
+    def as_dict(self) -> dict:
+        return {"stage": self.stage, "from": self.from_model,
+                "to": self.to_model, "reason": self.reason}
+
+
+@dataclass
+class AvailabilityTracker:
+    """Run-scoped record of models marked down (hard-failed) + failover events.
+
+    One asyncio thread per process, so plain set/list mutation is race-safe even
+    when the researcher fan-out shares a single tracker within a run.
+    """
+
+    _down: set[str] = field(default_factory=set)
+    failovers: list[FailoverRecord] = field(default_factory=list)
+
+    def is_down(self, model: str) -> bool:
+        return model in self._down
+
+    def mark_down(self, model: str) -> None:
+        self._down.add(model)
+
+    def available_chain(self, chain: list[str]) -> list[str]:
+        """The chain with already-down models removed (order preserved)."""
+        return [m for m in chain if m not in self._down]
+
+    def record_failover(self, stage: str, from_model: str, to_model: str,
+                        reason: str) -> None:
+        self.failovers.append(FailoverRecord(stage, from_model, to_model, reason))
+
+
+_current_tracker: contextvars.ContextVar["AvailabilityTracker | None"] = \
+    contextvars.ContextVar("odr_failover_tracker", default=None)
+
+
+def new_run_tracker() -> AvailabilityTracker:
+    """Install a fresh tracker for the current run/context and return it.
+
+    Call once at graph entry. Concurrent runs launched via ``asyncio.gather`` each
+    run in a copied context, so each gets its own tracker.
+    """
+    t = AvailabilityTracker()
+    _current_tracker.set(t)
+    return t
+
+
+def get_tracker() -> AvailabilityTracker:
+    """The current run's tracker, lazily creating a detached one if none exists.
+
+    A detached tracker still gives correct single-call behaviour (e.g. a one-off
+    model call or a unit test); it simply shares state with nothing else.
+    """
+    t = _current_tracker.get()
+    if t is None:
+        t = AvailabilityTracker()
+        _current_tracker.set(t)
+    return t
