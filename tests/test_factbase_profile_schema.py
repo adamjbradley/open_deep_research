@@ -76,3 +76,56 @@ def test_overlapping_value_aliases_rejected():
         {"name": "x", "kind": "name", "value_aliases": {"a": ["dup"], "b": ["dup"]}}]}
     with pytest.raises(ValueError, match="multiple canonicals"):
         profile_from_dict(bad)
+
+
+def test_multi_and_open_flags_build_and_surface():
+    prof = profile_from_dict({
+        "entity_type": "country", "version": "1",
+        "properties": [
+            {"name": "biometric_capture", "kind": "enum", "multi": True,
+             "value_enum": ["photo", "fingerprint", "iris", "face"]},
+            {"name": "role", "kind": "enum", "open": True,
+             "value_enum": ["sender", "receiver"]},
+        ],
+    })
+    bio = prof.property("biometric_capture")
+    assert bio.multi is True and bio.open_world is False
+    role = prof.property("role")
+    assert role.open_world is True and role.multi is False
+
+
+def test_multi_on_non_enum_rejected():
+    bad = {"entity_type": "country", "properties": [
+        {"name": "x", "kind": "name", "multi": True}]}
+    with pytest.raises(ValueError, match="multi.*only allowed for kind 'enum'"):
+        profile_from_dict(bad)
+
+
+def test_open_without_value_enum_rejected():
+    bad = {"entity_type": "country", "properties": [
+        {"name": "x", "kind": "enum", "open": True}]}
+    with pytest.raises(ValueError, match="open.*requires value_enum"):
+        profile_from_dict(bad)
+
+
+def test_toggling_multi_changes_semantic_hash():
+    base = {"entity_type": "country", "properties": [
+        {"name": "b", "kind": "enum", "value_enum": ["photo", "iris"]}]}
+    multi = {"entity_type": "country", "properties": [
+        {"name": "b", "kind": "enum", "multi": True, "value_enum": ["photo", "iris"]}]}
+    assert profile_from_dict(base).profile_hash != profile_from_dict(multi).profile_hash
+
+
+def test_open_on_non_enum_rejected():
+    bad = {"entity_type": "country", "properties": [
+        {"name": "x", "kind": "name", "open": True}]}
+    with pytest.raises(ValueError, match="open.*only allowed for kind 'enum'"):
+        profile_from_dict(bad)
+
+
+def test_toggling_open_changes_semantic_hash():
+    base = {"entity_type": "country", "properties": [
+        {"name": "r", "kind": "enum", "value_enum": ["sender", "receiver"]}]}
+    open_ = {"entity_type": "country", "properties": [
+        {"name": "r", "kind": "enum", "open": True, "value_enum": ["sender", "receiver"]}]}
+    assert profile_from_dict(base).profile_hash != profile_from_dict(open_).profile_hash

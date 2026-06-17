@@ -13,7 +13,7 @@ EXPECTED = {
                          "population_basis": ["adults_15plus", "births", "registered_holders", "total_pop"]},
                         None),
     "biometric_capture": ("enum", [], [], {},
-                          ["fingerprint", "iris", "multi", "none", "photo"]),
+                          ["face", "fingerprint", "iris", "photo"]),
     "data_protection_law": ("boolean", ["jurisdiction", "scope", "stage"], ["stage"],
                             {"scope": ["comprehensive", "sectoral"], "stage": ["enacted", "in_force"]},
                             None),
@@ -38,3 +38,16 @@ def test_yaml_profile_preserves_aadhaar_aliases():
     scheme = profile.load("country_digital_identity").property("foundational_id_scheme")
     assert scheme.aliases_for("uidai") == "aadhaar"
     assert scheme.aliases_for("aadhaar uid") == "aadhaar"
+
+
+def test_biometric_capture_is_multi_enum_without_catchall_members():
+    from open_deep_research.factbase import profile as _profile
+    prof = _profile.load("country_digital_identity")
+    bio = prof.property("biometric_capture")
+    assert bio.multi is True
+    assert bio.open_world is False
+    assert bio.value_enum == ["photo", "fingerprint", "iris", "face"]
+    assert "multi" not in bio.value_enum and "none" not in bio.value_enum
+    # set value validates; retired catch-all does not
+    assert bio.validate("fingerprint, iris") is True
+    assert bio.validate("multi") is False

@@ -63,3 +63,35 @@ def test_plain_enum_has_no_descriptions():
     p = profile_from_dict({"entity_type": "country", "version": "1", "properties": [
         {"name": "s", "kind": "enum", "value_enum": ["a", "b"]}]})
     assert p.property("s").value_enum_descriptions == {}
+
+
+def _cat(**flags):
+    base = {"name": "b", "kind": "enum", "description": "modality",
+            "value_enum": ["photo", "iris"]}
+    base.update(flags)
+    prof = profile_from_dict({"entity_type": "c", "properties": [base]})
+    return compile_property_catalog(prof)
+
+
+def test_multi_closed_line_says_select_all():
+    cat = _cat(multi=True)
+    assert "select all that apply" in cat
+    assert "allowed values" in cat
+
+
+def test_multi_open_line_says_others_verbatim_and_known_values():
+    cat = _cat(multi=True, open=True)
+    assert "select all that apply" in cat
+    assert "list others verbatim" in cat
+    assert "known values" in cat and "allowed values" not in cat
+
+
+def test_single_open_line_says_literal_and_known_values():
+    cat = _cat(open=True)
+    assert "give the literal" in cat
+    assert "known values" in cat
+
+
+def test_single_closed_line_unchanged():
+    cat = _cat()
+    assert "(enum)" in cat and "allowed values" in cat

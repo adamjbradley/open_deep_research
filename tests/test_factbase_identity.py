@@ -1,4 +1,5 @@
 from open_deep_research.factbase import identity, profile
+from open_deep_research.factbase.profile_schema import profile_from_dict
 
 _DI = profile.load("country_digital_identity")
 _SCHEME = _DI.property("foundational_id_scheme")
@@ -76,6 +77,25 @@ def test_tuple_key_differs_by_qualifier_value():
     k1 = identity.tuple_key(7, "id_coverage_pct", {"population_basis": "adults_15plus"})
     k2 = identity.tuple_key(7, "id_coverage_pct", {"population_basis": "registered_holders"})
     assert k1 != k2
+
+
+def _multi_prop():
+    return profile_from_dict({"entity_type": "c", "properties": [
+        {"name": "b", "kind": "enum", "multi": True,
+         "value_enum": ["photo", "fingerprint", "iris"]}]}).property("b")
+
+
+def test_multi_enum_canonical_is_order_independent():
+    p = _multi_prop()
+    a = identity.canonical_value(p, "iris, photo", None)
+    b = identity.canonical_value(p, "photo,  IRIS", None)
+    assert a == b == ("iris, photo", None)
+
+
+def test_multi_enum_dedupes_and_sorts_members():
+    p = _multi_prop()
+    assert identity.canonical_value(p, "photo, photo, fingerprint", None) == (
+        "fingerprint, photo", None)
 
 
 def test_tuple_key_unspecified_qualifier_is_its_own_tuple():

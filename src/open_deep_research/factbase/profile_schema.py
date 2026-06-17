@@ -32,6 +32,8 @@ class PropertyModel(BaseModel):
     value_enum: Optional[list[Union[str, _EnumValue]]] = None
     trust_threshold: str = "reputable"
     value_aliases: dict[str, list[str]] = {}
+    multi: bool = False
+    open: bool = False
 
     @model_validator(mode="after")
     def _check(self) -> "PropertyModel":
@@ -39,6 +41,12 @@ class PropertyModel(BaseModel):
             raise ValueError(f"property {self.name!r}: unknown kind {self.kind!r}")
         if self.value_enum is not None and self.kind != "enum":
             raise ValueError(f"property {self.name!r}: value_enum only allowed for kind 'enum'")
+        if self.multi and self.kind != "enum":
+            raise ValueError(f"property {self.name!r}: multi only allowed for kind 'enum'")
+        if self.open and self.kind != "enum":
+            raise ValueError(f"property {self.name!r}: open only allowed for kind 'enum'")
+        if (self.multi or self.open) and self.value_enum is None:
+            raise ValueError(f"property {self.name!r}: multi/open requires value_enum")
         missing = set(self.required_qualifiers) - set(self.identity_qualifiers)
         if missing:
             raise ValueError(
@@ -106,6 +114,8 @@ def profile_from_dict(data: dict) -> Profile:
             value_enum_descriptions=p.enum_descriptions(),
             trust_threshold=p.trust_threshold,
             value_aliases={k: list(v) for k, v in p.value_aliases.items()},
+            multi=p.multi,
+            open_world=p.open,
         )
         for p in model.properties
     ]
@@ -125,6 +135,8 @@ def profile_from_dict(data: dict) -> Profile:
                 "value_enum": None if pd.value_enum is None else sorted(pd.value_enum),
                 "trust_threshold": pd.trust_threshold,
                 "value_aliases": {k: sorted(v) for k, v in pd.value_aliases.items()},
+                "multi": pd.multi,
+                "open": pd.open_world,
             }
             for pd in sorted(props, key=lambda p: p.name)
         ],

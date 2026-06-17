@@ -23,7 +23,7 @@ async def rebuild_structural(conn: aiosqlite.Connection, profile, registry, *,
     conn.row_factory = aiosqlite.Row
     now = datetime.now(timezone.utc).isoformat()
     stats = {"tuple_keys_changed": 0, "conflicts_opened": 0,
-             "promoted": 0, "demoted": 0, "orphaned": 0}
+             "promoted": 0, "demoted": 0, "orphaned": 0, "invalidated": 0}
 
     for old, new in (rename or {}).items():
         await conn.execute(
@@ -45,6 +45,11 @@ async def rebuild_structural(conn: aiosqlite.Connection, profile, registry, *,
             stats["orphaned"] += 1
             if on_removed == "soft_delete":
                 await conn.execute("UPDATE fact SET soft_deleted_at=? WHERE id=?", (now, r["id"]))
+            continue
+        if not pd.validate(r["value"]):
+            stats["invalidated"] += 1
+            await conn.execute(
+                "UPDATE fact SET soft_deleted_at=? WHERE id=?", (now, r["id"]))
             continue
         quals = json.loads(r["qualifiers_json"] or "{}")
         ident = {q: quals.get(q) for q in pd.identity_qualifiers}
