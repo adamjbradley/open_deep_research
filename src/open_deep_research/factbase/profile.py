@@ -21,6 +21,8 @@ class PropertyDef:
     # strings, i.e. as identity.canonical_value produces before alias-mapping). Used to
     # collapse semantically-equal values like "Aadhaar" / "Aadhaar Card" / "UID".
     value_aliases: dict[str, list[str]] = field(default_factory=dict)
+    multi: bool = False
+    open_world: bool = False
 
     def aliases_for(self, normalized_value: str) -> str | None:
         """Return the canonical value if ``normalized_value`` is a known variant, else None."""
