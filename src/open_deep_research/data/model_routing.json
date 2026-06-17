@@ -1,0 +1,47 @@
+{
+  "version": "1",
+  "active_preset": "claude",
+  "backends": {
+    "gemini": { "cli_bin": "gemini", "cli_args": [], "trust_workspace": true,
+                "model_aliases": { "flash": "gemini-2.5-flash" } },
+    "codex":  { "cli_bin": "codex", "sandbox": "read-only" },
+    "claude": { "subscription": true }
+  },
+  "presets": {
+    "gemini": {
+      "roles": {
+        "supervisor": "gemini:gemini-2.5-flash",
+        "researcher": "gemini:gemini-2.5-flash",
+        "summarization": "gemini:gemini-2.5-flash",
+        "compression": "gemini:gemini-2.5-flash",
+        "final_report": "gemini:gemini-2.5-flash"
+      },
+      "search": "tavily",
+      "step_overrides": {}
+    },
+    "claude": {
+      "comment": "Per-role mix from claude.feedback benchmark: supervisor must dispatch research (only opus reliably does); haiku for bulk summarize/compress.",
+      "roles": {
+        "supervisor": "claude-opus-4-8",
+        "researcher": "claude-opus-4-6",
+        "summarization": "claude-haiku-4-5",
+        "compression": "claude-haiku-4-5",
+        "final_report": "claude-opus-4-8"
+      },
+      "search": "tavily",
+      "step_overrides": {}
+    },
+    "codex": {
+      "comment": "ChatGPT/Codex CLI. NB codex exec is agentic (runs repo commands); keep its backend sandbox read-only before using in anger (see .env.example).",
+      "roles": {
+        "supervisor": "codex:gpt-5.5",
+        "researcher": "codex:gpt-5.5",
+        "summarization": "codex:gpt-5.5",
+        "compression": "codex:gpt-5.5",
+        "final_report": "codex:gpt-5.5"
+      },
+      "search": "tavily",
+      "step_overrides": {}
+    }
+  }
+}

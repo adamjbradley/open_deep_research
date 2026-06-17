@@ -125,11 +125,11 @@ class Configuration(BaseModel):
     )
     # Model Configuration
     summarization_model: str = Field(
-        default="gemini:gemini-2.0-flash",
+        default="gemini:gemini-2.5-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "gemini:gemini-2.0-flash",
+                "default": "gemini:gemini-2.5-flash",
                 "description": "Model for summarizing research results from Tavily search results. With the Claude Agent SDK backend, use a family ('haiku'/'sonnet'/'opus') or a full 'claude-*' id."
             }
         }
@@ -157,21 +157,21 @@ class Configuration(BaseModel):
         }
     )
     supervisor_model: str = Field(
-        default="codex:gpt-5.5",
+        default="gemini:gemini-2.5-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "codex:gpt-5.5",
+                "default": "gemini:gemini-2.5-flash",
                 "description": "Model for the Research Supervisor (planning and strategy). Backend is chosen per role by an optional provider prefix: 'claude:opus' (Claude Code), 'gemini:2.5-pro' (Gemini CLI), 'codex:gpt-5' (Codex CLI). No prefix = Claude family."
             }
         }
     )
     researcher_model: str = Field(
-        default="gemini:gemini-2.0-flash",
+        default="gemini:gemini-2.5-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "gemini:gemini-2.0-flash",
+                "default": "gemini:gemini-2.5-flash",
                 "description": "Model for individual Researchers (tool execution). Backend is chosen per role by an optional provider prefix: 'claude:opus' (Claude Code), 'gemini:2.5-pro' (Gemini CLI), 'codex:gpt-5' (Codex CLI). No prefix = Claude family."
             }
         }
@@ -187,11 +187,11 @@ class Configuration(BaseModel):
         }
     )
     compression_model: str = Field(
-        default="gemini:gemini-2.0-flash",
+        default="gemini:gemini-2.5-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "gemini:gemini-2.0-flash",
+                "default": "gemini:gemini-2.5-flash",
                 "description": "Model for compressing research findings from sub-agents (Claude Agent SDK family or 'claude-*' id)."
             }
         }
@@ -207,11 +207,11 @@ class Configuration(BaseModel):
         }
     )
     final_report_model: str = Field(
-        default="codex:gpt-5.5",
+        default="gemini:gemini-2.5-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "codex:gpt-5.5",
+                "default": "gemini:gemini-2.5-flash",
                 "description": "Model for writing the final report from all research findings (Claude Agent SDK family or 'claude-*' id)."
             }
         }
@@ -371,14 +371,55 @@ class Configuration(BaseModel):
     def from_runnable_config(
         cls, config: Optional[RunnableConfig] = None
     ) -> "Configuration":
-        """Create a Configuration instance from a RunnableConfig."""
+        """Create a Configuration instance from a RunnableConfig (+ model_routing.json)."""
+        from open_deep_research.model_routing import (
+            apply_backend_env, load_routing, resolve_model, resolve_search,
+        )
+
         configurable = config.get("configurable", {}) if config else {}
         field_names = list(cls.model_fields.keys())
-        values: dict[str, Any] = {
-            field_name: os.environ.get(field_name.upper(), configurable.get(field_name))
-            for field_name in field_names
-        }
+        routing = load_routing()
+        apply_backend_env(routing)
+
+        role_fields = {f"{r}_model" for r in (
+            "supervisor", "researcher", "summarization", "compression",
+            "final_report", "facts_answer_polish")}
+
+        values: dict[str, Any] = {}
+        for field_name in field_names:
+            env_v = os.environ.get(field_name.upper())
+            cfg_v = configurable.get(field_name)
+            default = cls.model_fields[field_name].default
+            if field_name in role_fields:
+                role = field_name[: -len("_model")]
+                values[field_name] = resolve_model(
+                    role, routing=routing, env_value=env_v, configurable_value=cfg_v,
+                    code_default=default)
+            elif field_name == "search_api":
+                code_default = default.value if hasattr(default, "value") else default
+                # Precedence: env > configurable > preset > code default
+                if env_v is not None:
+                    values[field_name] = env_v
+                elif cfg_v is not None:
+                    values[field_name] = cfg_v
+                else:
+                    values[field_name] = resolve_search(
+                        routing=routing, env_value=None, configurable_value=None,
+                        code_default=code_default)
+            else:
+                values[field_name] = env_v if env_v is not None else cfg_v
         return cls(**{k: v for k, v in values.items() if v is not None})
+
+    def model_for(self, step: str, fallback_role: str) -> str:
+        """Model for a specific graph step: env(role) > preset step_override > resolved role model."""
+        from open_deep_research.model_routing import load_routing
+        env_v = os.environ.get(f"{fallback_role}_model".upper())
+        if env_v:
+            return env_v
+        preset = load_routing().active()
+        if step in preset.step_overrides:
+            return preset.step_overrides[step]
+        return getattr(self, f"{fallback_role}_model")
 
     class Config:
         """Pydantic configuration."""

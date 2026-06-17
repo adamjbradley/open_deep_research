@@ -42,6 +42,17 @@ def validate_profiles(extra_paths=None) -> tuple[str, bool]:
         except Exception as e:  # noqa: BLE001 - report-and-continue is the point
             ok = False
             lines.append(f"FAIL  {name}: {e}")
+
+    # Validate the model routing file (env file > ./model_routing.json > bundled).
+    try:
+        from open_deep_research.model_routing import _routing_path, load_routing
+        load_routing()  # raises on invalid
+        src = _routing_path() or "model_routing.json (bundled)"
+        lines.append(f"OK    {src}")
+    except Exception as e:  # noqa: BLE001 - report-and-continue, matches the profile loop
+        ok = False
+        lines.append(f"FAIL  model_routing.json: {e}")
+
     return "\n".join(lines), ok
 
 

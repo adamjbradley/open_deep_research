@@ -1,0 +1,616 @@
+version: '1'
+sources:
+- domain: worldbank.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - multilateral
+- domain: id4d.worldbank.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - multilateral
+  - specialist
+- domain: undp.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - multilateral
+- domain: unstats.un.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - multilateral
+  - statistics
+- domain: unicef.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - multilateral
+- domain: itu.int
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - standards
+  - multilateral
+- domain: iso.org
+  tier: authoritative
+  flags:
+  - primary
+  - standards
+- domain: icao.int
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - standards
+- domain: w3.org
+  tier: authoritative
+  flags:
+  - primary
+  - standards
+- domain: openid.net
+  tier: authoritative
+  flags:
+  - primary
+  - standards
+  - industry
+- domain: fidoalliance.org
+  tier: authoritative
+  flags:
+  - primary
+  - standards
+  - industry
+- domain: gsma.com
+  tier: authoritative
+  flags:
+  - primary
+  - industry
+  - association
+- domain: oecd.org
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - multilateral
+- domain: ec.europa.eu
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: digital-strategy.ec.europa.eu
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+  - specialist
+- domain: eudiwalletconsortium.org
+  tier: reputable
+  flags:
+  - implementation
+  - consortium
+- domain: europa.eu
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: nidw.gov.bd
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: uidai.gov.in
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: mygov.in
+  tier: authoritative
+  flags:
+  - official
+  - government
+- domain: ndhm.gov.in
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+  - health
+- domain: digital.go.jp
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: gov.uk
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: login.gov
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: nist.gov
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - standards
+  - government
+- domain: gsa.gov
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: ssa.gov
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: canada.ca
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: digitalidentity.nz
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: dia.govt.nz
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: my.gov.au
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: digitalidentity.gov.au
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: servicesaustralia.gov.au
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: gov.za
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: dha.gov.za
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: nia.gov.gh
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: nimc.gov.ng
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: hudumakenya.go.ke
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: immigration.go.ke
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: nidmc.gov.rw
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: irembo.gov.rw
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: gob.mx
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: gov.br
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: registrocivil.cl
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: argentina.gob.ar
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: registraduria.gov.co
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: id.ee
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: ria.ee
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+  - cybersecurity
+- domain: e-resident.gov.ee
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: eid.belgium.be
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: bsi.bund.de
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - standards
+  - government
+- domain: personalausweisportal.de
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: france-identite.gouv.fr
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: agid.gov.it
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: spid.gov.it
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: digdir.no
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: bankid.no
+  tier: authoritative
+  flags:
+  - primary
+  - industry
+  - issuer
+- domain: bankid.com
+  tier: authoritative
+  flags:
+  - primary
+  - industry
+  - issuer
+- domain: digst.dk
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: mitid.dk
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: dvv.fi
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: admin.ch
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: mas.gov.sg
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+  - financial
+- domain: smartnation.gov.sg
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: singpass.gov.sg
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: govtech.gov.sg
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: etda.or.th
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: dga.or.th
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: mdec.my
+  tier: authoritative
+  flags:
+  - official
+  - government
+  - agency
+- domain: jpn.gov.my
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: moc.gov.sa
+  tier: authoritative
+  flags:
+  - official
+  - government
+- domain: sdaia.gov.sa
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: absher.sa
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: u.ae
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: uaepass.ae
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: ica.gov.ae
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: gov.il
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: piba.gov.il
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: egov.kz
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: nca.gov.kz
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - issuer
+- domain: gov.kr
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: mois.go.kr
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: digital.go.th
+  tier: authoritative
+  flags:
+  - official
+  - government
+- domain: digital.govt.nz
+  tier: authoritative
+  flags:
+  - primary
+  - official
+  - government
+- domain: govtech.com
+  tier: reputable
+  flags:
+  - media
+  - analyst
+- domain: biometricupdate.com
+  tier: reputable
+  flags:
+  - media
+  - specialist
+- domain: findbiometrics.com
+  tier: reputable
+  flags:
+  - media
+  - specialist
+- domain: thalesgroup.com
+  tier: reputable
+  flags:
+  - vendor
+  - analyst
+- domain: gemalto.com
+  tier: reputable
+  flags:
+  - vendor
+  - legacy
+- domain: secureidentityalliance.org
+  tier: reputable
+  flags:
+  - industry
+  - association
+- domain: privacyinternational.org
+  tier: reputable
+  flags:
+  - civil-society
+  - watchdog
+- domain: accessnow.org
+  tier: reputable
+  flags:
+  - civil-society
+  - watchdog
+- domain: eff.org
+  tier: reputable
+  flags:
+  - civil-society
+  - watchdog
+- domain: caribou.digital
+  tier: reputable
+  flags:
+  - research
+  - consultancy
+- domain: cgdev.org
+  tier: reputable
+  flags:
+  - think-tank
+  - research
+- domain: brookings.edu
+  tier: reputable
+  flags:
+  - think-tank
+  - research
+- domain: weforum.org
+  tier: reputable
+  flags:
+  - forum
+  - analysis
+- domain: centerforfinancialinclusion.org
+  tier: reputable
+  flags:
+  - research
+  - financial-inclusion
+- domain: good-id.org
+  tier: reputable
+  flags:
+  - research
+  - advocacy
+- domain: mosip.io
+  tier: authoritative
+  flags:
+  - primary
+  - open-source
+  - platform
+- domain: docs.mosip.io
+  tier: authoritative
+  flags:
+  - primary
+  - documentation
+  - open-source
+- domain: github.com
+  tier: reputable
+  flags:
+  - repository
+  - primary-code
+  - aggregator
+- domain: ssi-ambassador.medium.com
+  tier: unvetted
+  flags:
+  - blog
+- domain: medium.com
+  tier: unvetted
+  flags:
+  - blog
+  - platform
+- domain: wikipedia.org
+  tier: reputable
+  flags:
+  - aggregator
+  - encyclopedia

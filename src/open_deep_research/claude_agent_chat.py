@@ -232,7 +232,7 @@ def to_gemini_model(model_name: Optional[str]) -> str:
     prefix, and tolerates Claude families ("haiku"->flash, others->pro).
     """
     if not model_name:
-        return "gemini-2.0-flash"
+        return "gemini-2.5-flash"
     s = model_name.strip()
     low = s.lower()
     if low.startswith(("gemini:", "google:")):
@@ -241,7 +241,7 @@ def to_gemini_model(model_name: Optional[str]) -> str:
     if low.startswith("gemini-"):
         return s
     if "flash" in low or "haiku" in low:
-        return "gemini-2.0-flash"
+        return "gemini-2.5-flash"
     return "gemini-2.0-pro"
 
 
@@ -786,6 +786,9 @@ class GeminiCLIChat(_CLIJsonChat):
 
     def _subprocess_env(self) -> dict:
         env = dict(os.environ)
+        # The standard gemini CLI refuses headless runs in an "untrusted" dir; we run it
+        # in a neutral temp cwd, so trust the workspace explicitly (env, not a flag).
+        env.setdefault("GEMINI_CLI_TRUST_WORKSPACE", "true")
         if self.subscription:
             # Force OAuth/free-tier login instead of API-key (paid) billing.
             for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"):
@@ -801,9 +804,9 @@ class GeminiCLIChat(_CLIJsonChat):
                 + json.dumps(schema)
             )
         full = _combine_system_prompt(system_prompt, prompt)
-        bin_ = os.getenv("GEMINI_CLI_BIN", "agy")
+        bin_ = os.getenv("GEMINI_CLI_BIN", "gemini")
         # agy uses --dangerously-skip-permissions to approve tools non-interactively.
-        extra = os.getenv("GEMINI_CLI_ARGS", "--dangerously-skip-permissions").split()
+        extra = os.getenv("GEMINI_CLI_ARGS", "").split()  # standard gemini CLI: no agy flags
         # Pass the prompt via STDIN to survive the Windows cmd /c shim.
         cmd = [bin_, "--model", self.model, *extra]
         raw = await self._invoke(cmd, stdin=full)
@@ -855,9 +858,10 @@ class CodexCLIChat(_CLIJsonChat):
         os.close(out_fd)
         try:
             model_args = ["-m", self.model] if self.model else []
+            # Pass '-' to read the prompt from STDIN to avoid argument list length limits.
             cmd = [bin_, "exec", *model_args, *extra,
-                   "--output-last-message", out_path, full]
-            await self._invoke(cmd)
+                   "--output-last-message", out_path, "-"]
+            await self._invoke(cmd, stdin=full)
             try:
                 with open(out_path, "r", encoding="utf-8") as f:
                     content = f.read()
@@ -954,13 +958,13 @@ async def run_gemini_search(
     max_results: int = 5,
 ) -> str:
     """Web search via the Gemini CLI's built-in Google Search grounding."""
-    bin_ = os.getenv("GEMINI_CLI_BIN", "agy")
-    # agy uses --dangerously-skip-permissions to approve tools non-interactively.
-    extra = os.getenv("GEMINI_SEARCH_ARGS", "--dangerously-skip-permissions").split()
+    bin_ = os.getenv("GEMINI_CLI_BIN", "gemini")
+    extra = os.getenv("GEMINI_SEARCH_ARGS", "").split()  # standard gemini CLI: no agy flags
     prompt = _search_prompt(queries, "Use Google Search to research the following queries.")
     # Prompt via STDIN (see GeminiCLIChat) to survive the Windows cmd /c shim.
     cmd = [bin_, "--model", model, *extra]
     env = dict(os.environ)
+    env.setdefault("GEMINI_CLI_TRUST_WORKSPACE", "true")  # headless trust gate (neutral cwd)
     for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"):
         env.pop(key, None)
     async with _semaphore():
@@ -996,13 +1000,14 @@ async def run_codex_search(
     out_fd, out_path = tempfile.mkstemp(suffix=".txt", prefix="codex_search_")
     os.close(out_fd)
     model_args = ["-m", model] if model else []
-    cmd = [bin_, *extra_global, "exec", *model_args, *extra_exec, "--output-last-message", out_path, prompt]
+    # Pass '-' to read the prompt from STDIN to avoid argument list length limits.
+    cmd = [bin_, *extra_global, "exec", *model_args, *extra_exec, "--output-last-message", out_path, "-"]
     env = dict(os.environ)
     env.pop("OPENAI_API_KEY", None)
 
     async def _attempt():
         async with _semaphore():
-            await _run_cli(cmd, env=env, timeout=int(os.getenv("CLI_BACKEND_TIMEOUT", "600")))
+            await _run_cli(cmd, env=env, stdin=prompt, timeout=int(os.getenv("CLI_BACKEND_TIMEOUT", "600")))
 
     try:
         await _run_with_retry(_attempt, max_attempts=_SDK_MAX_ATTEMPTS, backoff_s=_SDK_RETRY_BACKOFF_S)

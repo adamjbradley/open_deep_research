@@ -118,9 +118,12 @@ async def _fact_fetch_text(url, **kw):
 
 
 # Initialize a configurable model that we will use throughout the agent.
-# Backed by the Claude Agent SDK (Claude Code) so all LLM activity bills against
-# a Claude subscription rather than per-token API credits. See claude_agent_chat.py.
-configurable_model = configurable_claude_model()
+# Backed by CLI agents (Gemini, Claude/code, or Codex). Default = gemini:gemini-2.5-flash:
+# the standard Gemini CLI is reliable for structured output; Codex's exec sandbox runs
+# repo commands (e.g. pytest) so it stays opt-in per role until that's restricted.
+configurable_model = configurable_claude_model(
+    default_config={"model": "gemini:gemini-2.5-flash"}
+)
 
 async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "__end__"]]:
     """Analyze user messages and ask clarifying questions if the research scope is unclear.
@@ -530,7 +533,9 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
     ]
     
     for tool_call in think_tool_calls:
-        reflection_content = tool_call["args"]["reflection"]
+        # Some CLI backends (gemini/codex) coerce tool args and may omit 'reflection';
+        # tolerate that instead of KeyError-ing the whole research turn.
+        reflection_content = (tool_call.get("args") or {}).get("reflection", "")
         all_tool_messages.append(ToolMessage(
             content=f"Reflection recorded: {reflection_content}",
             name="think_tool",
@@ -1311,12 +1316,13 @@ def _make_fact_model_call(configurable, config, target_properties=None):
                 logger.warning(
                     "Compiled extraction prompt is large (%d chars) for entity_type=%s; "
                     "consider trimming the profile.", len(prompt), prof.entity_type)
+            extraction_model = configurable.model_for("extract_facts", "researcher")
             model = (
                 configurable_model
                 .with_structured_output(ExtractionResult)
                 .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
                 .with_config({
-                    "model": configurable.researcher_model,
+                    "model": extraction_model,
                     "max_tokens": configurable.researcher_model_max_tokens,
                     "api_key": get_api_key_for_model(configurable.researcher_model, config),
                     "tags": ["langsmith:nostream"],
