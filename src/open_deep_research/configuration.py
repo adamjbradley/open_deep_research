@@ -418,7 +418,8 @@ class Configuration(BaseModel):
             return env_v
         preset = load_routing().active()
         if step in preset.step_overrides:
-            return preset.step_overrides[step]
+            spec = preset.step_overrides[step]
+            return spec if isinstance(spec, str) else spec[0]
         return getattr(self, f"{fallback_role}_model")
 
     class Config:

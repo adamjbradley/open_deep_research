@@ -167,3 +167,24 @@ def test_empty_chain_rejected():
             "version": "1", "active_preset": "p",
             "presets": {"p": {"roles": {"supervisor": []}}},
         })
+
+
+def test_model_for_list_step_override_returns_head(monkeypatch, tmp_path):
+    """model_for's contract is a single string; a list step override returns its head."""
+    import json
+
+    from open_deep_research.configuration import Configuration
+
+    f = tmp_path / "model_routing.json"
+    f.write_text(json.dumps({
+        "version": "1", "active_preset": "p",
+        "presets": {"p": {
+            "roles": {"researcher": "gemini:gemini-2.5-flash"},
+            "step_overrides": {"extract_facts": ["claude:sonnet", "gemini:gemini-2.5-flash"]},
+        }},
+    }), encoding="utf-8")
+    monkeypatch.setenv("MODEL_ROUTING_FILE", str(f))
+    for k in ("MODEL_ROUTING_PRESET", "RESEARCHER_MODEL"):
+        monkeypatch.delenv(k, raising=False)
+    c = Configuration.from_runnable_config({})
+    assert c.model_for("extract_facts", "researcher") == "claude:sonnet"   # head, not the list

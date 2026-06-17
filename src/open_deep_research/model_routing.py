@@ -146,6 +146,7 @@ def model_chain(role: str, *, routing: RoutingConfig | None = None, step: str | 
     Same precedence as ``resolve_model``; whatever wins is normalised to a list.
     An explicit env/configurable override yields a one-element chain (an override
     deliberately opts out of failover).
+    Returns [] when nothing matches and no code_default is given; callers that index [0] must guard against an empty chain.
     """
     if env_value:
         return [env_value]
