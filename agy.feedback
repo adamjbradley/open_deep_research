@@ -136,5 +136,34 @@ We have reviewed the revised [2026-06-16-profiles-as-data-design.md](file:///mnt
 
 <!-- agy r4 exit=0 -->
 
+---
+
+## Round 5 — 2026-06-17 — Suitability evaluation of agy CLI backend with the LangGraph research graph
+
+**ANTIGRAVITY SUITABILITY & VERIFICATION REVIEW**
+
+### 1. Live Test Verification
+*   **Functional Success:** We executed the local live test ([gemini_live_test.py](file:///mnt/c/Users/abradley/Projects/IdentityInnovation/search/open_deep_research/tests/gemini_live_test.py)) using the `agy` CLI backend. The graph completed successfully:
+    *   **Iteration 1:** Successfully executed 3 queries, returning 15 unique sources.
+    *   **Iteration 2:** Executed 4 queries, returning 20 unique sources.
+    *   **Fact Extraction:** Ingested 84 facts extracted in parallel from 57 valid sources.
+    *   **Report Generation:** Synthesized a high-quality Markdown report on India's Aadhaar program using `gemini-2.0-pro` via `agy`.
+*   **Auto-Approval:** Bypassing interactive prompts using `--dangerously-skip-permissions` functioned as intended without blocking the headless run.
+
+### 2. Architectural Concerns & Suitability Assessment
+*   **The "Agent-in-Agent" Loop:** `agy` is a workspace-aware developer agent CLI. On every call, it runs startup logic, scans the workspace, and loads local guidelines (e.g. `CLAUDE.md`). Treating a stateful agent CLI as a stateless node LLM causes redundant workspace scans and runs the risk of nested tool side-effects.
+*   **Severe Latency Overhead:** Subprocess creation and workspace orientation scan add **10–15 seconds of latency per model invocation**. Under the graph's concurrent extraction load, this queueing latency severely bottlenecks the run.
+*   **JSON Schema Fragility:** `agy` returns agent chat transcript formats rather than raw completions. Coercing it to schema compliance requires regex parsing and curly brace balancing ([_extract_json](file:///mnt/c/Users/abradley/Projects/IdentityInnovation/search/open_deep_research/src/open_deep_research/claude_agent_chat.py#L344-L375)), which is fragile.
+*   **Security Vulnerability:** Bypassing permissions with `--dangerously-skip-permissions` allows arbitrary data read from web sources during research to potentially execute prompt-injection commands on the host system via `agy`'s tool capabilities.
+
+---
+
+## Convergence Call
+
+**HOLD / RECOMMEND MIGRATION.** While the CLI integration is functionally correct and verified by local tests, using the `agy` developer agent CLI as a general-purpose LLM node is highly unsuitable for production. We recommend migrating `GeminiCLIChat` to a direct, stateless API client (e.g. `google-genai` SDK or `ChatGoogleGenAI`).
+
+<!-- agy r5 exit=0 -->
+
+
 
 

@@ -1316,12 +1316,13 @@ def _make_fact_model_call(configurable, config, target_properties=None):
                 logger.warning(
                     "Compiled extraction prompt is large (%d chars) for entity_type=%s; "
                     "consider trimming the profile.", len(prompt), prof.entity_type)
+            extraction_model = configurable.model_for("extract_facts", "researcher")
             model = (
                 configurable_model
                 .with_structured_output(ExtractionResult)
                 .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
                 .with_config({
-                    "model": configurable.researcher_model,
+                    "model": extraction_model,
                     "max_tokens": configurable.researcher_model_max_tokens,
                     "api_key": get_api_key_for_model(configurable.researcher_model, config),
                     "tags": ["langsmith:nostream"],

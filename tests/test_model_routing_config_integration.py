@@ -48,3 +48,20 @@ def test_configurable_beats_preset(monkeypatch):
     # bundled gemini preset has researcher = gemini:gemini-2.5-flash; configurable must win
     c = Configuration.from_runnable_config({"configurable": {"researcher_model": "codex:gpt-5.5"}})
     assert c.researcher_model == "codex:gpt-5.5"
+
+
+def test_extract_facts_model_uses_model_for(monkeypatch, tmp_path):
+    import json
+    f = tmp_path / "model_routing.json"
+    f.write_text(json.dumps({
+        "version": "1", "active_preset": "g",
+        "presets": {"g": {"roles": {"researcher": "gemini:gemini-2.5-flash"},
+                          "step_overrides": {"extract_facts": "claude:sonnet"}}},
+    }), encoding="utf-8")
+    monkeypatch.setenv("MODEL_ROUTING_FILE", str(f))
+    monkeypatch.delenv("RESEARCHER_MODEL", raising=False)
+    monkeypatch.delenv("MODEL_ROUTING_PRESET", raising=False)
+    c = Configuration.from_runnable_config({})
+    # the extraction seam must resolve to the step override, not the researcher role
+    assert c.researcher_model == "gemini:gemini-2.5-flash"
+    assert c.model_for("extract_facts", "researcher") == "claude:sonnet"

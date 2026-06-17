@@ -84,3 +84,84 @@ Proceed to implementation planning after tightening the hash-mismatch boundary a
 per-property trust contract. The prior High blockers around runtime selection and recompute scope have
 been substantively addressed in the revised spec; the remaining issues are plan/API precision rather
 than a rejection of the YAML-profile direction.
+
+---
+
+## Round - 2026-06-17 - Codex suitability in the existing graph
+
+Reviewed implementation:
+
+- `src/open_deep_research/deep_researcher.py`
+- `src/open_deep_research/claude_agent_chat.py`
+- `src/open_deep_research/configuration.py`
+- `src/open_deep_research/utils.py`
+
+### Finding - Codex is best suited to high-reasoning coordinator and writer roles
+
+Codex is a good fit for the graph's low-frequency, high-reasoning nodes:
+
+- `supervisor_model`: research brief generation, strategic planning, gap assessment,
+  and research-unit delegation.
+- `final_report_model`: final report synthesis and dossier merge/update.
+- `assess_knowledge` answerability decisions when quality is more important than a
+  cheap classifier call.
+
+These calls benefit from deeper reasoning and happen once or a small number of times
+per run, so the local Codex CLI overhead is acceptable.
+
+### Finding - Codex is not the preferred bulk worker
+
+Codex should not be the default for high-volume graph work:
+
+- `researcher_model`
+- `summarization_model`
+- routine target-property scoping
+- per-source/per-property fact extraction
+- provenance-heavy search capture
+
+The current Codex adapter can produce structured output, and local smoke tests confirmed
+plain and structured Codex calls work. However, JSON/tool output is prompt-coerced and
+parsed through the adapter rather than enforced through a native strict schema path. The
+CLI subprocess path also adds operational requirements around login state, writable local
+state, timeout behavior, and concurrency. For high-volume worker paths, Gemini/Claude
+or Tavily-style search remain better defaults.
+
+### Recommended graph mix
+
+```text
+supervisor_model = codex:gpt-5.5
+final_report_model = codex:gpt-5.5
+researcher_model = gemini:gemini-2.0-flash
+summarization_model = gemini:gemini-2.0-flash
+compression_model = gemini or a cheaper Claude family
+search_api = tavily for provenance-heavy runs
+```
+
+### Test coverage added
+
+Added `tests/test_codex_suited_roles.py` to lock the intended wiring without invoking
+the real Codex CLI. It covers:
+
+- Codex configured on the supervisor/final-report slots, not bulk worker slots.
+- `write_research_brief()` uses `supervisor_model`.
+- `supervisor()` uses `supervisor_model` and binds planning/delegation tools.
+- `assess_knowledge()` uses `supervisor_model` for answerability.
+- `final_report_generation()` uses `final_report_model`.
+- `_merge_dossier()` uses `final_report_model`.
+- `resolve_target_properties()` intentionally stays on the fast summarization model.
+
+Validation:
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache PYTHONDONTWRITEBYTECODE=1 uv run pytest tests/test_codex_suited_roles.py -q
+7 passed
+
+UV_CACHE_DIR=/tmp/uv-cache PYTHONDONTWRITEBYTECODE=1 uv run pytest tests/test_graph_robustness.py tests/test_search_backends.py -q
+14 passed
+```
+
+### Summary
+
+Use Codex as the graph strategist and report/dossier writer. Do not use it as the
+default high-volume researcher, summarizer, extractor, or provenance search backend
+unless a specific quality failure justifies the extra latency and operational surface.
