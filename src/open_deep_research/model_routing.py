@@ -154,3 +154,26 @@ def resolve_search(*, routing: RoutingConfig | None = None, env_value: str | Non
     if configurable_value is not None:
         return configurable_value
     return code_default
+
+
+def apply_backend_env(routing: RoutingConfig | None = None) -> None:
+    """Push active-preset backend settings into os.environ via setdefault (explicit env wins).
+
+    Lets claude_agent_chat.py's existing getenv() calls read CLI bin/args/trust/sandbox from
+    the routing file without any change to that module.
+    """
+    routing = routing or load_routing()
+    g = routing.backends.get("gemini")
+    if g:
+        if g.cli_bin is not None:
+            os.environ.setdefault("GEMINI_CLI_BIN", g.cli_bin)
+        os.environ.setdefault("GEMINI_CLI_ARGS", " ".join(g.cli_args))
+        os.environ.setdefault("GEMINI_SEARCH_ARGS", " ".join(g.cli_args))
+        if g.trust_workspace is not None:
+            os.environ.setdefault("GEMINI_CLI_TRUST_WORKSPACE", "true" if g.trust_workspace else "false")
+    c = routing.backends.get("codex")
+    if c:
+        if c.cli_bin is not None:
+            os.environ.setdefault("CODEX_CLI_BIN", c.cli_bin)
+        if c.sandbox is not None:
+            os.environ.setdefault("CODEX_SANDBOX", c.sandbox)
