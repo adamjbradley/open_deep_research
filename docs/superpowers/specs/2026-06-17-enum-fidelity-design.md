@@ -79,10 +79,12 @@ converting them is an **optional follow-up**, not part of this design's core.
 
 The fact value stays a single `TEXT` column (`schema.py:49`) — **no DB migration**.
 
-**Storage form — sorted, comma-joined canonical members:** a `multi` value is stored as the
-sorted, deduplicated member list joined by `, ` → `"fingerprint, iris, photo"`. Sorting makes
-it order-independent so `{iris, photo}` and `{photo, iris}` are the same fact. Open members
-outside `value_enum` are preserved verbatim within that sorted list.
+**Storage form:** the raw `value` column keeps the model's verbatim string (preserving
+provenance, surfaced later as `variants`). The **canonical** form used for dedup/grouping is the
+sorted, deduplicated, lowercased member list joined by `, ` → `"fingerprint, iris, photo"`,
+computed by `canonical_value` (not written back to the raw column). Sorting the canonical form
+makes it order-independent so `{iris, photo}` and `{photo, iris}` are the same fact. Open members
+outside `value_enum` are preserved verbatim in both the raw value and the canonical key.
 
 **`canonical_value` (`identity.py:59`) gains a set branch:** for a `multi` enum, split on
 commas, normalize each member (map known ones to their `value_enum` casing; keep unknowns when
@@ -188,3 +190,7 @@ soft-deletes it and reports `invalidated: 1`; a still-valid sibling survives.
 - Ordinal/graded-collapse fidelity (a separate, broader rethink).
 - Converting the CBDC `hybrid`/`tiered` properties (optional follow-up).
 - Any DB schema/column migration (the design deliberately reuses the existing `TEXT` value).
+- Junk-filtering for `multi` + `open` values: by design an open multi enum accepts any non-empty
+  member set (unknown members are kept verbatim), so it has no junk guard. This looseness is the
+  deliberate open-world trade-off; a "must contain ≥1 known member" heuristic is a possible
+  future refinement, not part of this design.

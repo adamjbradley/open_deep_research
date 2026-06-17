@@ -13,7 +13,7 @@ Spec: `docs/superpowers/specs/2026-06-17-enum-fidelity-design.md`
 ## Global Constraints
 
 - Flags `multi` / `open` are valid **only** when `kind: enum`; both require `value_enum` present. Using either on a non-enum kind, or without `value_enum`, must raise at schema-validation time.
-- No DB schema/column migration: the fact `value` stays a single `TEXT` column. A set is stored as its **sorted, deduplicated, lowercased members joined by `", "`**.
+- No DB schema/column migration: the fact `value` stays a single `TEXT` column holding the model's verbatim string. The **canonical** key for dedup/grouping is the **sorted, deduplicated, lowercased members joined by `", "`**, computed by `canonical_value` (not written back to the raw `value` column).
 - Attribute naming: the YAML keys are `multi` and `open`. On `PropertyModel` (pydantic) the fields are `multi` and `open`. On `PropertyDef` (dataclass) they are `multi` and `open_world` (avoid shadowing the `open` builtin). `profile_from_dict` maps `open` → `open_world`.
 - `canonical_value` must remain deterministic and never raise (existing contract).
 - TDD: write the failing test first, watch it fail, implement minimally, watch it pass, commit. Run tests with `uv run pytest`.
