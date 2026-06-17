@@ -18,16 +18,30 @@ def compile_property_catalog(prof, target_properties=None) -> str:
             pd = prof.property(name)
         except KeyError:
             continue
-        line = f"- {pd.name} ({pd.value_kind})"
+        multi = getattr(pd, "multi", False)
+        open_world = getattr(pd, "open_world", False)
+        kind_label = pd.value_kind
+        if pd.value_kind == "enum" and (multi or open_world):
+            hints = []
+            if multi:
+                hints.append("select all that apply")
+            if open_world:
+                hints.append(
+                    "list others verbatim if outside this set" if multi
+                    else "use a listed value or give the literal if none fit"
+                )
+            kind_label = "enum, " + "; ".join(hints)
+        line = f"- {pd.name} ({kind_label})"
         if getattr(pd, "description", ""):
             line += f": {pd.description}"
         if pd.value_enum:
+            label = "known values" if open_world else "allowed values"
             descs = getattr(pd, "value_enum_descriptions", None) or {}
             if descs:
                 vals = ", ".join(f"{v} ({descs[v]})" if v in descs else v for v in pd.value_enum)
-                line += f" | allowed values: [{vals}]"
+                line += f" | {label}: [{vals}]"
             else:
-                line += f" | allowed values: {pd.value_enum}"
+                line += f" | {label}: {pd.value_enum}"
         if pd.qualifier_enums:
             quals = "; ".join(f"{k}={v}" for k, v in pd.qualifier_enums.items())
             line += f" | qualifiers: {quals}"
@@ -47,7 +61,9 @@ def build_extraction_prompt(prof, target_properties, source_text, *, compiled: b
             "Use ONLY these properties (name, kind, description, allowed values, qualifiers):\n"
             f"{catalog}\n\n"
             "Rules: emit a qualifier ONLY if the source explicitly states it (do not guess); "
-            "for enum properties the value MUST be one of the listed allowed values; "
+            "for enum properties use the listed values; when a property says 'select all "
+            "that apply', return every applicable value separated by commas; when it allows "
+            "literals, you may give a value outside the list; "
             "evidence_span MUST be a verbatim substring of the source text supporting the value; "
             "if nothing is stated, return an empty list.\n\nSOURCE:\n" + src
         )
