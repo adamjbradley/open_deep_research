@@ -10,6 +10,11 @@ from open_deep_research.failover import (
     new_run_tracker,
     reason_for,
 )
+from open_deep_research.model_routing import (
+    model_chain,
+    resolve_model,
+    routing_from_dict,
+)
 
 
 @pytest.mark.parametrize("message,expected", [
@@ -113,3 +118,52 @@ def test_available_chain_all_down_returns_empty():
     t.mark_down("model-a")
     t.mark_down("model-b")
     assert t.available_chain(chain) == []
+
+
+# ---------------------------------------------------------------------------
+# Task 3: chain-aware routing resolution
+# ---------------------------------------------------------------------------
+
+def _routing():
+    return routing_from_dict({
+        "version": "1", "active_preset": "mix",
+        "presets": {"mix": {"roles": {
+            "supervisor": ["gemini:gemini-2.5-pro", "claude-opus-4-8"],  # chain
+            "researcher": "gemini:gemini-2.5-flash",                      # bare string
+        }, "step_overrides": {"extract_facts": ["claude:sonnet", "gemini:gemini-2.5-flash"]}}},
+    })
+
+
+def test_list_spec_validates_and_resolves_to_chain():
+    r = _routing()
+    assert model_chain("supervisor", routing=r) == ["gemini:gemini-2.5-pro", "claude-opus-4-8"]
+
+
+def test_string_spec_resolves_to_one_element_chain():
+    r = _routing()
+    assert model_chain("researcher", routing=r) == ["gemini:gemini-2.5-flash"]
+
+
+def test_resolve_model_returns_chain_head_backcompat():
+    r = _routing()
+    assert resolve_model("supervisor", routing=r) == "gemini:gemini-2.5-pro"
+    assert resolve_model("researcher", routing=r) == "gemini:gemini-2.5-flash"
+
+
+def test_env_override_opts_out_of_failover():
+    r = _routing()
+    assert model_chain("supervisor", routing=r, env_value="claude:opus") == ["claude:opus"]
+
+
+def test_step_override_chain_wins():
+    r = _routing()
+    assert model_chain("researcher", routing=r, step="extract_facts") == \
+        ["claude:sonnet", "gemini:gemini-2.5-flash"]
+
+
+def test_empty_chain_rejected():
+    with pytest.raises(ValueError):
+        routing_from_dict({
+            "version": "1", "active_preset": "p",
+            "presets": {"p": {"roles": {"supervisor": []}}},
+        })
