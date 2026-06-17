@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "active_preset": "gemini",
+  "active_preset": "claude",
   "backends": {
     "gemini": { "cli_bin": "gemini", "cli_args": [], "trust_workspace": true,
                 "model_aliases": { "flash": "gemini-2.5-flash" } },
@@ -20,12 +20,13 @@
       "step_overrides": {}
     },
     "claude": {
+      "comment": "Per-role mix from claude.feedback benchmark: supervisor must dispatch research (only opus reliably does); haiku for bulk summarize/compress.",
       "roles": {
-        "supervisor": "claude:sonnet",
-        "researcher": "claude:sonnet",
-        "summarization": "claude:sonnet",
-        "compression": "claude:sonnet",
-        "final_report": "claude:sonnet"
+        "supervisor": "claude-opus-4-8",
+        "researcher": "claude-opus-4-6",
+        "summarization": "claude-haiku-4-5",
+        "compression": "claude-haiku-4-5",
+        "final_report": "claude-opus-4-8"
       },
       "search": "tavily",
       "step_overrides": {}

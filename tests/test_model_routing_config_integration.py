@@ -5,8 +5,9 @@ def test_config_uses_routing_preset_for_roles(monkeypatch):
     for k in ("RESEARCHER_MODEL", "SUPERVISOR_MODEL", "MODEL_ROUTING_FILE", "MODEL_ROUTING_PRESET"):
         monkeypatch.delenv(k, raising=False)
     c = Configuration.from_runnable_config({})
-    assert c.researcher_model == "gemini:gemini-2.5-flash"
-    assert c.supervisor_model == "gemini:gemini-2.5-flash"
+    # active preset = claude (per the benchmark recommendation in claude.feedback)
+    assert c.researcher_model == "claude-opus-4-6"
+    assert c.supervisor_model == "claude-opus-4-8"
 
 
 def test_env_overrides_routing(monkeypatch):
@@ -14,8 +15,8 @@ def test_env_overrides_routing(monkeypatch):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("RESEARCHER_MODEL", "claude:sonnet")
     c = Configuration.from_runnable_config({})
-    assert c.researcher_model == "claude:sonnet"            # env wins
-    assert c.supervisor_model == "gemini:gemini-2.5-flash"   # others unchanged
+    assert c.researcher_model == "claude:sonnet"        # env wins
+    assert c.supervisor_model == "claude-opus-4-8"      # others from the active claude preset
 
 
 def test_preset_switch(monkeypatch):
@@ -23,7 +24,7 @@ def test_preset_switch(monkeypatch):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("MODEL_ROUTING_PRESET", "claude")
     c = Configuration.from_runnable_config({})
-    assert c.researcher_model == "claude:sonnet"
+    assert c.researcher_model == "claude-opus-4-6"
 
 
 def test_model_for_step_override(monkeypatch, tmp_path):
@@ -45,7 +46,7 @@ def test_model_for_step_override(monkeypatch, tmp_path):
 def test_configurable_beats_preset(monkeypatch):
     for k in ("RESEARCHER_MODEL", "MODEL_ROUTING_FILE", "MODEL_ROUTING_PRESET"):
         monkeypatch.delenv(k, raising=False)
-    # bundled gemini preset has researcher = gemini:gemini-2.5-flash; configurable must win
+    # active preset has its own researcher model; configurable must still win
     c = Configuration.from_runnable_config({"configurable": {"researcher_model": "codex:gpt-5.5"}})
     assert c.researcher_model == "codex:gpt-5.5"
 
