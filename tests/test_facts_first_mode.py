@@ -93,6 +93,11 @@ class _CfgObj:
     summarization_model = "gemini:flash"
     summarization_model_max_tokens = 1024
 
+    def model_chain(self, role, step=None):
+        # mirror Configuration.model_chain's single-model fallback for the test
+        model = getattr(self, f"{role}_model", None)
+        return [model] if model else []
+
 
 # -- assess_sufficiency (DB-seeded, no LLM) ------------------------------------
 

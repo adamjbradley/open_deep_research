@@ -23,7 +23,7 @@ from open_deep_research.claude_agent_chat import configurable_claude_model
 from open_deep_research.configuration import (
     Configuration,
 )
-from open_deep_research.failover import new_run_tracker
+from open_deep_research.failover import get_tracker, new_run_tracker
 from open_deep_research.prompts import (
     answer_from_dossier_prompt,
     clarify_with_user_instructions,
@@ -1106,14 +1106,13 @@ async def resolve_target_properties(question, prof, configurable, config) -> lis
     """
     all_names = [pd.name for pd in prof.properties]
     try:
-        _chain = getattr(configurable, "model_chain", lambda *a: [])("summarization")
         model = (
             configurable_model
             .with_structured_output(TargetProperties)
             .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
             .with_config({
                 "model": configurable.summarization_model,
-                "model_chain": _chain,
+                "model_chain": configurable.model_chain("summarization"),
                 "stage": "summarization",
                 "max_tokens": configurable.summarization_model_max_tokens,
                 "api_key": get_api_key_for_model(configurable.summarization_model, config),
@@ -1183,7 +1182,6 @@ async def persist_research(state: AgentState, config: RunnableConfig):
 
     config_used = configurable.model_dump(mode="json")
     config_used.pop("mcp_config", None)
-    from open_deep_research.failover import get_tracker
     config_used["failovers"] = [f.as_dict() for f in get_tracker().failovers]
 
     run = {
