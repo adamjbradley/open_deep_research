@@ -250,3 +250,23 @@ def test_configuration_model_chain_step_override(monkeypatch, tmp_path):
     assert c.model_chain("researcher") == ["gemini:gemini-2.5-flash"]
     # the step override must drive the extract_facts chain, not the researcher role
     assert c.model_chain("researcher", "extract_facts") == ["claude:sonnet", "gemini:gemini-2.5-flash"]
+
+
+def test_configuration_model_chain_unset_optional_role_is_empty(monkeypatch, tmp_path):
+    """An unset Optional role with no preset/env coverage yields an empty chain, not [None]."""
+    import json
+
+    from open_deep_research.configuration import Configuration
+
+    f = tmp_path / "model_routing.json"
+    # preset covers only researcher; facts_answer_polish is unset (Optional default None)
+    f.write_text(json.dumps({
+        "version": "1", "active_preset": "p",
+        "presets": {"p": {"roles": {"researcher": "gemini:gemini-2.5-flash"}}},
+    }), encoding="utf-8")
+    monkeypatch.setenv("MODEL_ROUTING_FILE", str(f))
+    for k in ("MODEL_ROUTING_PRESET", "FACTS_ANSWER_POLISH_MODEL"):
+        monkeypatch.delenv(k, raising=False)
+    c = Configuration.from_runnable_config({})
+    assert c.facts_answer_polish_model is None
+    assert c.model_chain("facts_answer_polish") == []

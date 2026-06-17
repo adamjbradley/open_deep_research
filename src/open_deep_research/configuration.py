@@ -426,13 +426,17 @@ class Configuration(BaseModel):
         """The resolved failover chain (primary first) for a role/step.
 
         The head equals the resolved primary for that role/step (``model_for`` when
-        a step is given, else the ``<role>_model`` field). If an env/configurable
-        override set that primary, failover is intentionally off (single-element
-        chain); otherwise the active preset's chain (role or step_override) is used.
+        a step is given, else the ``<role>_model`` field). An explicit env override
+        opts out of failover (single-element chain). A configurable (RunnableConfig)
+        override opts out only when it differs from the preset's primary — when it
+        coincides with the preset head, the preset's chain (and thus its backups) is
+        kept, which is harmless. Returns [] when the role has no resolved primary.
         """
         from open_deep_research.model_routing import load_routing
         from open_deep_research.model_routing import model_chain as _model_chain
         primary = self.model_for(step, role) if step else getattr(self, f"{role}_model")
+        if primary is None:
+            return []  # unresolved Optional role (e.g. facts_answer_polish): no chain
         if os.environ.get(f"{role}_model".upper()):
             return [primary]  # explicit env override opts out of failover
         chain = _model_chain(role, routing=load_routing(), step=step,
