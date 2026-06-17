@@ -125,11 +125,11 @@ class Configuration(BaseModel):
     )
     # Model Configuration
     summarization_model: str = Field(
-        default="gemini:gemini-2.0-flash",
+        default="gemini:gemini-2.5-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "gemini:gemini-2.0-flash",
+                "default": "gemini:gemini-2.5-flash",
                 "description": "Model for summarizing research results from Tavily search results. With the Claude Agent SDK backend, use a family ('haiku'/'sonnet'/'opus') or a full 'claude-*' id."
             }
         }
@@ -157,21 +157,21 @@ class Configuration(BaseModel):
         }
     )
     supervisor_model: str = Field(
-        default="codex:gpt-5.5",
+        default="gemini:gemini-2.5-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "codex:gpt-5.5",
+                "default": "gemini:gemini-2.5-flash",
                 "description": "Model for the Research Supervisor (planning and strategy). Backend is chosen per role by an optional provider prefix: 'claude:opus' (Claude Code), 'gemini:2.5-pro' (Gemini CLI), 'codex:gpt-5' (Codex CLI). No prefix = Claude family."
             }
         }
     )
     researcher_model: str = Field(
-        default="gemini:gemini-2.0-flash",
+        default="gemini:gemini-2.5-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "gemini:gemini-2.0-flash",
+                "default": "gemini:gemini-2.5-flash",
                 "description": "Model for individual Researchers (tool execution). Backend is chosen per role by an optional provider prefix: 'claude:opus' (Claude Code), 'gemini:2.5-pro' (Gemini CLI), 'codex:gpt-5' (Codex CLI). No prefix = Claude family."
             }
         }
@@ -187,11 +187,11 @@ class Configuration(BaseModel):
         }
     )
     compression_model: str = Field(
-        default="gemini:gemini-2.0-flash",
+        default="gemini:gemini-2.5-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "gemini:gemini-2.0-flash",
+                "default": "gemini:gemini-2.5-flash",
                 "description": "Model for compressing research findings from sub-agents (Claude Agent SDK family or 'claude-*' id)."
             }
         }
@@ -207,11 +207,11 @@ class Configuration(BaseModel):
         }
     )
     final_report_model: str = Field(
-        default="codex:gpt-5.5",
+        default="gemini:gemini-2.5-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "text",
-                "default": "codex:gpt-5.5",
+                "default": "gemini:gemini-2.5-flash",
                 "description": "Model for writing the final report from all research findings (Claude Agent SDK family or 'claude-*' id)."
             }
         }
