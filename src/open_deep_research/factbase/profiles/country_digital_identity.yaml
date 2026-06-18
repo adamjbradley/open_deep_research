@@ -1,6 +1,11 @@
 entity_type: country
 version: "1"
 notes: "Digital-Identity pillar for the country entity type (Feature Spec 2.1)."
+narrative:
+  overview_sections:
+    - "How the foundational ID scheme works and its legal basis"
+    - "Coverage and inclusion gaps"
+    - "Governance, privacy, and key risks"
 properties:
   - name: foundational_id_scheme
     kind: name
@@ -9,6 +14,14 @@ properties:
       NOT report related e-services or adjacent programmes (e-residency, mobile-ID, bank-ID,
       e-citizenship, individual sector cards) as the foundational scheme. Prefer the most
       official, commonly-used name."
+    narrative:
+      required: true
+      guidance: "Describe how the scheme works in practice: the enrolment process (who
+        administers it, what documents and biometrics are collected, whether enrolment is
+        voluntary or compulsory), where the scheme sits in the broader identity ecosystem,
+        and its current operational status. Note any material change in programme name or
+        scope over time."
+    absence_allowed: false
     value_aliases:
       aadhaar:
         - uidai
@@ -33,6 +46,14 @@ properties:
       population_basis: [adults_15plus, total_pop, births, registered_holders]
       coverage_kind: [enrolled, issued, active]
       measured_modeled: [measured, modeled]
+    narrative:
+      required: true
+      guidance: "State the population basis (adults 15+, total population, or registered
+        holders), the reference date or period, and the source (government statistics,
+        World Bank, GSMA, etc.). Quantify any known inclusion gaps — groups disproportionately
+        excluded such as rural residents, women, refugees, or stateless persons — and flag
+        data-quality caveats (modelled vs. measured, outdated figures, conflicting sources)."
+    absence_allowed: false
   - name: biometric_capture
     kind: enum
     multi: true
@@ -50,3 +71,10 @@ properties:
     kind: name_year
     description: "Name + year of the statute/regulation establishing the scheme."
     identity_qualifiers: [jurisdiction]
+    narrative:
+      required: true
+      guidance: "Identify the primary statute or regulation that establishes the scheme,
+        its year of enactment (and commencement if different), the scope of what it mandates
+        (who must enrol, what data may be collected, which authorities may access it), and
+        any subsequent amendments that materially changed those terms. Note if a dedicated
+        ID law exists vs. authority derived from subsidiary regulations or executive orders."
