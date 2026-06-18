@@ -1772,12 +1772,11 @@ async def assess_sufficiency(state: AgentState, config: RunnableConfig) -> Comma
     return Command(goto="answer_from_facts", update={"fact_rounds_used": rounds_used})
 
 
-async def assess_completeness(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "answer_from_facts"]]:
+async def assess_completeness(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "synthesize_narrative"]]:
     """Whole-profile: loop until every REQUIRED property is resolved-or-confirmed-absent or budget hit.
 
     Routes to write_research_brief (gap round) while any required property is incomplete and
-    the round budget (max_profile_rounds) allows; otherwise routes to answer_from_facts.
-    NOTE: will re-point to synthesize_narrative once Task 7 lands.
+    the round budget (max_profile_rounds) allows; otherwise routes to synthesize_narrative (Task 7).
     """
     import aiosqlite
     from open_deep_research.factbase import (
@@ -1798,7 +1797,7 @@ async def assess_completeness(state: AgentState, config: RunnableConfig) -> Comm
     ik = fbentities.CountryResolver().resolve_in_text(subject) if subject else None
     if not ik:
         # Can't resolve subject to a country — go straight to terminal
-        return Command(goto="answer_from_facts", update={"fact_rounds_used": rounds_used})
+        return Command(goto="synthesize_narrative", update={"fact_rounds_used": rounds_used})
 
     notes_text = "\n".join(state.get("raw_notes", []) or [])[:8000]
 
@@ -1842,7 +1841,7 @@ async def assess_completeness(state: AgentState, config: RunnableConfig) -> Comm
         )
     if incomplete:
         logger.info("Whole-profile still incomplete %s but round budget exhausted; finishing", incomplete)
-    return Command(goto="answer_from_facts", update={"fact_rounds_used": rounds_used})
+    return Command(goto="synthesize_narrative", update={"fact_rounds_used": rounds_used})
 
 
 def _best_singular_row(rows: list) -> dict:
@@ -2024,6 +2023,58 @@ def _facts_answer_text(subject, grouped_rows, targets, singular_props=None) -> s
     return "\n".join(lines)
 
 
+async def _synthesize_dossier(subject, grouped, absent, overview_sections, model_call) -> str:
+    """Profile-defined subject narrative grounded ONLY in gathered facts; deterministic fallback."""
+    facts_block = _facts_answer_text(subject, grouped, None)   # readable, raw-value listing
+    if not overview_sections:
+        return facts_block
+    try:
+        sections = "\n".join(f"- {s}" for s in overview_sections)
+        absent_line = ("Explicitly note these have no data: " + ", ".join(sorted(absent))) if absent else ""
+        prompt = (f"Write a concise dossier about {subject}. Cover EACH section below as a '## ' "
+                  f"heading, grounded ONLY in the facts provided -- cite nothing not present, and "
+                  f"state absences plainly. {absent_line}\n\nSECTIONS:\n{sections}\n\nFACTS:\n{facts_block}")
+        resp = await model_call(prompt)
+        text = str(getattr(resp, "content", "") or "").strip()
+        return text or facts_block
+    except Exception as e:  # noqa: BLE001
+        logger.warning("narrative synthesis failed; using deterministic facts: %s", e)
+        return facts_block
+
+
+async def synthesize_narrative(state: AgentState, config: RunnableConfig) -> dict:
+    """Whole-profile: write a profile-defined subject dossier from gathered facts + confirmed-absent set."""
+    import aiosqlite
+    from open_deep_research.factbase import (entities as fbentities, query as fbquery,
+        profile as fbprofile)
+    from open_deep_research.factbase.property_status import PropertyStatusStore
+    configurable = Configuration.from_runnable_config(config)
+    subject = state.get("subject")
+    prof = fbprofile.load(_effective_profile_name(state, configurable))
+    ik = fbentities.CountryResolver().resolve_in_text(subject) if subject else None
+    grouped, absent = [], set()
+    if ik:
+        async with aiosqlite.connect(get_db_path(config)) as conn:
+            grouped = await fbquery.FactQuery(conn).show_grouped(ik)
+            absent = await PropertyStatusStore(conn).absent_properties(ik)
+
+    async def mc(prompt):
+        model_name = configurable.facts_answer_polish_model or configurable.summarization_model
+        model = configurable_model.with_config({
+            "model": model_name,
+            "model_chain": configurable.model_chain("final_report"),
+            "stage": "final_report",
+            "max_tokens": configurable.final_report_model_max_tokens,
+            "api_key": get_api_key_for_model(model_name, config),
+            "tags": ["langsmith:nostream"],
+        })
+        return await model.ainvoke([HumanMessage(content=prompt)])
+
+    answer = await _synthesize_dossier(
+        subject, grouped, absent, getattr(prof, "overview_sections", []), mc)
+    return {"final_report": answer, "messages": [AIMessage(content=answer)], "subject": subject}
+
+
 async def answer_from_facts(state: AgentState, config: RunnableConfig) -> dict:
     """Facts-first: answer the question directly from the structured fact base (no prose report)."""
     configurable = Configuration.from_runnable_config(config)
@@ -2130,6 +2181,7 @@ deep_researcher_builder.add_node("extract_facts", extract_facts)                
 deep_researcher_builder.add_node("assess_sufficiency", assess_sufficiency)         # Facts-first: enough to answer?
 deep_researcher_builder.add_node("assess_completeness", assess_completeness)       # Whole-profile: completeness loop
 deep_researcher_builder.add_node("answer_from_facts", answer_from_facts)           # Facts-first: answer from the fact base
+deep_researcher_builder.add_node("synthesize_narrative", synthesize_narrative)     # Whole-profile: profile-defined dossier
 deep_researcher_builder.add_node("persist_research", persist_research)             # Persist results to SQLite
 
 
@@ -2151,8 +2203,8 @@ def route_after_extract(state: AgentState, config: RunnableConfig) -> str:
 
 # Define main workflow edges. assess_knowledge (entry) branches via Command(goto)
 # to answer_from_dossier / write_research_brief / clarify_with_user; assess_sufficiency
-# and assess_completeness branch via Command(goto) to write_research_brief (gap round) /
-# answer_from_facts.
+# branches via Command(goto) to write_research_brief (gap round) / answer_from_facts;
+# assess_completeness branches via Command(goto) to write_research_brief / synthesize_narrative.
 deep_researcher_builder.add_edge(START, "preallocate_run")                          # Entry point: preallocate the run id
 deep_researcher_builder.add_edge("preallocate_run", "assess_knowledge")             # Then check the knowledge base
 deep_researcher_builder.add_edge("answer_from_dossier", "persist_research")         # Cached answer -> log the run
@@ -2166,6 +2218,7 @@ deep_researcher_builder.add_conditional_edges(                                  
     {"persist_research": "persist_research", "assess_sufficiency": "assess_sufficiency",
      "assess_completeness": "assess_completeness"})
 deep_researcher_builder.add_edge("answer_from_facts", "persist_research")           # Facts answer -> persist
+deep_researcher_builder.add_edge("synthesize_narrative", "persist_research")        # Narrative dossier -> persist
 deep_researcher_builder.add_edge("persist_research", END)                          # Final exit point
 
 # Compile the complete deep researcher workflow

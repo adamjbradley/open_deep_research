@@ -307,3 +307,25 @@ def test_judge_absence_false_and_best_effort_on_error():
     async def boom(prop, desc, notes): raise RuntimeError("x")
     assert _aio.run(dr.judge_absence("bio", "d", "n", yes)) is False
     assert _aio.run(dr.judge_absence("bio", "d", "n", boom)) is False   # error -> not absent (keep trying)
+
+
+# -- _synthesize_dossier (pure, mocked model_call) ------------------------------
+
+def test_synthesize_dossier_uses_model_when_available():
+    async def mc(prompt):
+        class R: content = "## How it works\n... ## Coverage\n..."
+        return R()
+    out = _aio.run(dr._synthesize_dossier(
+        "Estonia",
+        [{"property_name": "scheme", "value": "eID", "variants": ["eID"]}],
+        set(), ["How it works", "Coverage"], mc))
+    assert "How it works" in out
+
+
+def test_synthesize_dossier_falls_back_to_deterministic_on_error():
+    async def boom(prompt): raise RuntimeError("x")
+    out = _aio.run(dr._synthesize_dossier(
+        "Estonia",
+        [{"property_name": "scheme", "value": "eID", "variants": ["eID"]}],
+        set(), ["Sec"], boom))
+    assert "scheme" in out          # deterministic _facts_answer_text fallback rendered
