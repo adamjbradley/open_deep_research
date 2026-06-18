@@ -1478,7 +1478,16 @@ async def _maybe_propose_extensions(configurable, config, prof, profile_name, so
 async def preallocate_run(state: AgentState, config: RunnableConfig) -> dict:
     """Create the research_runs row early so the tool layer/extract_facts share a run id."""
     thread_id = (config.get("configurable") or {}).get("thread_id")
-    new_run_tracker(thread_id)  # fresh per-run failover state keyed by thread_id for cross-node visibility
+    tracker = new_run_tracker(thread_id)  # fresh per-run failover state keyed by thread_id for cross-node visibility
+    try:
+        from open_deep_research.preflight import run_preflight
+        from open_deep_research.model_routing import load_routing
+        run_preflight(load_routing(), tracker)
+    except Exception as e:  # PreflightError (fail policy) or unexpected probe error
+        from open_deep_research.preflight import PreflightError
+        if isinstance(e, PreflightError):
+            raise
+        logger.warning("preflight skipped due to probe error: %s", e)
     configurable = Configuration.from_runnable_config(config)
     if not configurable.persist_results:
         return {}
