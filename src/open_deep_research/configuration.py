@@ -368,6 +368,16 @@ class Configuration(BaseModel):
             }
         }
     )
+    whole_profile_mode: bool = Field(
+        default=False,
+        metadata={"x_oap_ui_config": {"type": "boolean", "default": False,
+            "description": "Gather EVERY profile property (resolved-or-confirmed-absent) and write a profile-defined subject narrative, instead of only the question-scoped target properties."}}
+    )
+    max_profile_rounds: int = Field(
+        default=6,
+        metadata={"x_oap_ui_config": {"type": "number", "default": 6,
+            "description": "Hard cap on whole-profile gap rounds (whole_profile_mode). Higher than max_fact_rounds since whole-profile gathering needs more passes."}}
+    )
     facts_answer_polish_model: Optional[str] = Field(
         default=None,
         metadata={
