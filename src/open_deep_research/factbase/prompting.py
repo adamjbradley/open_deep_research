@@ -70,7 +70,15 @@ def build_extraction_prompt(prof, target_properties, source_text, *, compiled: b
             "evidence_span MUST be a verbatim substring of the source text supporting the value; "
             "narrative is a short (1-3 sentence) prose note of context the source gives around "
             "the value (caveats, scope, methodology) -- omit it if the source adds nothing; "
-            "if nothing is stated, return an empty list.\n\nSOURCE:\n" + src
+            "if nothing is stated, return an empty list.\n"
+            "Output: return a JSON array (no prose, no markdown fences). Each element is an "
+            "object with keys: property, instance_name, value, evidence_span, and optionally "
+            "narrative. For qualifiers, include a 'qualifiers' key whose value is a flat LIST "
+            "of the applicable qualifier enum tokens from the catalog above (e.g. "
+            "[\"total_pop\", \"issued\"]) -- do NOT emit qualifiers as a nested object, and "
+            "include only tokens the source explicitly supports. evidence_span MUST be a "
+            "verbatim substring of the source. If nothing is stated, return [].\n"
+            "\nSOURCE:\n" + src
         )
     prop_names = target_properties or [pd.name for pd in prof.properties]
     return (
@@ -79,5 +87,13 @@ def build_extraction_prompt(prof, target_properties, source_text, *, compiled: b
         "Emit a qualifier ONLY if the source explicitly states it; otherwise omit it (do not guess). "
         "evidence_span MUST be a verbatim substring of the source text supporting the value. "
         "narrative is an optional short (1-3 sentence) prose note of context around the value. "
-        "If nothing is stated, return an empty list.\n\nSOURCE:\n" + src
+        "If nothing is stated, return an empty list.\n"
+        "Output: return a JSON array (no prose, no markdown fences). Each element is an "
+        "object with keys: property, instance_name, value, evidence_span, and optionally "
+        "narrative. For qualifiers, include a 'qualifiers' key whose value is a flat LIST "
+        "of the applicable qualifier enum tokens from the catalog above (e.g. "
+        "[\"total_pop\", \"issued\"]) -- do NOT emit qualifiers as a nested object, and "
+        "include only tokens the source explicitly supports. evidence_span MUST be a "
+        "verbatim substring of the source. If nothing is stated, return [].\n"
+        "\nSOURCE:\n" + src
     )

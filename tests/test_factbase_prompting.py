@@ -117,3 +117,16 @@ def test_catalog_includes_narrative_guidance():
     cat = compile_property_catalog(prof, ["scheme"])
     assert "narrative" in cat.lower()
     assert "enrolment" in cat
+
+
+def test_extraction_prompt_requests_flat_qualifier_tokens_and_json_array():
+    prof = profile_from_dict({"entity_type": "country", "version": "1", "properties": [
+        {"name": "cov", "kind": "percentage", "identity_qualifiers": ["population_basis"],
+         "qualifier_enums": {"population_basis": ["total_pop"]}},
+    ]})
+    p = build_extraction_prompt(prof, ["cov"], "Estonia: 99% of total population.", compiled=True)
+    low = p.lower()
+    assert "json array" in low
+    assert "evidence_span" in p
+    assert "qualifiers" in low and "list" in low      # flat list, not an object
+    assert "do not" in low and "object" in low        # explicit: not a nested object
