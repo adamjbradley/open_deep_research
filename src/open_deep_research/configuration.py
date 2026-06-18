@@ -296,6 +296,16 @@ class Configuration(BaseModel):
             }
         }
     )
+    consolidate_name_values: bool = Field(
+        default=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "default": True,
+                "description": "In facts-first answers, when a singular name property has several source-variants that text canonicalization can't merge (e.g. 'e-ID' / 'electronic identification' / 'Digi-ID'), run a cheap best-effort LLM pass to decide if they denote the same entity and pick one canonical name. Kill-switch: turn off to keep the deterministic best-variant pick."
+            }
+        }
+    )
     facts_first_mode: bool = Field(
         default=False,
         metadata={

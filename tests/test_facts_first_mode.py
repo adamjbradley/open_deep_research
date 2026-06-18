@@ -214,3 +214,54 @@ def test_facts_answer_text_displays_raw_variant_not_canonical():
                                 singular_props={"foundational_id_scheme"})
     assert "Estonia's digital ID" in out          # readable raw form shown
     assert "estonia s digital" not in out          # canonical key NOT shown
+
+
+# --- (C) semantic consolidation of name-variants -------------------------------------
+import asyncio as _asyncio
+
+
+class _FakeConsolidation:
+    def __init__(self, same_entity, canonical_name=""):
+        self.same_entity = same_entity
+        self.canonical_name = canonical_name
+
+
+def _rows_for(values):
+    return [{"property_name": "foundational_id_scheme", "value": v, "variants": [v],
+             "admission": "provisional", "in_conflict": False, "source_count": 1} for v in values]
+
+
+def test_consolidate_name_group_merges_same_entity():
+    calls = {}
+    async def fake_model_call(subject, prop_name, prop_desc, values):
+        calls["values"] = values
+        return _FakeConsolidation(True, "e-ID (Estonian electronic identity)")
+    rows = _rows_for(["ID-card", "Electronic Identification card (eID)", "Estonia's digital ID"])
+    merged = _asyncio.run(dr._consolidate_name_group("Estonia", "foundational_id_scheme",
+                                                     "the scheme", rows, fake_model_call))
+    assert merged is not None
+    assert dr._display_value(merged) == "e-ID (Estonian electronic identity)"
+    assert merged["source_count"] == 3           # corroboration summed across variants
+    assert merged["in_conflict"] is False
+    assert len(calls["values"]) == 3             # the model saw all distinct variants
+
+
+def test_consolidate_name_group_keeps_distinct_when_not_same_entity():
+    async def fake_model_call(*a):
+        return _FakeConsolidation(False)
+    rows = _rows_for(["Aadhaar", "Passport"])
+    assert _asyncio.run(dr._consolidate_name_group("X", "p", "d", rows, fake_model_call)) is None
+
+
+def test_consolidate_name_group_noops_on_single_value():
+    async def fake_model_call(*a):  # must NOT be called
+        raise AssertionError("model_call should not run for a single value")
+    rows = _rows_for(["only one"])
+    assert _asyncio.run(dr._consolidate_name_group("X", "p", "d", rows, fake_model_call)) is None
+
+
+def test_consolidate_name_group_best_effort_on_model_error():
+    async def boom(*a):
+        raise RuntimeError("model down")
+    rows = _rows_for(["a", "b"])
+    assert _asyncio.run(dr._consolidate_name_group("X", "p", "d", rows, boom)) is None

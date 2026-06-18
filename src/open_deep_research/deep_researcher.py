@@ -1798,6 +1798,81 @@ def _display_value(row: dict) -> str:
     return str(row.get("value") or "")
 
 
+class NameConsolidation(BaseModel):
+    """Whether several extracted name-variants denote the SAME entity, and the best name."""
+
+    same_entity: bool
+    canonical_name: str = ""
+
+
+async def _consolidate_name_group(subject, prop_name, prop_desc, rows, model_call):
+    """Merge name-variants that denote the same entity into one row, via a best-effort model.
+
+    Deterministic canonicalization can't merge synonyms ("e-ID" / "electronic identification"
+    / "Digi-ID" are the same scheme); this asks the model whether the distinct variants name
+    the same thing and, if so, returns ONE merged row using the model's canonical name (with
+    corroboration summed). Returns None (keep variants as-is) when there is <2 to merge, the
+    model says they differ, or anything fails -- so the deterministic path still applies.
+    """
+    values = []
+    for r in rows:
+        v = _display_value(r)
+        if v and v not in values:
+            values.append(v)
+    if len(values) < 2:
+        return None
+    try:
+        result = await model_call(subject, prop_name, prop_desc, values)
+    except Exception as e:  # noqa: BLE001 - consolidation is best-effort
+        logger.warning("name consolidation failed (non-fatal) for %s: %s", prop_name, e)
+        return None
+    if not (result and getattr(result, "same_entity", False)
+            and (getattr(result, "canonical_name", "") or "").strip()):
+        return None
+    canonical = result.canonical_name.strip()
+    best = _best_singular_row(rows)
+    return {
+        **best,
+        "value": canonical,
+        "variants": [canonical],
+        "source_count": sum(int(r.get("source_count") or 0) for r in rows),
+        "in_conflict": False,
+        "admission": "trusted" if any(r.get("admission") == "trusted" for r in rows)
+        else best.get("admission"),
+    }
+
+
+def _make_name_consolidation_call(configurable, config):
+    """An async ``model_call(subject, prop_name, prop_desc, values) -> NameConsolidation``
+    on the cheap summarization chain, grounded strictly in the provided values."""
+    async def model_call(subject, prop_name, prop_desc, values):
+        model = (
+            configurable_model
+            .with_structured_output(NameConsolidation)
+            .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+            .with_config({
+                "model": configurable.summarization_model,
+                "model_chain": configurable.model_chain("summarization"),
+                "stage": "summarization",
+                "max_tokens": configurable.summarization_model_max_tokens,
+                "api_key": get_api_key_for_model(configurable.summarization_model, config),
+                "tags": ["langsmith:nostream"],
+            })
+        )
+        listing = "; ".join(f'"{v}"' for v in values)
+        prompt = (
+            f"Different sources gave these values for the '{prop_name}' of {subject}.\n"
+            f"Property meaning: {prop_desc}\nValues: {listing}\n\n"
+            f"Do these all refer to the SAME {prop_name} (the same scheme/entity), just named "
+            f"differently? If yes, set same_entity=true and canonical_name to the single best, "
+            f"most official, commonly-used name -- choose from or lightly normalise the given "
+            f"values; do NOT invent new information. If they are genuinely different things, "
+            f"set same_entity=false."
+        )
+        return await model.ainvoke([HumanMessage(content=prompt)])
+    return model_call
+
+
 def _facts_answer_text(subject, grouped_rows, targets, singular_props=None) -> str:
     """Deterministic, grounded answer from the grouped fact base: one line per target
     property (value | status | sources); missing targets flagged explicitly.
@@ -1851,12 +1926,39 @@ async def answer_from_facts(state: AgentState, config: RunnableConfig) -> dict:
 
     # Singular (non-multi) properties collapse to their single best value at render time.
     singular_props = set()
+    prof = None
     try:
         from open_deep_research.factbase import profile as fbprofile
         prof = fbprofile.load(_effective_profile_name(state, configurable))
         singular_props = {pd.name for pd in prof.properties if not getattr(pd, "multi", False)}
     except Exception as e:  # noqa: BLE001 - profile is best-effort here; fall back to listing all
         logger.warning("facts-answer: could not load profile for singular collapse: %s", e)
+
+    # (C) Semantic consolidation: merge name-variants that denote the same entity (e.g.
+    # "e-ID"/"electronic identification"/"Digi-ID") into one canonical value via a best-effort
+    # LLM pass -- deterministic canonicalization can't merge synonyms. Falls back silently.
+    if configurable.consolidate_name_values and prof is not None and subject:
+        name_singular = {pd.name for pd in prof.properties
+                         if not getattr(pd, "multi", False)
+                         and getattr(pd, "value_kind", None) in ("name", "name_year")}
+        if targets:
+            name_singular &= set(targets)
+        if name_singular:
+            model_call = _make_name_consolidation_call(configurable, config)
+            by_prop = {}
+            for r in grouped:
+                by_prop.setdefault(r.get("property_name"), []).append(r)
+            for p in name_singular:
+                rows = by_prop.get(p) or []
+                if len(rows) <= 1:
+                    continue
+                try:
+                    desc = getattr(prof.property(p), "description", "") or ""
+                except Exception:  # noqa: BLE001
+                    desc = ""
+                merged = await _consolidate_name_group(subject, p, desc, rows, model_call)
+                if merged:
+                    grouped = [r for r in grouped if r.get("property_name") != p] + [merged]
 
     deterministic = _facts_answer_text(subject, grouped, targets, singular_props=singular_props)
 
