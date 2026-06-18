@@ -164,4 +164,19 @@ STEPS: list[tuple[int, str]] = [
     (8, """
     ALTER TABLE fact ADD COLUMN narrative TEXT;
     """),
+    (9, """
+    CREATE TABLE IF NOT EXISTS property_status (
+        id INTEGER PRIMARY KEY,
+        instance_key TEXT NOT NULL,
+        property_name TEXT NOT NULL,
+        qualifiers_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL,
+        evidence TEXT,
+        run_id INTEGER,
+        as_of TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE INDEX IF NOT EXISTS ix_property_status_instance
+        ON property_status(instance_key, property_name);
+    """),
 ]
