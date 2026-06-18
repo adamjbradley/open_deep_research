@@ -34,6 +34,7 @@ from open_deep_research.prompts import (
     knowledge_assessment_prompt,
     lead_researcher_prompt,
     merge_reports_prompt,
+    profile_selection_prompt,
     research_system_prompt,
     subject_resolution_prompt,
     target_properties_prompt,
@@ -49,6 +50,7 @@ from open_deep_research.state import (
     ResearcherState,
     KnowledgeAssessment,
     ResearchQuestion,
+    SelectedProfile,
     SubjectResolution,
     SupervisorState,
     TargetProperties,
@@ -309,6 +311,14 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     subject = state.get("subject")
     missing_information = state.get("missing_information") or ""
 
+    # Query-driven profile selection: pick the best-matching domain profile once per run (a
+    # gap round re-enters this node, so reuse the already-selected one). Threaded via state so
+    # extract_facts uses the same profile. Falls back to configurable.profile_name.
+    selected_profile_name = state.get("selected_profile_name")
+    if configurable.auto_select_profile and not selected_profile_name:
+        selected_profile_name = await select_profile(question, configurable, config)
+    profile_name = selected_profile_name or configurable.profile_name
+
     # Facts-first answers/sufficiency resolve the fact-base instance from `subject`, but on
     # the research path subject is otherwise only resolved at persist time (and not at all
     # when the KB is off). Resolve it here so the facts nodes have an instance to query.
@@ -359,7 +369,7 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     if configurable.facts_first_mode and not target_properties:
         from open_deep_research.factbase import profile as _fbprofile
         target_properties = await resolve_target_properties(
-            question, _fbprofile.load(configurable.profile_name), configurable, config
+            question, _fbprofile.load(profile_name), configurable, config
         )
     if configurable.facts_first_mode and target_properties:
         research_brief = (
@@ -386,6 +396,8 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     }
     if target_properties:
         update["target_properties"] = target_properties
+    if selected_profile_name:
+        update["selected_profile_name"] = selected_profile_name
     return update
 
 
@@ -1097,6 +1109,60 @@ async def _resolve_subject(topic, research_brief, existing_subjects, configurabl
     return response.subject.strip()
 
 
+def _effective_profile_name(state, configurable) -> str:
+    """The profile this run should use: the query-selected one, else the configured default."""
+    return (state.get("selected_profile_name") if state else None) or configurable.profile_name
+
+
+async def select_profile(question, configurable, config) -> str:
+    """Pick the profile whose domain best fits the question (query-driven selection).
+
+    A cheap structured call over the shipped profiles; the result is validated against the
+    available names and unknowns are dropped. Falls back to ``configurable.profile_name`` on
+    any failure, an empty answer, or when only one profile exists -- selection never starves
+    the fact path.
+    """
+    from open_deep_research.factbase import profile as _fbprofile
+    try:
+        available = _fbprofile.available_profiles()
+    except Exception as e:  # noqa: BLE001 - never block research on profile discovery
+        logger.warning("available_profiles failed; using configured profile: %s", e)
+        return configurable.profile_name
+    names = {p["name"] for p in available}
+    if len(available) <= 1:
+        return configurable.profile_name
+    try:
+        model = (
+            configurable_model
+            .with_structured_output(SelectedProfile)
+            .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+            .with_config({
+                "model": configurable.summarization_model,
+                "model_chain": configurable.model_chain("summarization"),
+                "stage": "summarization",
+                "max_tokens": configurable.summarization_model_max_tokens,
+                "api_key": get_api_key_for_model(configurable.summarization_model, config),
+                "tags": ["langsmith:nostream"],
+            })
+        )
+        listing = "\n".join(
+            f"- {p['name']} (entity: {p['entity_type']}): {p['notes'] or 'no description'} "
+            f"| properties: {', '.join(p['property_names'])}"
+            for p in available
+        )
+        prompt = profile_selection_prompt.format(question=question, profiles=listing)
+        response = await model.ainvoke([HumanMessage(content=prompt)])
+        chosen = (response.profile_name or "").strip()
+        if chosen in names:
+            logger.info("Query-selected profile: %s", chosen)
+            return chosen
+        logger.info("No profile matched the question; using configured default %s", configurable.profile_name)
+        return configurable.profile_name
+    except Exception as e:
+        logger.warning("select_profile failed; using configured profile: %s", e)
+        return configurable.profile_name
+
+
 async def resolve_target_properties(question, prof, configurable, config) -> list[str]:
     """Map a question to the subset of profile properties needed to answer it (facts-first).
 
@@ -1314,6 +1380,9 @@ class FactRecord(BaseModel):
     as_of: Optional[str] = None
     qualifiers: dict = Field(default_factory=dict)
     evidence_span: str
+    # Free-text context the source gives around this value (1-3 sentences): caveats,
+    # scope, methodology, or qualitative detail that the structured value alone omits.
+    narrative: Optional[str] = None
 
 
 class ExtractionResult(BaseModel):
@@ -1362,6 +1431,48 @@ def _make_fact_model_call(configurable, config, target_properties=None):
             logger.warning("fact model_call failed (non-fatal): %s", e)
             return []
     return model_call
+
+
+async def _maybe_propose_extensions(configurable, config, prof, profile_name, source_texts) -> None:
+    """Ask the model for valuable facts the profile doesn't model; append them to a draft.
+
+    Reuses the assisted-scaffolding path (``scaffold.induce`` proposes only NEW properties,
+    validated against the profile meta-schema) seeded with this run's source text. The result
+    is merged into ``<profile_name>.extension.draft.yaml`` for a human to review and merge --
+    the production profile is never touched. Best-effort; the caller swallows exceptions.
+    """
+    from open_deep_research.factbase import scaffold as fbscaffold
+
+    if not source_texts:
+        return
+    existing_names = [pd.name for pd in prof.properties]
+    description = f"facts worth gathering about a {prof.entity_type} (profile '{profile_name}')"
+
+    async def _model_call(prompt):
+        model = (
+            configurable_model
+            .with_structured_output(fbscaffold.ScaffoldProposal)
+            .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+            .with_config({
+                "model": configurable.summarization_model,
+                "model_chain": configurable.model_chain("summarization"),
+                "stage": "summarization",
+                "max_tokens": configurable.summarization_model_max_tokens,
+                "api_key": get_api_key_for_model(configurable.summarization_model, config),
+                "tags": ["langsmith:nostream"],
+            })
+        )
+        return await model.ainvoke([HumanMessage(content=prompt)])
+
+    # Cap seed sources to bound prompt size (build_scaffold_prompt also truncates each).
+    proposal = await fbscaffold.induce(
+        prof.entity_type, description, source_texts[:8], existing_names, _model_call)
+    path, added = fbscaffold.write_extension_draft(profile_name, prof.entity_type, proposal)
+    if added:
+        logger.info("Proposed %d profile extension(s) for '%s' -> %s: %s",
+                    len(added), profile_name, path, ", ".join(added))
+    else:
+        logger.info("No new profile extensions proposed for '%s'", profile_name)
 
 
 async def preallocate_run(state: AgentState, config: RunnableConfig) -> dict:
@@ -1416,7 +1527,8 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
             schema as fbschema,
             store as fbstore,
         )
-        prof = fbprofile.load(configurable.profile_name)
+        profile_name = _effective_profile_name(state, configurable)
+        prof = fbprofile.load(profile_name)
         reg = fbregistry.SourceRegistry.load(configurable.registry_name)
         model_call = _make_fact_model_call(
             configurable, config, target_properties=state.get("target_properties"))
@@ -1437,17 +1549,17 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                     "SELECT profile_hash FROM research_runs "
                     "WHERE profile_name=? AND profile_hash IS NOT NULL AND id<>? "
                     "ORDER BY id DESC LIMIT 1",
-                    (configurable.profile_name, run_id))
+                    (profile_name, run_id))
                 _prev = await _cur.fetchone()
                 _cur_hash = getattr(prof, "profile_hash", None)
                 if _prev and _prev[0] and _cur_hash and _prev[0] != _cur_hash:
                     logger.warning(
                         "Profile '%s' changed since the last run (%s -> %s); prior facts may be "
                         "stale until `dossier recompute --profile %s`.",
-                        configurable.profile_name, _prev[0][:8], _cur_hash[:8], configurable.profile_name)
+                        profile_name, _prev[0][:8], _cur_hash[:8], profile_name)
                 await conn.execute(
                     "UPDATE research_runs SET profile_name=?, profile_version=?, profile_hash=? WHERE id=?",
-                    (configurable.profile_name,
+                    (profile_name,
                      getattr(prof, "profile_version", None),
                      getattr(prof, "profile_hash", None),
                      run_id),
@@ -1527,6 +1639,18 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                     registry=reg,
                     normalize_values=configurable.normalize_fact_values,
                 ).ingest(run_id=run_id, records=all_records)
+
+            # 5. Opportunistically propose profile extensions for valuable facts the profile
+            #    doesn't capture (draft file only; never edits the production profile).
+            if configurable.propose_profile_extensions:
+                try:
+                    await _maybe_propose_extensions(
+                        configurable, config, prof, profile_name,
+                        [s["text"] for s in valid_sources if s.get("text")],
+                    )
+                except Exception as e:
+                    logger.warning("profile-extension proposal failed (non-fatal): %s", e)
+
             # Record which sources we mined so a facts-first gap round skips them.
             return {"extracted_source_urls": [s["source_url"] for s in valid_sources]}
     except Exception as e:
@@ -1605,6 +1729,9 @@ def _facts_answer_text(subject, grouped_rows, targets) -> str:
             status = "trusted" if (r.get("admission") == "trusted" and not r.get("in_conflict")) else \
                 ("in-conflict" if r.get("in_conflict") else "provisional")
             lines.append(f"- **{p}**: {r.get('value')} ({status}, {r.get('source_count', 0)} sources)")
+            narrative = (r.get("narrative") or "").strip()
+            if narrative:
+                lines.append(f"  - {narrative}")
     return "\n".join(lines)
 
 

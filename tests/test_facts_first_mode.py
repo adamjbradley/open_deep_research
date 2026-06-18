@@ -21,12 +21,16 @@ def _cfg(**kw):
 
 # -- routing functions (pure, config-driven) -----------------------------------
 
-def test_route_after_research_respects_facts_first():
+def test_route_after_research_respects_facts_first(monkeypatch):
+    # Isolate from an ambient FACTS_FIRST_MODE in the developer's .env: env overrides the
+    # per-call configurable, which would otherwise mask the facts_first_mode=False branch.
+    monkeypatch.delenv("FACTS_FIRST_MODE", raising=False)
     assert dr.route_after_research({}, _cfg(facts_first_mode=True)) == "extract_facts"
     assert dr.route_after_research({}, _cfg(facts_first_mode=False)) == "final_report_generation"
 
 
-def test_route_after_extract_respects_facts_first():
+def test_route_after_extract_respects_facts_first(monkeypatch):
+    monkeypatch.delenv("FACTS_FIRST_MODE", raising=False)
     assert dr.route_after_extract({}, _cfg(facts_first_mode=True)) == "assess_sufficiency"
     assert dr.route_after_extract({}, _cfg(facts_first_mode=False)) == "persist_research"
 

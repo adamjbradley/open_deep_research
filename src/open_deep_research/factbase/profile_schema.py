@@ -14,7 +14,7 @@ from pydantic import BaseModel, model_validator
 
 from .profile import Profile, PropertyDef
 
-_VALID_KINDS = {"name", "enum", "percentage", "boolean", "name_year", "number"}
+_VALID_KINDS = {"name", "enum", "percentage", "boolean", "name_year", "number", "text"}
 
 
 class _EnumValue(BaseModel):

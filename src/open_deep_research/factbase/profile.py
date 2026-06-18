@@ -91,3 +91,35 @@ def load(name: str) -> Profile:
         .read_text(encoding="utf-8")
     )
     return profile_from_dict(yaml.safe_load(text))
+
+
+def available_profiles() -> list[dict]:
+    """List shipped domain profiles for query-driven selection.
+
+    Returns one dict per loadable profile: ``{name, entity_type, notes, property_names}``.
+    Skips source registries (no ``entity_type``) and ``*.draft.yaml`` proposals. ``name`` is
+    the YAML stem (what ``load``/``profile_name`` expects). Best-effort: malformed files are
+    skipped so a single bad file never breaks selection.
+    """
+    import yaml
+    from importlib.resources import files
+
+    out: list[dict] = []
+    for entry in files("open_deep_research.factbase.profiles").iterdir():
+        n = entry.name
+        if not n.endswith(".yaml") or n.endswith(".draft.yaml"):
+            continue
+        try:
+            data = yaml.safe_load(entry.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - a malformed file shouldn't break selection
+            continue
+        if not (isinstance(data, dict) and data.get("entity_type")):
+            continue  # registries have no entity_type
+        out.append({
+            "name": n[: -len(".yaml")],
+            "entity_type": data.get("entity_type"),
+            "notes": data.get("notes") or "",
+            "property_names": [p["name"] for p in data.get("properties", []) if "name" in p],
+        })
+    out.sort(key=lambda p: p["name"])
+    return out
