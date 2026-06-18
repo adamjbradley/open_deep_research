@@ -60,7 +60,7 @@
       "comment": "Lowest-latency preset: Gemini throughput on the hot paths (researcher + per-page summarize/compress run gemini-2.5-flash, the verified fast/cheap throughput king with 1M context). Supervisor uses claude-opus-4-8 to DISPATCH research -- repo benchmark: only opus reliably dispatches, and the supervisor is low-volume (a few planning calls) so opus here costs little wall-clock while avoiding the worst runtime outcome: an empty-notes run you have to redo. Cross-backend gemini-2.5-flash supervisor backup also dispatches (proven live). final_report on claude-sonnet-4-6 (fast, coherent synthesis). Bulk roles fail over cross-backend to claude-haiku-4-5. Activate with MODEL_ROUTING_PRESET=fast. Gemini-primary roles need the gemini CLI logged in (see .env.example), else every primary call fails over to Claude.",
       "roles": {
         "supervisor": ["claude-opus-4-8", "gemini:gemini-2.5-flash"],
-        "researcher": ["gemini:gemini-2.5-flash", "claude-haiku-4-5"],
+        "researcher": ["claude-haiku-4-5", "gemini:gemini-2.5-flash"],
         "summarization": ["gemini:gemini-2.5-flash", "claude-haiku-4-5"],
         "compression": ["gemini:gemini-2.5-flash", "claude-haiku-4-5"],
         "final_report": ["claude-sonnet-4-6", "gemini:gemini-2.5-flash"]
