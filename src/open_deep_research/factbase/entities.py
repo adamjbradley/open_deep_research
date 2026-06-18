@@ -45,6 +45,34 @@ class CountryResolver:
     def resolve(self, name: str) -> str | None:
         return _load()[0].get(_norm(name))
 
+    def resolve_in_text(self, text: str) -> str | None:
+        """Resolve a country mentioned anywhere in free text (e.g. a subject phrase).
+
+        ``resolve`` is exact-match only, so a descriptive subject like
+        "Estonia's digital identity scheme" yields None. This tries the whole string
+        first, then scans contiguous word n-grams longest-first (so "South Korea" wins
+        over a bare "Korea") and matches each against the exact resolver. Whole-token
+        matching avoids the substring false positives of scanning the separator-stripped
+        norm (e.g. "Romania" contains "oman"). Single tokens shorter than 4 chars are
+        skipped so noise like "id"/"is"/"in" cannot match a 2-letter code alias.
+        """
+        if not text:
+            return None
+        key = self.resolve(text)
+        if key:
+            return key
+        words = re.findall(r"[A-Za-z0-9]+", text)
+        n = len(words)
+        for size in range(min(n, 4), 0, -1):
+            for i in range(n - size + 1):
+                cand = " ".join(words[i:i + size])
+                if size == 1 and len(_norm(cand)) < 4:
+                    continue
+                hit = self.resolve(cand)
+                if hit:
+                    return hit
+        return None
+
     def instance_name(self, key: str) -> str:
         """Primary display name for an alpha-3 key (echoes the key if unknown)."""
         return _load()[1].get(key, key)

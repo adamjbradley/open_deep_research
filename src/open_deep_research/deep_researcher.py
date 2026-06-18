@@ -1783,7 +1783,11 @@ async def answer_from_facts(state: AgentState, config: RunnableConfig) -> dict:
 
     import aiosqlite
     from open_deep_research.factbase import entities as fbentities, query as fbquery
-    instance_key = fbentities.CountryResolver().resolve(subject) if subject else None
+    # Resolve the country from the subject PHRASE (e.g. "Estonia's digital identity scheme"),
+    # not just an exact country name -- extraction stores facts under the country key (EST),
+    # so the answer path must find that country inside the descriptive subject or it retrieves
+    # nothing and renders every property "missing".
+    instance_key = fbentities.CountryResolver().resolve_in_text(subject) if subject else None
     grouped = []
     if instance_key:
         async with aiosqlite.connect(get_db_path(config)) as conn:
