@@ -1,4 +1,4 @@
-from open_deep_research.factbase.lean_extract import LeanFact, slot_qualifiers
+from open_deep_research.factbase.lean_extract import LeanFact, slot_qualifiers, parse_lean_facts
 from open_deep_research.factbase.profile_schema import profile_from_dict
 
 PROF = profile_from_dict({"entity_type": "country", "version": "1", "properties": [
@@ -25,3 +25,23 @@ def test_leanfact_qualifiers_is_a_flat_list():
     f = LeanFact(property="cov", instance_name="Estonia", value="99",
                  evidence_span="99% hold", qualifiers=["total_pop"])
     assert f.qualifiers == ["total_pop"]
+
+def test_parse_keeps_valid_skips_malformed():
+    raw = '''[
+      {"property":"cov","instance_name":"Estonia","value":"99","evidence_span":"99% hold","qualifiers":["total_pop"]},
+      {"property":"cov","value":"bad - missing required fields"},
+      {"property":"scheme","instance_name":"Estonia","value":"eID","evidence_span":"the eID"}
+    ]'''
+    out = parse_lean_facts(raw)
+    assert len(out) == 2                       # the malformed middle record is dropped
+    assert out[0]["qualifiers"] == ["total_pop"]
+    assert out[1]["property"] == "scheme"
+
+def test_parse_tolerates_prose_and_fences_around_the_array():
+    raw = "Here are the facts:\n```json\n[{\"property\":\"p\",\"instance_name\":\"X\",\"value\":\"v\",\"evidence_span\":\"e\"}]\n```\nDone."
+    out = parse_lean_facts(raw)
+    assert len(out) == 1 and out[0]["value"] == "v"
+
+def test_parse_returns_empty_on_garbage():
+    assert parse_lean_facts("no json here") == []
+    assert parse_lean_facts("") == []

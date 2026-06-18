@@ -3,6 +3,8 @@ reconstruction of the rich qualifiers dict. Keeping the open-ended qualifiers OU
 model's structured output is what lets a cheap model emit it reliably."""
 from __future__ import annotations
 
+import json
+import re
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -36,4 +38,41 @@ def slot_qualifiers(property_def, tokens: list[str]) -> dict:
             if t and t.strip().lower() in allowed_lc:
                 out[q] = t.strip().lower()
                 break
+    return out
+
+
+_ARRAY = re.compile(r"\[.*\]", re.S)
+
+
+def parse_lean_facts(raw: str) -> list[dict]:
+    """Lenient parse of the model's output into valid LeanFact dicts.
+
+    Extracts the first JSON array from the text (tolerating markdown fences / surrounding
+    prose), then validates each element against LeanFact INDEPENDENTLY -- keeping the valid
+    records and skipping malformed ones (no all-or-nothing). Returns [] if nothing parses.
+    """
+    if not raw or not raw.strip():
+        return []
+    text = raw.strip()
+    arr = None
+    try:
+        obj = json.loads(text)
+        arr = obj if isinstance(obj, list) else obj.get("facts") if isinstance(obj, dict) else None
+    except Exception:  # noqa: BLE001
+        m = _ARRAY.search(text)
+        if m:
+            try:
+                arr = json.loads(m.group(0))
+            except Exception:  # noqa: BLE001
+                arr = None
+    if not isinstance(arr, list):
+        return []
+    out: list[dict] = []
+    for item in arr:
+        if not isinstance(item, dict):
+            continue
+        try:
+            out.append(LeanFact.model_validate(item).model_dump())
+        except Exception:  # noqa: BLE001 - one bad record never drops the rest
+            continue
     return out
