@@ -47,6 +47,8 @@ def compile_property_catalog(prof, target_properties=None) -> str:
             line += f" | qualifiers: {quals}"
         elif pd.identity_qualifiers:
             line += f" | qualifiers: {pd.identity_qualifiers}"
+        if getattr(pd, "narrative_required", False) and getattr(pd, "narrative_guidance", ""):
+            line += f" | narrative (required): {pd.narrative_guidance}"
         lines.append(line)
     return "\n".join(lines)
 

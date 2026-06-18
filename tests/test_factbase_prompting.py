@@ -107,3 +107,13 @@ def test_shipped_di_profile_constrains_foundational_scheme_extraction():
     low = cat.lower()
     assert "single" in low                      # only the one official scheme
     assert "e-residency" in low or "e residency" in low  # explicit don't-extract example
+
+
+def test_catalog_includes_narrative_guidance():
+    prof = profile_from_dict({"entity_type": "country", "version": "1", "properties": [
+        {"name": "scheme", "kind": "name",
+         "narrative": {"required": True, "guidance": "Explain enrolment and caveats."}},
+    ]})
+    cat = compile_property_catalog(prof, ["scheme"])
+    assert "narrative" in cat.lower()
+    assert "enrolment" in cat
