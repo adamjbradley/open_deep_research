@@ -23,6 +23,10 @@ class PropertyDef:
     value_aliases: dict[str, list[str]] = field(default_factory=dict)
     multi: bool = False
     open_world: bool = False
+    narrative_required: bool = False
+    narrative_guidance: str = ""
+    completeness: str = "required"
+    absence_allowed: bool = True
 
     def aliases_for(self, normalized_value: str) -> str | None:
         """Return the canonical value if ``normalized_value`` is a known variant, else None."""
@@ -70,6 +74,7 @@ class PropertyDef:
 class Profile:
     entity_type: str
     properties: list[PropertyDef]
+    overview_sections: list[str] = field(default_factory=list)
 
     def property(self, name: str) -> PropertyDef:
         for pd in self.properties:
