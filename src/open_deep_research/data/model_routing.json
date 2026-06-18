@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "active_preset": "gemini",
+  "active_preset": "claude",
   "backends": {
     "gemini": { "cli_bin": "gemini", "cli_args": [], "trust_workspace": true,
                 "model_aliases": { "flash": "gemini-2.5-flash" } },
@@ -68,6 +68,18 @@
         "summarization": ["gemini:gemini-2.5-flash", "claude-haiku-4-5"],
         "compression": ["gemini:gemini-2.5-flash", "claude-haiku-4-5"],
         "final_report": ["claude-sonnet-4-6", "gemini:gemini-2.5-flash"]
+      },
+      "search": "tavily",
+      "step_overrides": {}
+    },
+    "nvidia": {
+      "comment": "EXAMPLE preset for NVIDIA's OpenAI-compatible API (integrate.api.nvidia.com). Needs NVIDIA_API_KEY set (key-authenticated, independent of Claude subscription mode); the 'nvidia:' prefix routes to a ChatOpenAI pointed at that endpoint. Tool-calling/structured-output support varies by NVIDIA-hosted model, so every role keeps a cross-backend Claude backup that takes over on any failure. The NIM 'thinking' knobs are auto-applied per model (ON for nemotron*, OFF for others like nvidia:minimaxai/minimax-m3); override with NVIDIA_ENABLE_THINKING / NVIDIA_REASONING_BUDGET / NVIDIA_TEMPERATURE / NVIDIA_TOP_P (see .env.example). Swap the nemotron id for whatever NVIDIA model you have access to. Activate with MODEL_ROUTING_PRESET=nvidia.",
+      "roles": {
+        "supervisor": ["claude-opus-4-8", "nvidia:nvidia/nemotron-3-ultra-550b-a55b"],
+        "researcher": ["nvidia:nvidia/nemotron-3-ultra-550b-a55b", "claude-opus-4-6"],
+        "summarization": ["nvidia:nvidia/nemotron-3-ultra-550b-a55b", "claude-haiku-4-5"],
+        "compression": ["nvidia:nvidia/nemotron-3-ultra-550b-a55b", "claude-haiku-4-5"],
+        "final_report": ["nvidia:nvidia/nemotron-3-ultra-550b-a55b", "claude-opus-4-8"]
       },
       "search": "tavily",
       "step_overrides": {}
