@@ -172,6 +172,11 @@ async def tavily_search(
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
         .with_config({
             "model": configurable.summarization_model,
+            # Bring the highest-volume call (one per source) under the failover chain +
+            # ledger like every graph stage -- otherwise a gemini hard-failure here has no
+            # Claude backup and is invisible to the failover tracker.
+            "model_chain": configurable.model_chain("summarization"),
+            "stage": "summarization",
             "max_tokens": configurable.summarization_model_max_tokens,
             "api_key": get_api_key_for_model(configurable.summarization_model, config),
             "tags": ["langsmith:nostream"],
