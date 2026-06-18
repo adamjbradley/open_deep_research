@@ -360,3 +360,17 @@ def test_new_run_tracker_seeds_downed_backends(tmp_path, monkeypatch):
     fo.record_backend_exhausted("claude", now=1000.0)
     t = fo.new_run_tracker("thread-x", now=1050.0)
     assert t.is_backend_down("claude") is True
+
+
+# ---------------------------------------------------------------------------
+# Task 6: Sync-path failover guard (G6)
+# ---------------------------------------------------------------------------
+
+def test_sync_invoke_rejects_multielement_chain():
+    """Sync invoke() should reject multi-element chains and direct to ainvoke()."""
+    from open_deep_research.claude_agent_chat import configurable_claude_model
+
+    m = configurable_claude_model({"model_chain": ["gemini:gemini-2.5-flash", "claude-opus-4-8"],
+                                    "stage": "researcher"})
+    with pytest.raises(RuntimeError, match="sync invoke"):
+        m.invoke("hi")

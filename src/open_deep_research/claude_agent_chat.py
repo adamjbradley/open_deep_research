@@ -1233,6 +1233,11 @@ class configurable_claude_model(Runnable):
         raise last_exc
 
     def invoke(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
+        chain, _, _ = self._resolve_chain(config)
+        if len(chain) > 1:
+            raise RuntimeError(
+                "sync invoke() does not support model failover; use ainvoke() for a "
+                f"multi-element chain ({chain})")
         return self._materialize(config).invoke(input, config, **kwargs)
 
     async def astream(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
