@@ -427,6 +427,25 @@ def _extract_json(text: str) -> Optional[dict]:
     return None
 
 
+def _gemini_response_text(raw: str) -> str:
+    """Extract the model's final text from ``gemini -o json`` stdout.
+
+    The CLI wraps the answer as ``{"session_id", "response", "stats"}`` and puts
+    ONLY the final assistant text in ``response`` -- excluding agentic tool-call
+    artifacts (e.g. ``update_topic(...)``) and control tokens (``<ctrl46>``) that
+    gemini-2.5-flash intermittently leaks into plain ``-o text`` stdout. Falls back
+    to the raw string if the wrapper can't be parsed (CLI format drift), so output
+    is never silently lost.
+    """
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return raw
+    if isinstance(data, dict) and isinstance(data.get("response"), str):
+        return data["response"]
+    return raw
+
+
 def _loop_handles_subprocess() -> bool:
     """Whether the running event loop can spawn subprocesses.
 
@@ -845,9 +864,12 @@ class GeminiCLIChat(_CLIJsonChat):
         bin_ = os.getenv("GEMINI_CLI_BIN", "gemini")
         # agy uses --dangerously-skip-permissions to approve tools non-interactively.
         extra = os.getenv("GEMINI_CLI_ARGS", "").split()  # standard gemini CLI: no agy flags
-        # Pass the prompt via STDIN to survive the Windows cmd /c shim.
-        cmd = [bin_, "--model", self.model, *extra]
-        raw = await self._invoke(cmd, stdin=full)
+        # `-o json` returns {session_id, response, stats}: the model's final text lives in
+        # `response`, EXCLUDING agentic tool-call artifacts (update_topic) and control tokens
+        # that gemini-2.5-flash intermittently leaks into plain text-mode stdout. Pass the
+        # prompt via STDIN to survive the Windows cmd /c shim.
+        cmd = [bin_, "--model", self.model, "-o", "json", *extra]
+        raw = _gemini_response_text(await self._invoke(cmd, stdin=full))
         # agy occasionally appends a "### Summary" section to prose; strip it.
         if "### Summary" in raw:
             raw = raw.split("### Summary")[0].strip()
