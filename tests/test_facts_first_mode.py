@@ -35,6 +35,22 @@ def test_route_after_extract_respects_facts_first(monkeypatch):
     assert dr.route_after_extract({}, _cfg(facts_first_mode=False)) == "persist_research"
 
 
+def test_route_after_research_whole_profile_goes_to_extract(monkeypatch):
+    monkeypatch.delenv("FACTS_FIRST_MODE", raising=False)
+    monkeypatch.delenv("WHOLE_PROFILE_MODE", raising=False)
+    assert dr.route_after_research({}, _cfg(whole_profile_mode=True)) == "extract_facts"
+    assert dr.route_after_research({}, _cfg(facts_first_mode=True)) == "extract_facts"
+    assert dr.route_after_research({}, _cfg()) == "final_report_generation"  # both off -> report
+
+
+def test_route_after_extract_whole_profile_goes_to_assess_completeness(monkeypatch):
+    monkeypatch.delenv("FACTS_FIRST_MODE", raising=False)
+    monkeypatch.delenv("WHOLE_PROFILE_MODE", raising=False)
+    assert dr.route_after_extract({}, _cfg(whole_profile_mode=True)) == "assess_completeness"
+    assert dr.route_after_extract({}, _cfg(facts_first_mode=True)) == "assess_sufficiency"
+    assert dr.route_after_extract({}, _cfg()) == "persist_research"  # both off
+
+
 def test_default_config_is_report_mode():
     from open_deep_research.configuration import Configuration
     c = Configuration()

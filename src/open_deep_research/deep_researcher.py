@@ -347,7 +347,7 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     # Facts-first answers/sufficiency resolve the fact-base instance from `subject`, but on
     # the research path subject is otherwise only resolved at persist time (and not at all
     # when the KB is off). Resolve it here so the facts nodes have an instance to query.
-    if configurable.facts_first_mode and not subject:
+    if (configurable.facts_first_mode or configurable.whole_profile_mode) and not subject:
         try:
             existing_names = await get_subject_names(get_db_path(config))
             subject = await _resolve_subject(question, question, existing_names, configurable, config)
@@ -389,12 +389,15 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
         ))])
         research_brief = response.research_brief
 
-    # Facts-first: resolve which fact properties the question needs and steer research at them.
+    # Facts-first / whole-profile: resolve which fact properties to target and steer research.
     target_properties = state.get("target_properties")
-    if configurable.facts_first_mode:
+    if configurable.facts_first_mode or configurable.whole_profile_mode:
         from open_deep_research.factbase import profile as _fbprofile
         _prof = _fbprofile.load(profile_name)
-        if not target_properties:
+        if configurable.whole_profile_mode:
+            # Whole-profile mode always covers every property in the profile.
+            target_properties = [pd.name for pd in _prof.properties]
+        elif not target_properties:
             target_properties = await resolve_target_properties(
                 question, _prof, configurable, config
             )
@@ -2186,8 +2189,9 @@ deep_researcher_builder.add_node("persist_research", persist_research)          
 
 
 def route_after_research(state: AgentState, config: RunnableConfig) -> str:
-    """Facts-first mode skips the prose report and goes straight to fact extraction."""
-    return "extract_facts" if Configuration.from_runnable_config(config).facts_first_mode \
+    """Facts-first or whole-profile mode skips the prose report and goes straight to fact extraction."""
+    configurable = Configuration.from_runnable_config(config)
+    return "extract_facts" if (configurable.facts_first_mode or configurable.whole_profile_mode) \
         else "final_report_generation"
 
 
