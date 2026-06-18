@@ -154,3 +154,32 @@ def test_assess_sufficiency_answers_when_budget_exhausted(tmp_path):
         cmd = await dr.assess_sufficiency(state, _cfg(database_path=db, max_fact_rounds=2))
         assert cmd.goto == "answer_from_facts"
     asyncio.run(run())
+
+
+def test_facts_answer_text_consolidates_singular_property_to_best_value():
+    # A singular `name` property with several conflicting source-variants must render ONE
+    # value (best-corroborated; ties broken toward non-conflict then longest), not a dump.
+    rows = [
+        {"property_name": "foundational_id_scheme", "value": "digital",
+         "admission": "provisional", "in_conflict": False, "source_count": 1},
+        {"property_name": "foundational_id_scheme", "value": "Estonia's e-ID (electronic identity)",
+         "admission": "provisional", "in_conflict": False, "source_count": 3},
+        {"property_name": "foundational_id_scheme", "value": "personal id code",
+         "admission": "provisional", "in_conflict": True, "source_count": 1},
+    ]
+    out = dr._facts_answer_text("Estonia", rows, ["foundational_id_scheme"],
+                                singular_props={"foundational_id_scheme"})
+    assert "Estonia's e-ID (electronic identity)" in out          # best (3 sources) kept
+    assert "personal id code" not in out and "**: digital" not in out  # others dropped
+    assert out.count("**foundational_id_scheme**") == 1
+
+
+def test_facts_answer_text_keeps_all_values_for_non_singular_property():
+    rows = [
+        {"property_name": "biometric_capture", "value": "fingerprint",
+         "admission": "trusted", "in_conflict": False, "source_count": 2},
+        {"property_name": "biometric_capture", "value": "iris",
+         "admission": "trusted", "in_conflict": False, "source_count": 2},
+    ]
+    out = dr._facts_answer_text("India", rows, ["biometric_capture"], singular_props=set())
+    assert "fingerprint" in out and "iris" in out

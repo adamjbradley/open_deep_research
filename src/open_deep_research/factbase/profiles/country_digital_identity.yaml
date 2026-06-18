@@ -4,7 +4,11 @@ notes: "Digital-Identity pillar for the country entity type (Feature Spec 2.1)."
 properties:
   - name: foundational_id_scheme
     kind: name
-    description: "The country's primary national/foundational ID scheme."
+    description: "The single official foundational/national ID scheme, by its official name
+      (e.g. the national ID card or eID programme). Extract ONLY the one primary scheme; do
+      NOT report related e-services or adjacent programmes (e-residency, mobile-ID, bank-ID,
+      e-citizenship, individual sector cards) as the foundational scheme. Prefer the most
+      official, commonly-used name."
     value_aliases:
       aadhaar:
         - uidai

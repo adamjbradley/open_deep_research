@@ -1752,9 +1752,31 @@ async def assess_sufficiency(state: AgentState, config: RunnableConfig) -> Comma
     return Command(goto="answer_from_facts", update={"fact_rounds_used": rounds_used})
 
 
-def _facts_answer_text(subject, grouped_rows, targets) -> str:
+def _best_singular_row(rows: list) -> dict:
+    """Pick the single best row for a singular property: most-corroborated, then prefer a
+    non-conflicting value, then the longest (most specific) value. Deterministic.
+
+    Sources name the same scheme many ways ("e-ID" / "electronic identification" / "personal
+    ID code"); text canonicalization can't merge generic synonyms (and value_aliases are
+    property-global, so aliasing them would corrupt other countries), so a singular property
+    collapses to its best value at render time rather than dumping every variant.
+    """
+    return max(rows, key=lambda r: (
+        r.get("source_count", 0),
+        0 if r.get("in_conflict") else 1,
+        len(str(r.get("value") or "")),
+    ))
+
+
+def _facts_answer_text(subject, grouped_rows, targets, singular_props=None) -> str:
     """Deterministic, grounded answer from the grouped fact base: one line per target
-    property (value | status | sources); missing targets flagged explicitly."""
+    property (value | status | sources); missing targets flagged explicitly.
+
+    ``singular_props`` names properties that hold a single value (non-``multi``); for those,
+    multiple source-variants are collapsed to the single best row (see ``_best_singular_row``)
+    instead of listing every variant.
+    """
+    singular = set(singular_props or ())
     by_prop = {}
     for r in grouped_rows:
         by_prop.setdefault(r.get("property_name"), []).append(r)
@@ -1764,6 +1786,8 @@ def _facts_answer_text(subject, grouped_rows, targets) -> str:
         if not rows:
             lines.append(f"- **{p}**: missing — not found in sources.")
             continue
+        if p in singular and len(rows) > 1:
+            rows = [_best_singular_row(rows)]
         for r in rows:
             status = "trusted" if (r.get("admission") == "trusted" and not r.get("in_conflict")) else \
                 ("in-conflict" if r.get("in_conflict") else "provisional")
@@ -1795,7 +1819,16 @@ async def answer_from_facts(state: AgentState, config: RunnableConfig) -> dict:
     if targets:
         grouped = [r for r in grouped if r.get("property_name") in targets]
 
-    deterministic = _facts_answer_text(subject, grouped, targets)
+    # Singular (non-multi) properties collapse to their single best value at render time.
+    singular_props = set()
+    try:
+        from open_deep_research.factbase import profile as fbprofile
+        prof = fbprofile.load(_effective_profile_name(state, configurable))
+        singular_props = {pd.name for pd in prof.properties if not getattr(pd, "multi", False)}
+    except Exception as e:  # noqa: BLE001 - profile is best-effort here; fall back to listing all
+        logger.warning("facts-answer: could not load profile for singular collapse: %s", e)
+
+    deterministic = _facts_answer_text(subject, grouped, targets, singular_props=singular_props)
 
     # Optional cheap-LLM polish, grounded ONLY in the deterministic facts (best-effort).
     answer = deterministic
