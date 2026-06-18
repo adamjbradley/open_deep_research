@@ -1187,7 +1187,7 @@ class configurable_claude_model(Runnable):
 
     # -- Runnable interface -------------------------------------------------
     async def ainvoke(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
-        from open_deep_research.failover import classify_error, get_tracker, reason_for
+        from open_deep_research.failover import backend_of, classify_error, get_tracker, reason_for
 
         chain, stage, run_key = self._resolve_chain(config)
         if len(chain) <= 1:
@@ -1215,8 +1215,10 @@ class configurable_claude_model(Runnable):
             except Exception as exc:  # noqa: BLE001 - re-raised below when the chain is exhausted
                 last_exc = exc
                 kind = classify_error(exc)
-                if kind == "hard":
-                    tracker.mark_down(model_string)  # sticky only for hard failures
+                if kind == "backend_fatal":
+                    tracker.mark_backend_down(backend_of(model_string))
+                elif kind == "model_fatal":
+                    tracker.mark_down(model_string)
                 if idx >= len(available) - 1:
                     raise  # nothing left to fail over to
                 next_model = available[idx + 1]

@@ -5,6 +5,7 @@ import pytest
 from open_deep_research.failover import (
     AvailabilityTracker,
     FailoverRecord,
+    backend_of,
     classify_error,
     get_tracker,
     new_run_tracker,
@@ -18,14 +19,15 @@ from open_deep_research.model_routing import (
 
 
 @pytest.mark.parametrize("message,expected", [
-    # hard: model won't recover this run -> fail over now
-    ("Error: 429 RESOURCE_EXHAUSTED: Quota exceeded for quota metric", "hard"),
-    ("insufficient_quota: You exceeded your current quota", "hard"),
-    ("billing hard limit reached", "hard"),
-    ("404 model not found: gemini-2.0-pro", "hard"),
-    ("The model `gpt-9` does not exist", "hard"),
-    ("401 Unauthorized: invalid api key", "hard"),
-    ("403 permission denied", "hard"),
+    # backend_fatal: the whole backend is unusable (quota/auth/billing)
+    ("Error: 429 RESOURCE_EXHAUSTED: Quota exceeded for quota metric", "backend_fatal"),
+    ("insufficient_quota: You exceeded your current quota", "backend_fatal"),
+    ("billing hard limit reached", "backend_fatal"),
+    ("401 Unauthorized: invalid api key", "backend_fatal"),
+    ("403 permission denied", "backend_fatal"),
+    # model_fatal: only this model id is bad (wrong/removed name)
+    ("404 model not found: gemini-2.0-pro", "model_fatal"),
+    ("The model `gpt-9` does not exist", "model_fatal"),
     # transient: retry the same model first
     ("429 rate limit exceeded, please slow down", "transient"),
     ("overloaded_error: the service is overloaded", "transient"),
@@ -45,14 +47,14 @@ def test_timeout_is_transient():
 
 
 def test_quota_429_beats_rate_limit_429():
-    # a 429 that is really a quota exhaustion must classify HARD, not transient
-    assert classify_error(Exception("429 quota exceeded")) == "hard"
+    # a 429 that is really a quota exhaustion must classify backend_fatal, not transient
+    assert classify_error(Exception("429 quota exceeded")) == "backend_fatal"
 
 
 def test_reason_for_is_short_single_line():
     exc = Exception("boom: line one\nline two\n" + "x" * 500)
-    r = reason_for(exc, "hard")
-    assert r.startswith("hard: boom: line one")
+    r = reason_for(exc, "backend_fatal")
+    assert r.startswith("backend_fatal: boom: line one")
     assert "\n" not in r
     assert len(r) <= 140
 
@@ -62,7 +64,7 @@ def test_classify_error_empty_message():
 
 
 def test_reason_for_empty_message():
-    assert reason_for(Exception(""), "hard") == "hard: Exception"
+    assert reason_for(Exception(""), "backend_fatal") == "backend_fatal: Exception"
 
 
 def test_tracker_mark_down_and_available_chain():
@@ -77,13 +79,13 @@ def test_tracker_mark_down_and_available_chain():
 
 def test_tracker_records_failovers():
     t = AvailabilityTracker()
-    t.record_failover("supervisor", "gemini:gemini-2.5-pro", "claude-opus-4-8", "hard: quota")
+    t.record_failover("supervisor", "gemini:gemini-2.5-pro", "claude-opus-4-8", "backend_fatal: quota")
     assert t.failovers == [
-        FailoverRecord("supervisor", "gemini:gemini-2.5-pro", "claude-opus-4-8", "hard: quota")
+        FailoverRecord("supervisor", "gemini:gemini-2.5-pro", "claude-opus-4-8", "backend_fatal: quota")
     ]
     assert t.failovers[0].as_dict() == {
         "stage": "supervisor", "from": "gemini:gemini-2.5-pro",
-        "to": "claude-opus-4-8", "reason": "hard: quota",
+        "to": "claude-opus-4-8", "reason": "backend_fatal: quota",
     }
 
 
@@ -118,6 +120,40 @@ def test_available_chain_all_down_returns_empty():
     t.mark_down("model-a")
     t.mark_down("model-b")
     assert t.available_chain(chain) == []
+
+
+# ---------------------------------------------------------------------------
+# Task 1: Backend-level mark-down (G1)
+# ---------------------------------------------------------------------------
+
+def test_backend_of_derives_backend():
+    assert backend_of("gemini:gemini-2.5-flash") == "gemini"
+    assert backend_of("codex:gpt-5.5") == "codex"
+    assert backend_of("claude-opus-4-8") == "claude"
+    assert backend_of("claude:opus") == "claude"
+
+
+def test_classify_three_way():
+    assert classify_error(Exception("429 insufficient_quota")) == "backend_fatal"
+    assert classify_error(Exception("401 unauthorized")) == "backend_fatal"
+    assert classify_error(Exception("model not found: foo")) == "model_fatal"
+    assert classify_error(Exception("404")) == "model_fatal"
+    assert classify_error(Exception("overloaded, try again")) == "transient"
+    assert classify_error(TimeoutError()) == "transient"
+
+
+def test_backend_down_skips_all_models_of_backend():
+    t = AvailabilityTracker()
+    t.mark_backend_down("claude")
+    chain = ["gemini:gemini-2.5-flash", "claude-opus-4-6", "claude-opus-4-8"]
+    assert t.available_chain(chain) == ["gemini:gemini-2.5-flash"]
+
+
+def test_model_fatal_does_not_kill_backend():
+    t = AvailabilityTracker()
+    t.mark_down("claude-opus-4-6")
+    assert t.is_backend_down("claude") is False
+    assert t.available_chain(["claude-opus-4-6", "claude-opus-4-8"]) == ["claude-opus-4-8"]
 
 
 # ---------------------------------------------------------------------------
