@@ -1509,11 +1509,14 @@ async def _maybe_propose_extensions(configurable, config, prof, profile_name, so
             .with_structured_output(fbscaffold.ScaffoldProposal)
             .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
             .with_config({
-                "model": configurable.summarization_model,
-                "model_chain": configurable.model_chain("summarization"),
-                "stage": "summarization",
+                # ScaffoldProposal is a complex nested schema (like ExtractionResult): route it
+                # to the propose_extensions step (gemini-2.5-pro primary) so flash doesn't keep
+                # failing structured-output validation and burning the Claude fallback.
+                "model": configurable.model_for("propose_extensions", "summarization"),
+                "model_chain": configurable.model_chain("summarization", "propose_extensions"),
+                "stage": "propose_extensions",
                 "max_tokens": configurable.summarization_model_max_tokens,
-                "api_key": get_api_key_for_model(configurable.summarization_model, config),
+                "api_key": get_api_key_for_model(configurable.model_for("propose_extensions", "summarization"), config),
                 "tags": ["langsmith:nostream"],
             })
         )

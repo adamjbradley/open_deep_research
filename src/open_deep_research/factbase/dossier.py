@@ -56,6 +56,18 @@ def validate_profiles(extra_paths=None) -> tuple[str, bool]:
     return "\n".join(lines), ok
 
 
+def _propose_extensions_cfg() -> dict:
+    """with_config routing the complex scaffold/registry schemas through the propose_extensions
+    step (gemini-2.5-pro primary, configurable in model_routing.json) instead of the default
+    flash, which fails structured-output validation on rich nested schemas."""
+    from open_deep_research.model_routing import load_routing, model_chain
+    chain = model_chain("summarization", routing=load_routing(), step="propose_extensions")
+    cfg: dict = {"stage": "propose_extensions"}
+    if chain:
+        cfg["model"], cfg["model_chain"] = chain[0], chain
+    return cfg
+
+
 def _scaffold_model_call():
     """Return an async model_call(prompt) -> ScaffoldProposal using the configured model.
 
@@ -66,7 +78,8 @@ def _scaffold_model_call():
     from .scaffold import ScaffoldProposal
 
     async def call(prompt: str):
-        model = configurable_model.with_structured_output(ScaffoldProposal)
+        model = configurable_model.with_structured_output(ScaffoldProposal).with_config(
+            _propose_extensions_cfg())
         return await model.ainvoke([HumanMessage(content=prompt)])
     return call
 
@@ -81,7 +94,8 @@ def _registry_scaffold_model_call():
     from .registry_scaffold import RegistryProposal
 
     async def call(prompt: str):
-        model = configurable_model.with_structured_output(RegistryProposal)
+        model = configurable_model.with_structured_output(RegistryProposal).with_config(
+            _propose_extensions_cfg())
         return await model.ainvoke([HumanMessage(content=prompt)])
     return call
 

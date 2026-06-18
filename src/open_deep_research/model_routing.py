@@ -16,7 +16,7 @@ from pydantic import BaseModel, model_validator
 
 KNOWN_ROLES = {"supervisor", "researcher", "summarization", "compression",
                "final_report", "facts_answer_polish"}
-KNOWN_STEPS = {"extract_facts"}  # expand as more call sites adopt model_for()
+KNOWN_STEPS = {"extract_facts", "propose_extensions"}  # expand as more call sites adopt model_for()
 KNOWN_BACKENDS = {"claude", "gemini", "codex"}
 KNOWN_PREFIXES = {"claude", "gemini", "google", "codex", "openai", "anthropic"}
 KNOWN_SEARCH = {"claude", "gemini", "codex", "anthropic", "openai", "tavily", "none"}
