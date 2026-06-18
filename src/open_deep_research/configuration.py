@@ -123,6 +123,24 @@ class Configuration(BaseModel):
             }
         }
     )
+    max_search_results: int = Field(
+        default=5,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "slider", "default": 5, "min": 1, "max": 20, "step": 1,
+                "description": "Cap on results summarized per search query. Lower it to cut the number of per-source summarization calls (and total runtime) on broad runs."
+            }
+        }
+    )
+    summarize_search_results: bool = Field(
+        default=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean", "default": True,
+                "description": "Summarize each fetched source with the summarization model. Disable to skip that per-source LLM pass and hand the (truncated) raw content straight to compression -- far fewer model calls, at some loss of per-source distillation."
+            }
+        }
+    )
     # Model Configuration
     summarization_model: str = Field(
         default="gemini:gemini-2.5-flash",
@@ -302,6 +320,22 @@ class Configuration(BaseModel):
             "type": "text",
             "default": "di_source_registry",
             "description": "Name of the factbase source registry (YAML file stem under factbase/profiles/) used for source-trust tiers.",
+        }},
+    )
+    auto_select_profile: bool = Field(
+        default=True,
+        metadata={"x_oap_ui_config": {
+            "type": "boolean",
+            "default": True,
+            "description": "Pick the factbase domain profile that best matches the user's question (from the profiles shipped under factbase/profiles/) instead of always using profile_name. profile_name is the fallback when no profile clearly fits.",
+        }},
+    )
+    propose_profile_extensions: bool = Field(
+        default=False,
+        metadata={"x_oap_ui_config": {
+            "type": "boolean",
+            "default": False,
+            "description": "After extraction, ask the model whether the sources contain valuable, recurring facts the active profile does NOT capture, and append them as proposed new properties to <profile>.extension.draft.yaml for manual review/merge. Never edits the production profile.",
         }},
     )
     compile_extraction_prompt: bool = Field(

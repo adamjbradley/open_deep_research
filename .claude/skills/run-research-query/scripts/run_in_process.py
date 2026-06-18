@@ -50,6 +50,10 @@ async def main(args: argparse.Namespace) -> None:
         configurable.update(use_knowledge_base=False, allow_clarification=False)
     if args.no_persist:
         configurable["persist_results"] = False
+    if args.no_summarize:
+        configurable["summarize_search_results"] = False
+    if args.max_results is not None:
+        configurable["max_search_results"] = args.max_results
     configurable["database_path"] = args.db or os.path.join(
         tempfile.gettempdir(), "odr_in_process.db"
     )
@@ -89,6 +93,8 @@ def parse_args(argv: list) -> argparse.Namespace:
     p.add_argument("--kb-off", action="store_true", help="Disable the knowledge base (fresh research).")
     p.add_argument("--iterations", type=int, default=2, help="max_researcher_iterations (default 2; use >=2, see module docstring).")
     p.add_argument("--concurrency", type=int, default=4, help="max_concurrent_research_units: parallel researchers per supervisor turn (default 4; raises fan-out throughput).")
+    p.add_argument("--no-summarize", action="store_true", help="Skip per-source LLM summarization; pass truncated raw content to compression (far fewer model calls).")
+    p.add_argument("--max-results", type=int, default=None, help="Cap results summarized per search query (lowers summarize-call volume). Default: graph default (5).")
     p.add_argument("--db", help="SQLite DB path (default: isolated temp DB).")
     p.add_argument("--full", action="store_true", help="Use the graph's default (deeper) limits.")
     p.add_argument("--no-persist", action="store_true", help="Do not write to any SQLite DB.")

@@ -6,6 +6,7 @@ import os
 import warnings
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Dict, List, Literal, Optional
+from weakref import WeakKeyDictionary
 
 import aiohttp
 from dotenv import load_dotenv
@@ -67,6 +68,42 @@ TAVILY_SEARCH_DESCRIPTION = (
     "A search engine optimized for comprehensive, accurate, and trusted results. "
     "Useful for when you need to answer questions about current events."
 )
+# Bound how many summarize_webpage calls are IN FLIGHT at once, process-wide per event
+# loop. Each summarize_webpage has its own wall-clock timeout; if we fire one coroutine
+# per search result (often 20-40) they all start their timers together, then queue on the
+# model backend's own concurrency limit (e.g. the ~7 Claude SDK slots, or whatever Gemini
+# allows) and the excess age out before they ever execute. Gating ENTRY here -- the
+# `async with` sits OUTSIDE summarize_webpage's timeout -- means a call's timer only starts
+# once a slot is free, so each one actually runs within its timeout. Defaults to the Claude
+# SDK slot count; override with SUMMARIZE_MAX_CONCURRENCY. Per-loop (like the SDK semaphore)
+# to avoid binding a global Semaphore to the wrong event loop.
+_SUMMARIZE_MAX = int(os.getenv("SUMMARIZE_MAX_CONCURRENCY",
+                               os.getenv("CLAUDE_SDK_MAX_CONCURRENCY", "4")))
+_SUMMARIZE_SEMAPHORES: "WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = \
+    WeakKeyDictionary()
+
+
+def _summarize_semaphore() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    sem = _SUMMARIZE_SEMAPHORES.get(loop)
+    if sem is None:
+        sem = asyncio.Semaphore(max(1, _SUMMARIZE_MAX))
+        _SUMMARIZE_SEMAPHORES[loop] = sem
+    return sem
+
+
+# Run-level (per thread_id) cache of {url: summary}. A source summarized by one
+# researcher is reused if another researcher's search returns the same URL, so popular
+# pages (common on a focused topic) are summarized once per run, not once per researcher.
+_SUMMARY_CACHE: "dict[str, dict[str, str]]" = {}
+
+
+def _summary_cache(thread_id) -> dict:
+    if not thread_id:
+        return {}  # no run id -> a throwaway dict (degrades to no cross-search reuse)
+    return _SUMMARY_CACHE.setdefault(str(thread_id), {})
+
+
 @tool(description=TAVILY_SEARCH_DESCRIPTION)
 async def tavily_search(
     queries: List[str],
@@ -86,7 +123,9 @@ async def tavily_search(
         Formatted string containing summarized search results
     """
     # Step 1: Execute search queries asynchronously
-    logger.info("Tavily search executing for queries: %s", queries)
+    configurable = Configuration.from_runnable_config(config)
+    max_results = min(max_results, configurable.max_search_results)  # cap per-query fan-out
+    logger.info("Tavily search executing for queries: %s (max_results=%d)", queries, max_results)
     search_results = await tavily_search_async(
         queries,
         max_results=max_results,
@@ -123,11 +162,9 @@ async def tavily_search(
         logger.warning("run_source capture failed (non-fatal): %s", _e)
 
     # Step 3: Set up the summarization model with configuration
-    configurable = Configuration.from_runnable_config(config)
-    
     # Character limit to stay within model token limits (configurable)
     max_char_to_include = configurable.max_content_length
-    
+
     # Initialize summarization model with retry logic
     summarization_model = (
         configurable_claude_model()
@@ -140,22 +177,36 @@ async def tavily_search(
             "tags": ["langsmith:nostream"],
         })
     )
-    
-    # Step 4: Create summarization tasks (skip empty content)
-    async def noop():
-        """No-op function for results without raw content."""
-        return None
-    
-    summarization_tasks = [
-        noop() if not result.get("raw_content") 
-        else summarize_webpage(
-            summarization_model, 
-            result['raw_content'][:max_char_to_include]
-        )
-        for result in unique_results.values()
-    ]
-    
-    # Step 5: Execute all summarization tasks in parallel
+
+    # Step 4: Produce per-source content. Three call-reducing behaviours:
+    #  - summarize_search_results=False -> skip the LLM pass, hand compression the
+    #    truncated raw text (or Tavily's snippet); cuts ALL summarize calls.
+    #  - run-level cache -> a URL already summarized this run is reused, not re-called.
+    #  - the _summarize_semaphore gate keeps in-flight calls matched to model slots.
+    do_summarize = configurable.summarize_search_results
+    thread_id = (config or {}).get("configurable", {}).get("thread_id") if config else None
+    cache = _summary_cache(thread_id)
+
+    async def _summarize_one(result):
+        raw = result.get("raw_content")
+        url = result.get("url")
+        if not do_summarize:
+            # Tavily's relevance snippet (short, already extracted) -- no model call;
+            # fall back to truncated raw only when no snippet is present.
+            return result.get("content") or (raw or "")[:max_char_to_include] or None
+        if url and url in cache:
+            return cache[url]
+        if not raw:
+            return None
+        async with _summarize_semaphore():
+            summary = await summarize_webpage(summarization_model, raw[:max_char_to_include])
+        if url:
+            cache[url] = summary
+        return summary
+
+    summarization_tasks = [_summarize_one(result) for result in unique_results.values()]
+
+    # Step 5: Execute summarization tasks, bounded to _SUMMARIZE_MAX in flight at once
     summaries = await asyncio.gather(*summarization_tasks)
     
     # Step 6: Combine results with their summaries
