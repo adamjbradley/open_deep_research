@@ -199,3 +199,18 @@ def test_facts_research_brief_steered_by_property_catalog():
     assert "population_basis" in out               # id_coverage_pct required qualifier surfaced
     assert "qualifier" in out.lower()              # explicit instruction to capture qualifiers
     assert "scheme_status" not in out              # only the targeted properties
+
+
+def test_facts_answer_text_displays_raw_variant_not_canonical():
+    # group_by_canonical sets `value` to the noise-stripped canonical ("estonia s digital")
+    # and keeps raw surface forms in `variants`. The answer must show a readable raw form.
+    rows = [{
+        "property_name": "foundational_id_scheme",
+        "value": "estonia s digital",                       # canonical (ugly)
+        "variants": ["Estonia's digital ID", "estonia digital"],
+        "admission": "provisional", "in_conflict": False, "source_count": 1,
+    }]
+    out = dr._facts_answer_text("Estonia", rows, ["foundational_id_scheme"],
+                                singular_props={"foundational_id_scheme"})
+    assert "Estonia's digital ID" in out          # readable raw form shown
+    assert "estonia s digital" not in out          # canonical key NOT shown

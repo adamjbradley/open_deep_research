@@ -1788,6 +1788,16 @@ def _best_singular_row(rows: list) -> dict:
     ))
 
 
+def _display_value(row: dict) -> str:
+    """A readable value for the answer: a raw surface form from ``variants`` (the longest, most
+    complete one), not the noise-stripped canonical that ``group_by_canonical`` puts in ``value``
+    (e.g. show "Estonia's digital ID", not the canonical "estonia s digital")."""
+    variants = [v for v in (row.get("variants") or []) if v and v.strip()]
+    if variants:
+        return max(variants, key=len)
+    return str(row.get("value") or "")
+
+
 def _facts_answer_text(subject, grouped_rows, targets, singular_props=None) -> str:
     """Deterministic, grounded answer from the grouped fact base: one line per target
     property (value | status | sources); missing targets flagged explicitly.
@@ -1811,7 +1821,7 @@ def _facts_answer_text(subject, grouped_rows, targets, singular_props=None) -> s
         for r in rows:
             status = "trusted" if (r.get("admission") == "trusted" and not r.get("in_conflict")) else \
                 ("in-conflict" if r.get("in_conflict") else "provisional")
-            lines.append(f"- **{p}**: {r.get('value')} ({status}, {r.get('source_count', 0)} sources)")
+            lines.append(f"- **{p}**: {_display_value(r)} ({status}, {r.get('source_count', 0)} sources)")
             narrative = (r.get("narrative") or "").strip()
             if narrative:
                 lines.append(f"  - {narrative}")
