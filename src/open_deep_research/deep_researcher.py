@@ -394,10 +394,12 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     if configurable.facts_first_mode or configurable.whole_profile_mode:
         from open_deep_research.factbase import profile as _fbprofile
         _prof = _fbprofile.load(profile_name)
-        if configurable.whole_profile_mode:
-            # Whole-profile mode always covers every property in the profile.
+        if configurable.whole_profile_mode and not target_properties:
+            # Round 1 covers the whole profile. On gap rounds, assess_completeness has narrowed
+            # target_properties to the still-incomplete set -- keep it (don't re-target resolved
+            # properties), so steering + extraction focus on what's actually missing.
             target_properties = [pd.name for pd in _prof.properties]
-        elif not target_properties:
+        elif not configurable.whole_profile_mode and not target_properties:
             target_properties = await resolve_target_properties(
                 question, _prof, configurable, config
             )
@@ -1840,7 +1842,11 @@ async def assess_completeness(state: AgentState, config: RunnableConfig) -> Comm
         )
         return Command(
             goto="write_research_brief",
-            update={"missing_information": gap, "fact_rounds_used": rounds_used + 1},
+            # Narrow the next round to ONLY the still-incomplete properties: steer the catalog
+            # and target extraction at the gaps, not the whole profile (target_properties has no
+            # reducer -> this replaces the round-1 all-properties list).
+            update={"missing_information": gap, "target_properties": incomplete,
+                    "fact_rounds_used": rounds_used + 1},
         )
     if incomplete:
         logger.info("Whole-profile still incomplete %s but round budget exhausted; finishing", incomplete)
