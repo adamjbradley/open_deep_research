@@ -102,3 +102,13 @@ def test_tuple_key_unspecified_qualifier_is_its_own_tuple():
     specified = identity.tuple_key(7, "id_coverage_pct", {"population_basis": "adults_15plus"})
     unspec = identity.tuple_key(7, "id_coverage_pct", {"population_basis": None})
     assert specified != unspec
+
+
+def test_canonical_value_name_never_empties_to_blank():
+    # "ID-card" is all noise words (id, card); trailing-noise stripping must NOT collapse it
+    # to "" (a degenerate grouping key). Keep at least one token.
+    assert _cv(_SCHEME, "ID-card")[0] != ""
+    assert _cv(_SCHEME, "ID card")[0] != ""
+    assert _cv(_SCHEME, "ID-card")[0] == _cv(_SCHEME, "ID card")[0]   # stable
+    # regression: a real name with a trailing noise word still strips it
+    assert _cv(_SCHEME, "Aadhaar Card")[0] == "aadhaar"

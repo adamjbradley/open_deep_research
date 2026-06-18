@@ -1783,6 +1783,7 @@ def _best_singular_row(rows: list) -> dict:
     """
     return max(rows, key=lambda r: (
         r.get("source_count", 0),
+        1 if r.get("admission") == "trusted" else 0,   # a trusted value beats a provisional one
         0 if r.get("in_conflict") else 1,
         len(str(r.get("value") or "")),
     ))

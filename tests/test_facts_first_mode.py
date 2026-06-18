@@ -265,3 +265,24 @@ def test_consolidate_name_group_best_effort_on_model_error():
         raise RuntimeError("model down")
     rows = _rows_for(["a", "b"])
     assert _asyncio.run(dr._consolidate_name_group("X", "p", "d", rows, boom)) is None
+
+
+def test_best_singular_row_prefers_trusted_over_longer_provisional():
+    rows = [
+        {"property_name": "foundational_id_scheme", "value": "electronic identification",
+         "admission": "trusted", "in_conflict": False, "source_count": 1},
+        {"property_name": "foundational_id_scheme", "value": "new electronic identity cards",
+         "admission": "provisional", "in_conflict": False, "source_count": 1},  # longer
+    ]
+    best = dr._best_singular_row(rows)
+    assert best["admission"] == "trusted"            # trusted wins despite being shorter
+
+
+def test_best_singular_row_source_count_still_dominates_admission():
+    rows = [
+        {"property_name": "p", "value": "a", "admission": "trusted",
+         "in_conflict": False, "source_count": 1},
+        {"property_name": "p", "value": "b", "admission": "provisional",
+         "in_conflict": False, "source_count": 5},   # better corroborated
+    ]
+    assert dr._best_singular_row(rows)["value"] == "b"
