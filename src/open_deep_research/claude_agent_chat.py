@@ -104,6 +104,11 @@ _SDK_TIMEOUT_S = int(os.getenv("CLI_BACKEND_TIMEOUT", "600"))
 # Bounded retry for transient/spurious SDK & CLI failures (see _is_transient_sdk_error).
 _SDK_MAX_ATTEMPTS = max(1, int(os.getenv("CLAUDE_SDK_MAX_ATTEMPTS", "3")))
 _SDK_RETRY_BACKOFF_S = float(os.getenv("CLAUDE_SDK_RETRY_BACKOFF", "1.5"))
+# After the drain timeout fires, how long to let cancellation try to tear the subprocess
+# down before ABANDONING a wedged task rather than freezing the run. A CLI subprocess can
+# wedge in uninterruptible I/O (kernel 'D' state) and not die even on SIGKILL until the
+# call returns; we won't block the whole run waiting for that. See _drain_query_with_timeout.
+_DRAIN_REAP_GRACE_S = float(os.getenv("CLI_DRAIN_REAP_GRACE", "10"))
 
 # Substrings that mark a failure as transient -- worth retrying rather than surfacing.
 # "error result: success" is the contradictory envelope the CLI emits under load
@@ -161,18 +166,51 @@ async def _run_with_retry(attempt, *, max_attempts: int, backoff_s: float):
                 await asyncio.sleep(backoff_s * (2 ** i))
 
 
+def _detach(task: asyncio.Task) -> None:
+    """Let an abandoned task's eventual exception be retrieved silently (no warning)."""
+    def _swallow(t: asyncio.Task) -> None:
+        try:
+            if not t.cancelled():
+                t.exception()
+        except Exception:  # noqa: BLE001 - the task was abandoned; its outcome is irrelevant
+            pass
+    task.add_done_callback(_swallow)
+
+
 async def _drain_query_with_timeout(prompt, options, handler, timeout_s: float) -> None:
     """Consume ``cas.query`` feeding each message to ``handler``, bounded by a timeout.
 
-    The timeout wraps the ``async for`` itself so it runs in the same event loop
-    that owns the CLI subprocess -- cancelling on timeout therefore tears the
-    query (and its subprocess) down rather than leaking a hung process.
+    Hardening against a wedged subprocess: a plain ``asyncio.wait_for(_drain(), t)`` does
+    fire its timeout, but then *awaits the inner task's cancellation* -- and that
+    cancellation blocks while it tries to tear down a CLI subprocess stuck in uninterruptible
+    I/O (kernel 'D' state), which never returns. The whole run then freezes despite the
+    timeout. Instead we time the drain with a SHIELD (so the timeout doesn't await
+    cancellation), then cancel and give a bounded grace; if the subprocess still won't die
+    we ABANDON the task (it self-completes when the kernel I/O eventually returns) and raise
+    TimeoutError so the caller (`_run_with_retry` -> failover) makes progress instead of hanging.
     """
     async def _drain() -> None:
         async for msg in cas.query(prompt=prompt, options=options):
             handler(msg)
 
-    await asyncio.wait_for(_drain(), timeout=timeout_s)
+    task = asyncio.ensure_future(_drain())
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=timeout_s)
+        return
+    except asyncio.TimeoutError:
+        pass  # timed out -> bounded teardown below (a real error would have propagated)
+
+    task.cancel()
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=_DRAIN_REAP_GRACE_S)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        pass
+    except Exception:  # noqa: BLE001 - any teardown error is irrelevant; we're abandoning
+        pass
+    if not task.done():
+        _detach(task)  # wedged in I/O: abandon rather than freeze the run
+    raise asyncio.TimeoutError(
+        f"CLI subprocess drain exceeded {timeout_s}s (subprocess may be wedged in I/O)")
 
 
 def use_subscription() -> bool:
