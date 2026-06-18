@@ -283,6 +283,37 @@ def to_gemini_model(model_name: Optional[str]) -> str:
     return "gemini-2.0-pro"
 
 
+# agy's --model requires the EXACT display-name string; an unrecognized id silently defaults
+# to Gemini 3.5 Flash, so we map our stable tier-explicit slugs and RAISE on anything else.
+_AGY_MODELS = {
+    "gemini-3.5-flash-low":    "Gemini 3.5 Flash (Low)",
+    "gemini-3.5-flash-medium": "Gemini 3.5 Flash (Medium)",
+    "gemini-3.5-flash-high":   "Gemini 3.5 Flash (High)",
+    "gemini-3.1-pro-low":      "Gemini 3.1 Pro (Low)",
+    "gemini-3.1-pro-high":     "Gemini 3.1 Pro (High)",
+    "claude-opus-4.6":         "Claude Opus 4.6 (Thinking)",
+    "claude-sonnet-4.6":       "Claude Sonnet 4.6 (Thinking)",
+    "gpt-oss-120b":            "GPT-OSS 120B (Medium)",
+}
+
+
+def to_agy_model(slug: str) -> str:
+    """Map a stable agy slug (optionally 'agy:'-prefixed) to agy's exact --model display name.
+
+    Raises ValueError on an unknown slug: agy silently defaults unrecognized ids to Gemini 3.5
+    Flash, so a typo must fail loudly rather than mis-route.
+    """
+    s = (slug or "").strip()
+    if s.lower().startswith("agy:"):
+        s = s.split(":", 1)[1].strip()
+    try:
+        return _AGY_MODELS[s.lower()]
+    except KeyError:
+        raise ValueError(
+            f"unknown agy model slug {slug!r}; known: {sorted(_AGY_MODELS)}"
+        ) from None
+
+
 def to_codex_model(model_name: Optional[str]) -> str:
     """Map a configured model string to a Codex CLI model id.
 
@@ -306,6 +337,111 @@ def to_codex_model(model_name: Optional[str]) -> str:
     if low.startswith(("gpt", "o1", "o3", "o4")):
         return s
     return default
+
+
+# NVIDIA's hosted API (integrate.api.nvidia.com) speaks the OpenAI protocol, so the
+# "nvidia:" backend is a plain ChatOpenAI pointed at that endpoint -- no CLI, no new
+# dependency. Any NVIDIA-hosted model id is addressable as "nvidia:<vendor/model>", e.g.
+# "nvidia:nvidia/nemotron-3-ultra-550b-a55b", "nvidia:minimaxai/minimax-m3",
+# "nvidia:moonshotai/kimi-k2.6", "nvidia:deepseek-ai/deepseek-v4-pro", "nvidia:z-ai/glm-5.1".
+# All config (key + per-model knobs) is read from the environment / .env -- nothing hardcoded.
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+NVIDIA_DEFAULT_REASONING_BUDGET = 16384
+
+
+def to_nvidia_model(model_name: Optional[str]) -> str:
+    """Map a configured model string to an NVIDIA model id.
+
+    Strips a leading "nvidia:" prefix and passes the vendor id through unchanged
+    (e.g. "nvidia:nvidia/nemotron-3-ultra-550b-a55b" -> "nvidia/nemotron-3-ultra-550b-a55b").
+    """
+    s = (model_name or "").strip()
+    if s.lower().startswith("nvidia:"):
+        s = s.split(":", 1)[1].strip()
+    return s
+
+
+def _nvidia_thinking_enabled(model_id: str) -> bool:
+    """Whether to forward NVIDIA's reasoning/'thinking' knobs for ``model_id``.
+
+    ``NVIDIA_ENABLE_THINKING`` forces it on/off globally when set. Unset, it
+    auto-detects: NVIDIA's Nemotron reasoning models accept ``chat_template_kwargs``
+    + ``reasoning_budget``, while most other hosted models (e.g. minimax, llama)
+    reject those NIM extensions -- so thinking defaults on only for nemotron.
+    """
+    raw = os.getenv("NVIDIA_ENABLE_THINKING")
+    if raw is not None:
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return "nemotron" in model_id.lower()
+
+
+def _nvidia_extra_body(model_id: str) -> Optional[dict]:
+    """Return the OpenAI ``extra_body`` (NVIDIA NIM extensions) for ``model_id``, or None.
+
+    Resolution (all externalised to the environment / .env -- nothing hardcoded per model):
+      1. ``NVIDIA_EXTRA_BODY`` -- raw JSON object, used verbatim. The universal escape hatch
+         for any model's 'thinking' dialect, since these differ across NVIDIA-hosted models
+         (Nemotron uses ``chat_template_kwargs.enable_thinking`` + ``reasoning_budget``;
+         DeepSeek-v4 uses ``chat_template_kwargs.thinking`` + ``reasoning_effort``). Applies
+         to every nvidia: model resolved this run.
+      2. Else, for Nemotron (or ``NVIDIA_ENABLE_THINKING`` forced on) -> the Nemotron dialect.
+      3. Else None -- a clean request (minimax / kimi / glm reject NIM thinking knobs).
+    """
+    raw = os.getenv("NVIDIA_EXTRA_BODY")
+    if raw and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"NVIDIA_EXTRA_BODY is not valid JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise RuntimeError(
+                f"NVIDIA_EXTRA_BODY must be a JSON object, got {type(parsed).__name__}."
+            )
+        return parsed
+    if _nvidia_thinking_enabled(model_id):
+        budget = os.getenv("NVIDIA_REASONING_BUDGET")
+        return {
+            "chat_template_kwargs": {"enable_thinking": True},
+            "reasoning_budget": int(budget) if budget else NVIDIA_DEFAULT_REASONING_BUDGET,
+        }
+    return None
+
+
+def build_nvidia_chat_model(model_string: Optional[str], max_tokens: Optional[int] = None) -> BaseChatModel:
+    """Construct a ChatOpenAI bound to NVIDIA's OpenAI-compatible endpoint.
+
+    Authenticates with ``NVIDIA_API_KEY`` (required) regardless of Claude-subscription
+    mode -- this is an API backend, not a CLI one. Per-model 'thinking' knobs are resolved
+    by :func:`_nvidia_extra_body` and forwarded through OpenAI ``extra_body``; models that
+    don't take them (e.g. minimax / kimi / glm) get a clean request with no ``extra_body``.
+    Multimodal models (e.g. minimax-m3 image/video parts) work via the standard LangChain
+    content-list message format -- no extra wiring needed here. All settings come from the
+    environment / .env (``NVIDIA_API_KEY``, ``NVIDIA_BASE_URL``, ``NVIDIA_TEMPERATURE``,
+    ``NVIDIA_TOP_P``, ``NVIDIA_EXTRA_BODY`` / ``NVIDIA_ENABLE_THINKING`` / ``NVIDIA_REASONING_BUDGET``).
+    """
+    from langchain_openai import ChatOpenAI
+
+    api_key = os.getenv("NVIDIA_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "NVIDIA_API_KEY is not set; it is required for the 'nvidia:' backend "
+            "(NVIDIA's OpenAI-compatible API is key-authenticated, not subscription/CLI-based)."
+        )
+
+    model_id = to_nvidia_model(model_string)
+    kwargs: dict[str, Any] = {
+        "model": model_id,
+        "api_key": api_key,
+        "base_url": os.getenv("NVIDIA_BASE_URL", NVIDIA_BASE_URL),
+        "temperature": float(os.getenv("NVIDIA_TEMPERATURE", "1")),
+        "top_p": float(os.getenv("NVIDIA_TOP_P", "0.95")),
+    }
+    extra_body = _nvidia_extra_body(model_id)
+    if extra_body:
+        kwargs["extra_body"] = extra_body
+    if max_tokens:
+        kwargs["max_tokens"] = max_tokens
+    return ChatOpenAI(**kwargs)
 
 
 # Instructions appended to the system prompt when tools are bound, telling the
@@ -1091,6 +1227,7 @@ _BACKEND_PREFIXES = {
     "google": "gemini",
     "codex": "codex",
     "openai": "codex",
+    "nvidia": "nvidia",
 }
 
 
@@ -1113,6 +1250,8 @@ def parse_backend(model_string: Optional[str]) -> tuple[str, str]:
         return "gemini", s
     if low == "codex" or low.startswith(("gpt", "o1", "o3", "o4")):
         return "codex", s
+    if low.startswith("nvidia"):
+        return "nvidia", s
     return "claude", s
 
 
@@ -1124,6 +1263,8 @@ def build_chat_model(model_string: Optional[str], max_tokens: Optional[int] = No
         return GeminiCLIChat(model=to_gemini_model(model), max_tokens=max_tokens, subscription=subscription)
     if backend == "codex":
         return CodexCLIChat(model=to_codex_model(model), max_tokens=max_tokens, subscription=subscription)
+    if backend == "nvidia":
+        return build_nvidia_chat_model(model, max_tokens=max_tokens)
     return ClaudeAgentChat(model=to_claude_model(model), max_tokens=max_tokens, subscription=subscription)
 
 
