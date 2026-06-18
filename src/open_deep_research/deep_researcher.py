@@ -1449,14 +1449,15 @@ class ExtractionResult(BaseModel):
 def _make_fact_model_call(configurable, config, target_properties=None):
     """Build an async model_call(source_text, prof) -> list[dict] for the extractor.
 
-    Mirrors the structured-output invocation pattern used elsewhere in this graph
-    (singleton ``configurable_model`` -> ``with_structured_output`` -> ``with_config``
-    -> ``ainvoke``). Best-effort: returns [] on any error so extraction never fails
-    a completed run. ``target_properties`` (facts-first mode) narrows extraction to the
-    properties the question needs; default = all profile properties.
+    Invokes the model as plain text and parses leniently via parse_lean_facts, so a
+    cheap model can emit a JSON array without needing structured-output scaffolding.
+    Best-effort: returns [] on any error so extraction never fails a completed run.
+    ``target_properties`` (facts-first mode) narrows extraction to the properties the
+    question needs; default = all profile properties.
     """
     async def model_call(source_text, prof):
         try:
+            from open_deep_research.factbase.lean_extract import parse_lean_facts
             from open_deep_research.factbase.prompting import build_extraction_prompt
             prompt = build_extraction_prompt(
                 prof, target_properties, source_text,
@@ -1469,7 +1470,6 @@ def _make_fact_model_call(configurable, config, target_properties=None):
             extraction_model = configurable.model_for("extract_facts", "researcher")
             model = (
                 configurable_model
-                .with_structured_output(ExtractionResult)
                 .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
                 .with_config({
                     "model": extraction_model,
@@ -1480,8 +1480,8 @@ def _make_fact_model_call(configurable, config, target_properties=None):
                     "tags": ["langsmith:nostream"],
                 })
             )
-            result = await model.ainvoke([HumanMessage(content=prompt)])
-            return [f.model_dump() for f in (result.facts or [])]
+            resp = await model.ainvoke([HumanMessage(content=prompt)])
+            return parse_lean_facts(str(getattr(resp, "content", "") or ""))
         except Exception as e:
             logger.warning("fact model_call failed (non-fatal): %s", e)
             return []

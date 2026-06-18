@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 
+from .lean_extract import slot_qualifiers
 from .profile import Profile
 
 _WS = re.compile(r"\s+")
@@ -30,14 +31,7 @@ async def extract(source_text: str, prof: Profile, model_call) -> list[dict]:
             continue
         if not pd.validate(rec.get("value", "")):
             continue
-        ok = True
-        for q, v in (rec.get("qualifiers") or {}).items():
-            if v is None:
-                continue
-            allowed = pd.qualifier_enums.get(q)
-            if allowed is not None and v.lower() not in {a.lower() for a in allowed}:
-                ok = False
-                break
-        if ok:
-            kept.append(rec)
+        out = dict(rec)
+        out["qualifiers"] = slot_qualifiers(pd, rec.get("qualifiers") or [])  # list -> dict
+        kept.append(out)
     return kept
