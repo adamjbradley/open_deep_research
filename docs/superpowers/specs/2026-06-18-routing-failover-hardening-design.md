@@ -133,3 +133,8 @@ hot role uses these as its primary path (the graph uses `ainvoke`). Then:
   implementation against the installed CLI (fallback: defensive superset of markers).
 - Health-file location on Windows-host vs WSL — use a stable per-user cache dir; the server
   runs on the Windows host, so the default must resolve there.
+- **`--version` probe does not validate gemini login** — a logged-out gemini CLI still exits 0
+  for `--version`, so the G3 preflight only confirms the binary is present/runnable, not
+  authenticated. Fast-follow: replace with a real non-interactive auth probe (e.g. a
+  `gemini auth status` or equivalent) so logged-out CLIs are caught at run-start rather than
+  reactively via G4 backend-fatal classification on the first real call.

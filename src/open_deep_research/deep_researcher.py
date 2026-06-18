@@ -675,7 +675,7 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
             )
             if all_failed and not raw_notes_concat:
                 from open_deep_research.failover import get_tracker
-                fos = get_tracker(state.get("thread_id") if isinstance(state, dict) else None).failovers
+                fos = get_tracker((config.get("configurable") or {}).get("thread_id")).failovers
                 logger.error("All %d research units failed and produced no notes; "
                              "failovers=%s", allowed_n, [f.as_dict() for f in fos])
                 update_payload["raw_notes"] = [ALL_RESEARCH_FAILED_SENTINEL]
@@ -1020,7 +1020,20 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     notes = state.get("notes", [])
     cleared_state = {"notes": {"type": "override", "value": []}}
     findings = "\n".join(notes)
-    
+
+    # If the research phase wholesale-failed (every unit exhausted its model chain),
+    # the supervisor emits ALL_RESEARCH_FAILED_SENTINEL into raw_notes. Surface that as
+    # a failed report (caught by _report_is_failed) instead of letting the writer
+    # synthesize a misleading report from per-unit error notes — and skip the writer call.
+    raw_notes = state.get("raw_notes", [])
+    if any(ALL_RESEARCH_FAILED_SENTINEL in rn for rn in raw_notes):
+        logger.error("All research units failed; emitting failed report without a writer call")
+        return {
+            "final_report": f"{REPORT_FAILED_PREFIX} all research units failed (no usable findings)",
+            "messages": [AIMessage(content="Report generation skipped: all research units failed")],
+            **cleared_state,
+        }
+
     # Step 2: Configure the final report generation model
     configurable = Configuration.from_runnable_config(config)
     writer_model_config = {

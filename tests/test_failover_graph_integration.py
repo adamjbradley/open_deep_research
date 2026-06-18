@@ -111,3 +111,34 @@ def test_all_research_failed_sentinel_is_a_failed_report():
 def test_partial_success_is_not_failed():
     from open_deep_research.deep_researcher import _report_is_failed
     assert _report_is_failed("Real findings about India digital ID...") is False
+
+
+def test_final_report_generation_short_circuits_on_all_failed_sentinel():
+    """G5 fix: when raw_notes contains ALL_RESEARCH_FAILED_SENTINEL, final_report_generation
+    must return a report that satisfies _report_is_failed without calling the writer model."""
+    from open_deep_research.deep_researcher import (
+        ALL_RESEARCH_FAILED_SENTINEL,
+        REPORT_FAILED_PREFIX,
+        _report_is_failed,
+        final_report_generation,
+    )
+
+    state = {
+        "notes": ["Error: research unit 1 failed", "Error: research unit 2 failed"],
+        "raw_notes": [ALL_RESEARCH_FAILED_SENTINEL],
+        "messages": [],
+        "research_brief": "Test brief",
+    }
+    # Empty configurable is fine — the function returns before reading model config.
+    config = {"configurable": {}}
+
+    result = asyncio.run(final_report_generation(state, config))
+
+    # (a) The returned final_report must be detected as failed
+    assert _report_is_failed(result["final_report"]) is True, (
+        f"Expected a failed report, got: {result['final_report']!r}"
+    )
+    # (b) It must use REPORT_FAILED_PREFIX (the short-circuit path, not the writer path)
+    assert result["final_report"].startswith(REPORT_FAILED_PREFIX), (
+        f"Expected REPORT_FAILED_PREFIX, got: {result['final_report']!r}"
+    )

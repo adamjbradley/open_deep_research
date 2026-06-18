@@ -32,7 +32,10 @@ def _probe_uncached(backend: str) -> bool:
         if shutil.which(binname) is None:
             return False
         try:
-            # Cheap, non-interactive: a version/help call exits 0 only when the CLI is runnable.
+            # Cheap, non-interactive: checks only that the binary is present and runnable.
+            # A logged-out gemini CLI still exits 0 for --version, so this does NOT validate
+            # authentication. Logged-out detection is handled reactively by backend-fatal
+            # classification (G1/G4) on the first real call.
             r = subprocess.run([binname, "--version"], capture_output=True, timeout=15)
             return r.returncode == 0
         except Exception:  # noqa: BLE001
