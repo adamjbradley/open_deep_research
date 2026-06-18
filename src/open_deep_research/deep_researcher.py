@@ -1772,6 +1772,79 @@ async def assess_sufficiency(state: AgentState, config: RunnableConfig) -> Comma
     return Command(goto="answer_from_facts", update={"fact_rounds_used": rounds_used})
 
 
+async def assess_completeness(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "answer_from_facts"]]:
+    """Whole-profile: loop until every REQUIRED property is resolved-or-confirmed-absent or budget hit.
+
+    Routes to write_research_brief (gap round) while any required property is incomplete and
+    the round budget (max_profile_rounds) allows; otherwise routes to answer_from_facts.
+    NOTE: will re-point to synthesize_narrative once Task 7 lands.
+    """
+    import aiosqlite
+    from open_deep_research.factbase import (
+        entities as fbentities,
+        query as fbquery,
+        profile as fbprofile,
+        completeness as fbc,
+        schema as fbschema,
+        migrations as fbmig,
+    )
+    from open_deep_research.factbase.property_status import PropertyStatusStore
+
+    configurable = Configuration.from_runnable_config(config)
+    subject = state.get("subject")
+    rounds_used = state.get("fact_rounds_used", 0) or 0
+    prof = fbprofile.load(_effective_profile_name(state, configurable))
+
+    ik = fbentities.CountryResolver().resolve_in_text(subject) if subject else None
+    if not ik:
+        # Can't resolve subject to a country — go straight to terminal
+        return Command(goto="answer_from_facts", update={"fact_rounds_used": rounds_used})
+
+    notes_text = "\n".join(state.get("raw_notes", []) or [])[:8000]
+
+    async with aiosqlite.connect(get_db_path(config)) as conn:
+        await fbmig.apply(conn, fbschema.STEPS)
+        store = PropertyStatusStore(conn)
+        absent = await store.absent_properties(ik)
+        grouped = await fbquery.FactQuery(conn).show_grouped(ik)
+        ledger = fbc.assess_property_status(grouped, absent, prof)
+
+        # Affirmative-absence pass for still-missing REQUIRED properties (bounded by this round).
+        model_call = _make_absence_judge_call(configurable, config)
+        for pd in prof.properties:
+            if (pd.completeness == "required"
+                    and ledger.get(pd.name) == "missing_value"
+                    and getattr(pd, "absence_allowed", False)
+                    and pd.name not in absent):
+                if await judge_absence(pd.name, pd.description, notes_text, model_call):
+                    await store.record_absent(
+                        ik, pd.name, {}, "no data after targeted search",
+                        state.get("prealloc_run_id"), None,
+                    )
+                    ledger[pd.name] = "confirmed_absent"
+
+        await conn.commit()
+
+    incomplete = [
+        pd.name for pd in prof.properties
+        if pd.completeness == "required" and not fbc.is_complete(ledger.get(pd.name, "missing_value"), pd)
+    ]
+    if incomplete and rounds_used + 1 < configurable.max_profile_rounds:
+        logger.info("Whole-profile incomplete (%s); gap round %d", incomplete, rounds_used + 1)
+        gap = (
+            "These profile properties are still incomplete and MUST be resolved or, if no data "
+            "exists, explicitly confirmed unavailable after searching: "
+            + ", ".join(f"{p} ({ledger.get(p)})" for p in incomplete) + "."
+        )
+        return Command(
+            goto="write_research_brief",
+            update={"missing_information": gap, "fact_rounds_used": rounds_used + 1},
+        )
+    if incomplete:
+        logger.info("Whole-profile still incomplete %s but round budget exhausted; finishing", incomplete)
+    return Command(goto="answer_from_facts", update={"fact_rounds_used": rounds_used})
+
+
 def _best_singular_row(rows: list) -> dict:
     """Pick the single best row for a singular property: most-corroborated, then prefer a
     non-conflicting value, then the longest (most specific) value. Deterministic.
@@ -1797,6 +1870,25 @@ def _display_value(row: dict) -> str:
     if variants:
         return max(variants, key=len)
     return str(row.get("value") or "")
+
+
+class AbsenceJudgement(BaseModel):
+    """Whether a property is genuinely absent for the subject after a targeted search."""
+
+    absent: bool
+
+
+async def judge_absence(prop_name, prop_desc, notes_text, model_call) -> bool:
+    """True only if the model affirms no data exists for this property after searching.
+
+    Best-effort: any error -> False (treat as still-missing, keep trying within budget).
+    """
+    try:
+        res = await model_call(prop_name, prop_desc, notes_text)
+        return bool(getattr(res, "absent", False))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("absence judge failed (non-fatal) for %s: %s", prop_name, e)
+        return False
 
 
 class NameConsolidation(BaseModel):
@@ -1869,6 +1961,34 @@ def _make_name_consolidation_call(configurable, config):
             f"most official, commonly-used name -- choose from or lightly normalise the given "
             f"values; do NOT invent new information. If they are genuinely different things, "
             f"set same_entity=false."
+        )
+        return await model.ainvoke([HumanMessage(content=prompt)])
+    return model_call
+
+
+def _make_absence_judge_call(configurable, config):
+    """An async ``model_call(prop_name, prop_desc, notes_text) -> AbsenceJudgement``
+    on the cheap summarization chain; returns absent=True only if the notes confirm
+    no data exists for this property (not just that it was not covered yet)."""
+    async def model_call(prop_name, prop_desc, notes_text):
+        model = (
+            configurable_model
+            .with_structured_output(AbsenceJudgement)
+            .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+            .with_config({
+                "model": configurable.summarization_model,
+                "model_chain": configurable.model_chain("summarization"),
+                "stage": "summarization",
+                "max_tokens": configurable.summarization_model_max_tokens,
+                "api_key": get_api_key_for_model(configurable.summarization_model, config),
+                "tags": ["langsmith:nostream"],
+            })
+        )
+        prompt = (
+            f"Research notes about a subject are below. For the property '{prop_name}' "
+            f"({prop_desc}), did the research look for it and find that NO data exists / it "
+            f"is not applicable? Set absent=true ONLY if the notes show a genuine, searched "
+            f"absence; set absent=false if it simply wasn't covered yet.\n\nNOTES:\n{notes_text}"
         )
         return await model.ainvoke([HumanMessage(content=prompt)])
     return model_call
@@ -2008,6 +2128,7 @@ deep_researcher_builder.add_node("research_supervisor", supervisor_subgraph)    
 deep_researcher_builder.add_node("final_report_generation", final_report_generation)  # Report generation phase
 deep_researcher_builder.add_node("extract_facts", extract_facts)                   # Per-source fact extraction (research path)
 deep_researcher_builder.add_node("assess_sufficiency", assess_sufficiency)         # Facts-first: enough to answer?
+deep_researcher_builder.add_node("assess_completeness", assess_completeness)       # Whole-profile: completeness loop
 deep_researcher_builder.add_node("answer_from_facts", answer_from_facts)           # Facts-first: answer from the fact base
 deep_researcher_builder.add_node("persist_research", persist_research)             # Persist results to SQLite
 
@@ -2019,14 +2140,19 @@ def route_after_research(state: AgentState, config: RunnableConfig) -> str:
 
 
 def route_after_extract(state: AgentState, config: RunnableConfig) -> str:
-    """Facts-first mode checks sufficiency next; report mode persists as before."""
-    return "assess_sufficiency" if Configuration.from_runnable_config(config).facts_first_mode \
-        else "persist_research"
+    """Whole-profile mode goes to completeness check; facts-first to sufficiency; else persist."""
+    configurable = Configuration.from_runnable_config(config)
+    if configurable.whole_profile_mode:
+        return "assess_completeness"
+    if configurable.facts_first_mode:
+        return "assess_sufficiency"
+    return "persist_research"
 
 
 # Define main workflow edges. assess_knowledge (entry) branches via Command(goto)
 # to answer_from_dossier / write_research_brief / clarify_with_user; assess_sufficiency
-# branches via Command(goto) to write_research_brief (gap round) / answer_from_facts.
+# and assess_completeness branch via Command(goto) to write_research_brief (gap round) /
+# answer_from_facts.
 deep_researcher_builder.add_edge(START, "preallocate_run")                          # Entry point: preallocate the run id
 deep_researcher_builder.add_edge("preallocate_run", "assess_knowledge")             # Then check the knowledge base
 deep_researcher_builder.add_edge("answer_from_dossier", "persist_research")         # Cached answer -> log the run
@@ -2035,9 +2161,10 @@ deep_researcher_builder.add_conditional_edges(                                  
     "research_supervisor", route_after_research,
     {"final_report_generation": "final_report_generation", "extract_facts": "extract_facts"})
 deep_researcher_builder.add_edge("final_report_generation", "extract_facts")       # Report to fact extraction
-deep_researcher_builder.add_conditional_edges(                                      # Facts -> persist (default) | sufficiency (facts-first)
+deep_researcher_builder.add_conditional_edges(                                      # Facts -> persist (default) | sufficiency (facts-first) | completeness (whole-profile)
     "extract_facts", route_after_extract,
-    {"persist_research": "persist_research", "assess_sufficiency": "assess_sufficiency"})
+    {"persist_research": "persist_research", "assess_sufficiency": "assess_sufficiency",
+     "assess_completeness": "assess_completeness"})
 deep_researcher_builder.add_edge("answer_from_facts", "persist_research")           # Facts answer -> persist
 deep_researcher_builder.add_edge("persist_research", END)                          # Final exit point
 

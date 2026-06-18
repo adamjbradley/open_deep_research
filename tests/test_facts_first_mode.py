@@ -286,3 +286,24 @@ def test_best_singular_row_source_count_still_dominates_admission():
          "in_conflict": False, "source_count": 5},   # better corroborated
     ]
     assert dr._best_singular_row(rows)["value"] == "b"
+
+
+# -- judge_absence (pure, mocked model_call) ------------------------------------
+
+import asyncio as _aio
+
+
+class _Absent:
+    def __init__(self, v): self.absent = v
+
+
+def test_judge_absence_true_when_model_confirms():
+    async def mc(prop, desc, notes): return _Absent(True)
+    assert _aio.run(dr.judge_absence("bio", "biometrics", "sources say nothing", mc)) is True
+
+
+def test_judge_absence_false_and_best_effort_on_error():
+    async def yes(prop, desc, notes): return _Absent(False)
+    async def boom(prop, desc, notes): raise RuntimeError("x")
+    assert _aio.run(dr.judge_absence("bio", "d", "n", yes)) is False
+    assert _aio.run(dr.judge_absence("bio", "d", "n", boom)) is False   # error -> not absent (keep trying)
