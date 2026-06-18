@@ -27,7 +27,8 @@
         "researcher": ["gemini:gemini-2.5-flash", "claude-opus-4-6"],
         "summarization": ["gemini:gemini-2.5-flash", "claude-haiku-4-5"],
         "compression": ["gemini:gemini-2.5-flash", "claude-haiku-4-5"],
-        "final_report": ["gemini:gemini-2.5-flash", "claude-opus-4-8"]
+        "final_report": ["gemini:gemini-2.5-flash", "claude-opus-4-8"],
+        "facts_answer_polish": ["gemini:gemini-2.5-flash", "claude-haiku-4-5"]
       },
       "search": "tavily",
       "step_overrides": { "extract_facts": ["gemini:gemini-2.5-pro", "claude-opus-4-6"] }
