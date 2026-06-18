@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "active_preset": "balanced",
+  "active_preset": "gemini",
   "backends": {
     "gemini": { "cli_bin": "gemini", "cli_args": [], "trust_workspace": true,
                 "model_aliases": { "flash": "gemini-2.5-flash" } },
@@ -21,7 +21,7 @@
       "step_overrides": {}
     },
     "gemini": {
-      "comment": "Gemini-primary, Claude cross-backend backup. Each role keeps the verified gemini-2.5-flash primary; on quota/404/auth it fails over to the benchmark's per-role Claude winner (only opus reliably dispatches as supervisor). Claude backups need only the subscription; no extra setup.",
+      "comment": "Gemini-primary, Claude cross-backend backup. Each role keeps the verified gemini-2.5-flash primary; on quota/404/auth it fails over to the benchmark's per-role Claude winner (only opus reliably dispatches as supervisor). Claude backups need only the subscription; no extra setup. extract_facts is overridden to gemini-2.5-PRO: flash only satisfies the broad whole-profile ExtractionResult schema ~2/4 of the time (then fails over to opus), whereas pro is 4/4 -- pro primary keeps extraction on gemini (no Claude burn); opus-4-6 stays as backup.",
       "roles": {
         "supervisor": ["gemini:gemini-2.5-flash", "claude-opus-4-8"],
         "researcher": ["gemini:gemini-2.5-flash", "claude-opus-4-6"],
@@ -30,7 +30,7 @@
         "final_report": ["gemini:gemini-2.5-flash", "claude-opus-4-8"]
       },
       "search": "tavily",
-      "step_overrides": {}
+      "step_overrides": { "extract_facts": ["gemini:gemini-2.5-pro", "claude-opus-4-6"] }
     },
     "claude": {
       "comment": "Claude-primary (benchmark per-role mix: only opus dispatches as supervisor; haiku for bulk summarize/compress), gemini-2.5-flash cross-backend backup if Claude throttles. The flash backup needs the gemini CLI logged in (see .env.example); without it the backup call just fails too -- no worse than no backup.",
