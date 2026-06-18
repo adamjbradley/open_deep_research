@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import json
+import os
+import time
 from dataclasses import dataclass, field
 
 # Backend-fatal: the whole backend is unusable this run (quota/billing/auth).
@@ -156,7 +159,7 @@ _current_tracker: contextvars.ContextVar["AvailabilityTracker | None"] = \
 _registry: dict[str, AvailabilityTracker] = {}
 
 
-def new_run_tracker(key: str | None = None) -> AvailabilityTracker:
+def new_run_tracker(key: str | None = None, *, now: float | None = None) -> AvailabilityTracker:
     """Install a fresh tracker for the current run and return it.
 
     When ``key`` (e.g. the run's thread_id) is given, the tracker is stored in a
@@ -165,8 +168,13 @@ def new_run_tracker(key: str | None = None) -> AvailabilityTracker:
     ContextVar so key-less ``get_tracker()`` in the same context still works. A
     fresh tracker overwrites any previous one for the same key, so re-running with a
     reused thread_id starts clean (run-scoped).
+
+    When ``now`` is provided (for testing), it is passed to ``load_exhausted_backends``
+    to seed the tracker with persisted-exhausted backends.
     """
     t = AvailabilityTracker()
+    for b in load_exhausted_backends(now=now):
+        t.mark_backend_down(b)
     if key is not None:
         _registry[key] = t
     _current_tracker.set(t)
@@ -198,3 +206,60 @@ def discard_tracker(key: str | None) -> None:
     """Drop a run's tracker from the registry (call after persisting). No-op if absent."""
     if key is not None:
         _registry.pop(key, None)
+
+
+# -- Cross-run backend health file (Task 3) ---------------------------------
+
+def _health_enabled() -> bool:
+    return os.environ.get("ODR_BACKEND_HEALTH", "").strip().lower() != "off"
+
+
+def _health_ttl() -> float:
+    try:
+        return float(os.environ.get("ODR_BACKEND_HEALTH_TTL", "900"))
+    except ValueError:
+        return 900.0
+
+
+def _health_path() -> str:
+    p = os.environ.get("ODR_BACKEND_HEALTH_FILE")
+    if p:
+        return p
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("XDG_CACHE_HOME") \
+        or os.path.expanduser("~/.cache")
+    return os.path.join(base, "odr", "backend_health.json")
+
+
+def load_exhausted_backends(*, now: float | None = None) -> set[str]:
+    """Backends whose persisted exhaustion has not yet expired. Best-effort; never raises."""
+    if not _health_enabled():
+        return set()
+    now = time.time() if now is None else now
+    try:
+        with open(_health_path(), encoding="utf-8") as fh:
+            data = json.load(fh)
+        return {b for b, until in data.items() if isinstance(until, (int, float)) and until > now}
+    except Exception:  # noqa: BLE001 - missing/corrupt/locked file is non-fatal
+        return set()
+
+
+def record_backend_exhausted(backend: str, *, now: float | None = None) -> None:
+    """Persist `backend` as exhausted-until now+TTL. Best-effort; never raises."""
+    if not _health_enabled():
+        return
+    now = time.time() if now is None else now
+    path = _health_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if not isinstance(data, dict):
+                data = {}
+        except Exception:  # noqa: BLE001
+            data = {}
+        data[backend] = now + _health_ttl()
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+    except Exception:  # noqa: BLE001 - persistence is best-effort
+        pass

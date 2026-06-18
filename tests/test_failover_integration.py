@@ -7,6 +7,12 @@ from open_deep_research.claude_agent_chat import configurable_claude_model
 from open_deep_research.failover import new_run_tracker
 
 
+@pytest.fixture(autouse=True)
+def _disable_health_file(monkeypatch):
+    """Disable the health file for all integration tests to avoid cross-test pollution."""
+    monkeypatch.setenv("ODR_BACKEND_HEALTH", "off")
+
+
 class _FakeModel:
     """A stand-in chat model whose ainvoke result/behaviour is scripted per model id."""
 

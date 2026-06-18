@@ -1216,7 +1216,10 @@ class configurable_claude_model(Runnable):
                 last_exc = exc
                 kind = classify_error(exc)
                 if kind == "backend_fatal":
-                    tracker.mark_backend_down(backend_of(model_string))
+                    bk = backend_of(model_string)
+                    tracker.mark_backend_down(bk)
+                    from open_deep_research.failover import record_backend_exhausted
+                    record_backend_exhausted(bk)
                 elif kind == "model_fatal":
                     tracker.mark_down(model_string)
                 if idx >= len(available) - 1:

@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from open_deep_research import failover as fo
 from open_deep_research.failover import (
     AvailabilityTracker,
     FailoverRecord,
@@ -16,6 +17,12 @@ from open_deep_research.model_routing import (
     resolve_model,
     routing_from_dict,
 )
+
+
+@pytest.fixture
+def _disable_health_file(monkeypatch):
+    """Disable health file to avoid pollution from other tests."""
+    monkeypatch.setenv("ODR_BACKEND_HEALTH", "off")
 
 
 @pytest.mark.parametrize("message,expected", [
@@ -89,7 +96,7 @@ def test_tracker_records_failovers():
     }
 
 
-def test_new_run_tracker_resets_state():
+def test_new_run_tracker_resets_state(_disable_health_file):
     first = new_run_tracker()
     first.mark_down("gemini:gemini-2.5-flash")
     assert get_tracker() is first
@@ -316,3 +323,40 @@ def test_configuration_model_chain_unset_optional_role_is_empty(monkeypatch, tmp
     c = Configuration.from_runnable_config({})
     assert c.facts_answer_polish_model is None
     assert c.model_chain("facts_answer_polish") == []
+
+
+# ---------------------------------------------------------------------------
+# Task 3: Cross-run backend health file (G2)
+# ---------------------------------------------------------------------------
+
+def test_health_file_roundtrip_and_ttl(tmp_path, monkeypatch):
+    f = tmp_path / "backend_health.json"
+    monkeypatch.setenv("ODR_BACKEND_HEALTH_FILE", str(f))
+    monkeypatch.setenv("ODR_BACKEND_HEALTH_TTL", "100")
+    fo.record_backend_exhausted("claude", now=1000.0)
+    assert fo.load_exhausted_backends(now=1050.0) == {"claude"}   # within TTL
+    assert fo.load_exhausted_backends(now=1200.0) == set()        # past TTL
+
+
+def test_health_off_disables(tmp_path, monkeypatch):
+    f = tmp_path / "backend_health.json"
+    monkeypatch.setenv("ODR_BACKEND_HEALTH_FILE", str(f))
+    monkeypatch.setenv("ODR_BACKEND_HEALTH", "off")
+    fo.record_backend_exhausted("claude", now=1000.0)
+    assert not f.exists()
+    assert fo.load_exhausted_backends(now=1000.0) == set()
+
+
+def test_corrupt_health_file_is_ignored(tmp_path, monkeypatch):
+    f = tmp_path / "backend_health.json"; f.write_text("{ not json")
+    monkeypatch.setenv("ODR_BACKEND_HEALTH_FILE", str(f))
+    assert fo.load_exhausted_backends(now=1000.0) == set()
+
+
+def test_new_run_tracker_seeds_downed_backends(tmp_path, monkeypatch):
+    f = tmp_path / "backend_health.json"
+    monkeypatch.setenv("ODR_BACKEND_HEALTH_FILE", str(f))
+    monkeypatch.setenv("ODR_BACKEND_HEALTH_TTL", "100")
+    fo.record_backend_exhausted("claude", now=1000.0)
+    t = fo.new_run_tracker("thread-x", now=1050.0)
+    assert t.is_backend_down("claude") is True
