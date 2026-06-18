@@ -298,6 +298,25 @@ async def answer_from_dossier(state: AgentState, config: RunnableConfig) -> dict
     }
 
 
+def _steer_brief_with_catalog(research_brief: str, prof, target_properties: list) -> str:
+    """Augment a facts-first research brief with the profile's compiled property catalog.
+
+    Steering with bare property NAMES under-specifies the research: the researcher isn't told
+    a property's definition, allowed values, or required qualifiers, so it gathers loose
+    variants and values without the qualifiers extraction needs (e.g. a coverage % with no
+    population basis). Injecting ``compile_property_catalog`` -- the same definitions/qualifiers
+    used for extraction -- tells the researcher exactly what to find, and to capture qualifiers.
+    """
+    from open_deep_research.factbase.prompting import compile_property_catalog
+    catalog = compile_property_catalog(prof, target_properties)
+    return (
+        f"{research_brief}\n\nGather the specific facts needed to answer this. For each "
+        f"property below, find a cited value that matches its definition and allowed values, "
+        f"and capture any listed qualifier the sources state (e.g. the population basis for a "
+        f"coverage percentage):\n{catalog}"
+    )
+
+
 async def write_research_brief(state: AgentState, config: RunnableConfig) -> dict:
     """Build the research brief and initialize the supervisor.
 
@@ -372,16 +391,17 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
 
     # Facts-first: resolve which fact properties the question needs and steer research at them.
     target_properties = state.get("target_properties")
-    if configurable.facts_first_mode and not target_properties:
+    if configurable.facts_first_mode:
         from open_deep_research.factbase import profile as _fbprofile
-        target_properties = await resolve_target_properties(
-            question, _fbprofile.load(profile_name), configurable, config
-        )
-    if configurable.facts_first_mode and target_properties:
-        research_brief = (
-            f"{research_brief}\n\nGather the specific facts needed to answer this. Focus on these "
-            f"properties: {', '.join(target_properties)}. For each, find the value with a citation."
-        )
+        _prof = _fbprofile.load(profile_name)
+        if not target_properties:
+            target_properties = await resolve_target_properties(
+                question, _prof, configurable, config
+            )
+        if target_properties:
+            # Steer research with the property catalog (definitions, allowed values,
+            # qualifiers) -- not just bare names -- so facts are gathered with their qualifiers.
+            research_brief = _steer_brief_with_catalog(research_brief, _prof, target_properties)
 
     supervisor_system_prompt = lead_researcher_prompt.format(
         date=get_today_str(),

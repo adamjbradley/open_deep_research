@@ -183,3 +183,19 @@ def test_facts_answer_text_keeps_all_values_for_non_singular_property():
     ]
     out = dr._facts_answer_text("India", rows, ["biometric_capture"], singular_props=set())
     assert "fingerprint" in out and "iris" in out
+
+
+def test_facts_research_brief_steered_by_property_catalog():
+    """Facts-first research steering must inject the profile's compiled catalog (descriptions,
+    allowed values, qualifiers) -- not just bare property names -- so the researcher gathers
+    each value WITH its required qualifiers (regression: coverage gathered without a
+    population_basis; foundational scheme gathered as loose variants)."""
+    from open_deep_research.factbase import profile as profmod
+    prof = profmod.load("country_digital_identity")
+    out = dr._steer_brief_with_catalog("ORIGINAL BRIEF", prof,
+                                       ["foundational_id_scheme", "id_coverage_pct"])
+    assert "ORIGINAL BRIEF" in out                 # original brief preserved
+    assert "single" in out.lower()                 # foundational_id_scheme tightened description
+    assert "population_basis" in out               # id_coverage_pct required qualifier surfaced
+    assert "qualifier" in out.lower()              # explicit instruction to capture qualifiers
+    assert "scheme_status" not in out              # only the targeted properties
