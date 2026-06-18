@@ -17,6 +17,8 @@ def test_keeps_valid_span_verified_record():
            "qualifiers": {"population_basis": "adults_15plus"}, "evidence_span": "coverage reached 99%"}
     out = asyncio.run(extractor.extract("India coverage reached 99% in 2024", DI, _raw([rec])))
     assert len(out) == 1 and out[0]["value"] == "99"
+    assert isinstance(out[0]["qualifiers"], dict)
+    assert out[0]["qualifiers"] == {"population_basis": "adults_15plus"}
 
 
 def test_drops_unverifiable_span():

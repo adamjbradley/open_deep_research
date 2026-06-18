@@ -56,3 +56,9 @@ def test_parse_accepts_facts_object_wrapper():
     raw = '{"facts": [{"property":"p","instance_name":"X","value":"v","evidence_span":"e"}]}'
     out = parse_lean_facts(raw)
     assert len(out) == 1 and out[0]["value"] == "v"
+
+def test_slot_tolerates_legacy_dict_input():
+    """Given the OLD {qualifier: value} dict shape, re-slot its values -> same dict"""
+    assert slot_qualifiers(PD, {"population_basis": "total_pop"}) == {"population_basis": "total_pop"}
+    assert slot_qualifiers(PD, {"population_basis": "TOTAL_POP", "coverage_kind": "issued"}) == \
+        {"population_basis": "total_pop", "coverage_kind": "issued"}

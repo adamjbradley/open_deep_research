@@ -51,13 +51,19 @@ class LeanFact(BaseModel):
     qualifiers: list[str] = Field(default_factory=list)
 
 
-def slot_qualifiers(property_def, tokens: list[str]) -> dict:
+def slot_qualifiers(property_def, tokens: list[str] | dict) -> dict:
     """Slot a flat list of qualifier enum tokens into {qualifier: value}.
 
-    Enum values are disjoint across a property's qualifiers, so each token maps to exactly
-    one slot. Tokens not in any of this property's qualifier_enums are dropped. Matching is
-    case-insensitive; the canonical (lowercased) token is stored.
+    Accepts either a flat list (e.g. ["total_pop", "issued"]) or the legacy {qualifier: value}
+    dict shape; in the latter case, the values are extracted and used as tokens. Enum values are
+    disjoint across a property's qualifiers, so each token maps to exactly one slot. Tokens not
+    in any of this property's qualifier_enums are dropped. Matching is case-insensitive; the
+    canonical (lowercased) token is stored.
     """
+    # Tolerate legacy {qualifier: value} dict shape by extracting its values
+    if isinstance(tokens, dict):
+        tokens = list(tokens.values())
+
     out: dict = {}
     for q, allowed in (getattr(property_def, "qualifier_enums", {}) or {}).items():
         allowed_lc = {a.lower() for a in allowed}
