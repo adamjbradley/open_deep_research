@@ -142,6 +142,16 @@ def test_classify_three_way():
     assert classify_error(TimeoutError()) == "transient"
 
 
+@pytest.mark.parametrize("msg", [
+    "Please run gemini auth login: not logged in",
+    "Error: not authenticated",
+    "no credentials found, please authenticate",
+    "reauthenticate to continue",
+])
+def test_gemini_logged_out_is_backend_fatal(msg):
+    assert classify_error(Exception(msg)) == "backend_fatal"
+
+
 def test_backend_down_skips_all_models_of_backend():
     t = AvailabilityTracker()
     t.mark_backend_down("claude")

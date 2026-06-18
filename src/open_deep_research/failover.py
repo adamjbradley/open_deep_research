@@ -27,6 +27,12 @@ _BACKEND_FATAL_MARKERS = (
     "permission denied",
     "401",
     "403",
+    # gemini/codex CLI logged-out / credential-missing surfaces:
+    "not logged in",
+    "not authenticated",
+    "no credentials",
+    "please authenticate",
+    "reauthenticate",
 )
 
 # Model-fatal: only this model id is bad (wrong/removed name).
