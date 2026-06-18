@@ -1,5 +1,6 @@
+import asyncio
 import pytest
-from open_deep_research.claude_agent_chat import to_agy_model
+from open_deep_research.claude_agent_chat import build_chat_model, to_agy_model, AgyCLIChat
 
 
 def test_to_agy_model_maps_known_slugs():
@@ -18,3 +19,23 @@ def test_to_agy_model_unknown_slug_raises():
         to_agy_model("gemini-2.5-flash")        # not an agy slug -> must NOT silently default
     with pytest.raises(ValueError):
         to_agy_model("")
+
+
+def test_agy_prefix_builds_agy_backend_with_display_name():
+    m = build_chat_model("agy:gemini-3.1-pro-high")
+    assert isinstance(m, AgyCLIChat)
+    assert m.model == "Gemini 3.1 Pro (High)"     # mapped to the display name
+
+
+def test_agy_command_has_no_o_json_and_skip_permissions(monkeypatch):
+    m = build_chat_model("agy:gemini-3.5-flash-high")
+    captured = {}
+    async def fake_invoke(cmd, stdin=None):
+        captured["cmd"] = cmd; captured["stdin"] = stdin
+        return '[{"ok": true}]'
+    monkeypatch.setattr(m, "_invoke", fake_invoke)
+    asyncio.run(m._backend_generate("sys", "hello", None))
+    assert captured["cmd"][:3] == ["agy", "--model", "Gemini 3.5 Flash (High)"]
+    assert "--dangerously-skip-permissions" in captured["cmd"]
+    assert "-o" not in captured["cmd"] and "json" not in captured["cmd"]
+    assert captured["stdin"] is not None      # prompt via stdin

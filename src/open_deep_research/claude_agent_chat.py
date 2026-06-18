@@ -1012,6 +1012,41 @@ class GeminiCLIChat(_CLIJsonChat):
         return raw, None
 
 
+class AgyCLIChat(_CLIJsonChat):
+    """LLM backend driven by Google's ``agy`` CLI (the Antigravity replacement for ``gemini``).
+
+    Exposes agy's Gemini 3.x / Claude 4.6 / GPT-OSS models. agy rejects ``-o json`` and its
+    plain output is already clean, so we invoke it without it; ``--dangerously-skip-permissions``
+    auto-approves tools non-interactively. Like the gemini CLI it has no native schema flag, so
+    structured output is coerced via the JSON envelope in the prompt (the _CLIJsonChat base).
+    ``self.model`` is already the agy display name (mapped by ``to_agy_model`` in build_chat_model).
+    """
+
+    _backend_name = "agy-cli"
+
+    def _subprocess_env(self) -> dict:
+        # agy authenticates via the Antigravity login store, not GEMINI_API_KEY -- pass the
+        # environment through unchanged (do NOT blank credentials).
+        return dict(os.environ)
+
+    async def _backend_generate(self, system_prompt, prompt, schema):
+        if schema is not None:
+            prompt = (
+                prompt
+                + "\n\nReturn ONLY a single JSON object matching this schema "
+                "(no markdown fences, no commentary):\n"
+                + json.dumps(schema)
+            )
+        full = _combine_system_prompt(system_prompt, prompt)
+        bin_ = os.getenv("AGY_CLI_BIN", "agy")
+        extra = os.getenv("AGY_CLI_ARGS", "--dangerously-skip-permissions").split()
+        cmd = [bin_, "--model", self.model, *extra]   # NO -o json (agy rejects it)
+        raw = await self._invoke(cmd, stdin=full)
+        if "### Summary" in raw:                       # agy occasionally appends a Summary section
+            raw = raw.split("### Summary")[0].strip()
+        return raw, None
+
+
 class CodexCLIChat(_CLIJsonChat):
     """LLM backend driven by OpenAI's ``codex`` CLI (ChatGPT login).
 
@@ -1228,6 +1263,7 @@ _BACKEND_PREFIXES = {
     "codex": "codex",
     "openai": "codex",
     "nvidia": "nvidia",
+    "agy": "agy",
 }
 
 
@@ -1252,6 +1288,8 @@ def parse_backend(model_string: Optional[str]) -> tuple[str, str]:
         return "codex", s
     if low.startswith("nvidia"):
         return "nvidia", s
+    if low.startswith("agy"):
+        return "agy", s
     return "claude", s
 
 
@@ -1259,6 +1297,8 @@ def build_chat_model(model_string: Optional[str], max_tokens: Optional[int] = No
     """Construct the right CLI-backed chat model for a (possibly prefixed) string."""
     backend, model = parse_backend(model_string)
     subscription = use_subscription()
+    if backend == "agy":
+        return AgyCLIChat(model=to_agy_model(model), max_tokens=max_tokens, subscription=subscription)
     if backend == "gemini":
         return GeminiCLIChat(model=to_gemini_model(model), max_tokens=max_tokens, subscription=subscription)
     if backend == "codex":
