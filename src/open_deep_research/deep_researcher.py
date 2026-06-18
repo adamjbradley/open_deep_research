@@ -86,6 +86,10 @@ logger = logging.getLogger(__name__)
 # so persistence must detect them (see _report_is_failed) and avoid saving them as a
 # "completed" run or merging them into the subject dossier (which would poison the KB).
 COMPRESSION_FAILED_SENTINEL = "Error synthesizing research report: Maximum retries exceeded"
+ALL_RESEARCH_FAILED_SENTINEL = (
+    "Error: all research units failed (no usable findings). "
+    "Likely all model backends are unavailable (quota/auth). See run failovers."
+)
 REPORT_FAILED_PREFIX = "Error generating final report:"
 
 
@@ -94,7 +98,9 @@ def _report_is_failed(report: Optional[str]) -> bool:
     if not report or not report.strip():
         return True
     stripped = report.strip()
-    return stripped.startswith(REPORT_FAILED_PREFIX) or stripped == COMPRESSION_FAILED_SENTINEL
+    return (stripped.startswith(REPORT_FAILED_PREFIX)
+            or stripped == COMPRESSION_FAILED_SENTINEL
+            or stripped == ALL_RESEARCH_FAILED_SENTINEL)
 
 
 def recommended_recursion_limit(
@@ -662,6 +668,17 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
                 for observation in tool_results
                 if not isinstance(observation, BaseException)
             ])
+
+            allowed_n = len(allowed_conduct_research_calls)
+            all_failed = allowed_n > 0 and all(
+                isinstance(o, BaseException) for o in tool_results
+            )
+            if all_failed and not raw_notes_concat:
+                from open_deep_research.failover import get_tracker
+                fos = get_tracker(state.get("thread_id") if isinstance(state, dict) else None).failovers
+                logger.error("All %d research units failed and produced no notes; "
+                             "failovers=%s", allowed_n, [f.as_dict() for f in fos])
+                update_payload["raw_notes"] = [ALL_RESEARCH_FAILED_SENTINEL]
 
             if raw_notes_concat:
                 update_payload["raw_notes"] = [raw_notes_concat]

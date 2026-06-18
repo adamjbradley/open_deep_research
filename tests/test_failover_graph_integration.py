@@ -99,3 +99,15 @@ def test_tracker_survives_across_graph_nodes(monkeypatch):
     assert out["result"] == "BACKUP-OK"          # failover happened
     assert out["sticky_seen"] is True            # down-mark survived into a later node
     assert out["persisted_failovers"] == 1       # the failover record is visible cross-node
+
+
+def test_all_research_failed_sentinel_is_a_failed_report():
+    from open_deep_research.deep_researcher import (
+        ALL_RESEARCH_FAILED_SENTINEL, _report_is_failed,
+    )
+    assert _report_is_failed(ALL_RESEARCH_FAILED_SENTINEL) is True
+
+
+def test_partial_success_is_not_failed():
+    from open_deep_research.deep_researcher import _report_is_failed
+    assert _report_is_failed("Real findings about India digital ID...") is False
