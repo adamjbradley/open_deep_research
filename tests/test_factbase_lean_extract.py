@@ -45,3 +45,14 @@ def test_parse_tolerates_prose_and_fences_around_the_array():
 def test_parse_returns_empty_on_garbage():
     assert parse_lean_facts("no json here") == []
     assert parse_lean_facts("") == []
+
+def test_parse_extracts_first_array_when_two_arrays_present():
+    raw = ('First: [{"property":"p","instance_name":"X","value":"v","evidence_span":"e"}] '
+           'then another: [{"property":"q","instance_name":"Y","value":"w","evidence_span":"f"}]')
+    out = parse_lean_facts(raw)
+    assert len(out) == 1 and out[0]["property"] == "p"   # the FIRST array, not []
+
+def test_parse_accepts_facts_object_wrapper():
+    raw = '{"facts": [{"property":"p","instance_name":"X","value":"v","evidence_span":"e"}]}'
+    out = parse_lean_facts(raw)
+    assert len(out) == 1 and out[0]["value"] == "v"

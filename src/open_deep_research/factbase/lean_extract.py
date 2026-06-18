@@ -4,10 +4,37 @@ model's structured output is what lets a cheap model emit it reliably."""
 from __future__ import annotations
 
 import json
-import re
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+
+def _first_json_array(text: str) -> str | None:
+    """The first balanced top-level JSON array in text (respecting string literals), else None."""
+    start = text.find("[")
+    while start != -1:
+        depth = 0
+        in_str = False
+        esc = False
+        for i in range(start, len(text)):
+            c = text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+            elif c == '"':
+                in_str = True
+            elif c == "[":
+                depth += 1
+            elif c == "]":
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+        start = text.find("[", start + 1)
+    return None
 
 
 class LeanFact(BaseModel):
@@ -41,9 +68,6 @@ def slot_qualifiers(property_def, tokens: list[str]) -> dict:
     return out
 
 
-_ARRAY = re.compile(r"\[.*\]", re.S)
-
-
 def parse_lean_facts(raw: str) -> list[dict]:
     """Lenient parse of the model's output into valid LeanFact dicts.
 
@@ -59,12 +83,14 @@ def parse_lean_facts(raw: str) -> list[dict]:
         obj = json.loads(text)
         arr = obj if isinstance(obj, list) else obj.get("facts") if isinstance(obj, dict) else None
     except Exception:  # noqa: BLE001
-        m = _ARRAY.search(text)
-        if m:
+        cand = _first_json_array(text)
+        if cand:
             try:
-                arr = json.loads(m.group(0))
+                arr = json.loads(cand)
             except Exception:  # noqa: BLE001
                 arr = None
+        else:
+            arr = None
     if not isinstance(arr, list):
         return []
     out: list[dict] = []
