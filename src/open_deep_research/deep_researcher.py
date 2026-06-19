@@ -103,6 +103,31 @@ def _report_is_failed(report: Optional[str]) -> bool:
             or stripped == ALL_RESEARCH_FAILED_SENTINEL)
 
 
+def _is_empty_run(*, fact_count: int, raw_text_source_count: int) -> bool:
+    """A run that gathered nothing: 0 researched facts AND 0 raw_text sources captured.
+
+    Distinct from a 'thin' run (sources gathered, few facts) -- that may be a legitimately
+    sparse country and is surfaced, not failed.
+    """
+    return fact_count == 0 and raw_text_source_count == 0
+
+
+async def _run_fact_count(db_path: str, run_id) -> int:
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as conn:
+        cur = await conn.execute("SELECT COUNT(*) FROM fact WHERE run_id=?", (run_id,))
+        return int((await cur.fetchone())[0])
+
+
+async def _raw_text_source_count(db_path: str, thread_id: str) -> int:
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as conn:
+        cur = await conn.execute(
+            "SELECT COUNT(*) FROM run_source WHERE thread_id=? AND capture_status='raw_text'",
+            (thread_id,))
+        return int((await cur.fetchone())[0])
+
+
 def recommended_recursion_limit(
     max_researcher_iterations: int, max_concurrent_research_units: int = 1
 ) -> int:
@@ -1359,7 +1384,25 @@ async def persist_research(state: AgentState, config: RunnableConfig):
                 "Run produced no usable report (%r...); logged as error, dossier left unchanged.",
                 (final_report or "")[:120],
             )
-            return {"report_id": run_id, "subject": subject_for_log}
+            return {"report_id": run_id, "subject": subject_for_log,
+                    "fact_count": 0, "status": "error"}
+
+        # Empty-run gate: a run that captured no raw_text sources AND extracted no facts is a
+        # failed research attempt (the Brazil class), not a real dossier. Log it as an error so
+        # the batch ledger retries it on resume -- never merge it into the subject dossier.
+        thread_id = (config.get("configurable") or {}).get("thread_id")
+        prealloc = state.get("prealloc_run_id")
+        fact_count = await _run_fact_count(db_path, prealloc) if prealloc else 0
+        src_count = await _raw_text_source_count(db_path, thread_id) if thread_id else 0
+        if _is_empty_run(fact_count=fact_count, raw_text_source_count=src_count):
+            run["status"] = "error"
+            run["error"] = "empty run: 0 facts, 0 raw_text sources"
+            subject_for_log = state.get("subject") or topic
+            run_id = await log_research_run(db_path, slugify(subject_for_log), run,
+                                            run_id=state.get("prealloc_run_id"))
+            logger.error("Empty run (0 facts/0 sources); logged as error for retry.")
+            return {"report_id": run_id, "subject": subject_for_log,
+                    "fact_count": 0, "status": "error"}
 
         if configurable.accumulate_by_subject and final_report:
             # 1) Use the subject already matched by assess_knowledge, else resolve now.
@@ -1426,7 +1469,8 @@ async def persist_research(state: AgentState, config: RunnableConfig):
             now=now,
             run_id=state.get("prealloc_run_id"),
         )
-        return {"report_id": run_id, "subject": subject_name}
+        return {"report_id": run_id, "subject": subject_name,
+                "fact_count": fact_count, "status": "completed"}
     except Exception as e:
         # Persistence is best-effort: never fail a completed run on a DB error. But for a
         # knowledge-base product a silent save failure breaks the whole value prop, so log

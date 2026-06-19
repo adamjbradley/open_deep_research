@@ -21,3 +21,22 @@ def test_blank_supervisor_turn_is_nudged_not_ended():
     assert cmd.goto == "supervisor"  # looped back, NOT __end__
     msgs = cmd.update["supervisor_messages"]
     assert msgs and "ConductResearch" in msgs[-1].content
+
+
+# ---------------------------------------------------------------------------
+# Task A2: _is_empty_run gate
+# ---------------------------------------------------------------------------
+from open_deep_research.deep_researcher import _is_empty_run
+
+
+def test_is_empty_run_true_when_no_facts_and_no_sources():
+    assert _is_empty_run(fact_count=0, raw_text_source_count=0) is True
+
+
+def test_is_empty_run_false_when_any_facts():
+    assert _is_empty_run(fact_count=3, raw_text_source_count=0) is False
+
+
+def test_is_empty_run_false_when_sources_present():
+    # sources gathered but 0 facts = "thin", NOT empty (don't auto-fail legitimately sparse countries)
+    assert _is_empty_run(fact_count=0, raw_text_source_count=5) is False
