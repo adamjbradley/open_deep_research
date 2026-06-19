@@ -1733,16 +1733,20 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                 return {}
 
             logger.info("Extracting facts from %d sources in parallel...", len(valid_sources))
-            
+
+            sem = asyncio.Semaphore(int(os.getenv("EXTRACT_FACTS_CONCURRENCY",
+                                                   str(configurable.max_concurrent_research_units or 4))))
+
             async def _extract_one(s):
-                try:
-                    recs = await fbextractor.extract(s["text"], prof, model_call)
-                    for r in recs:
-                        r.setdefault("source_url", s["source_url"])
-                    return recs
-                except Exception as e:
-                    logger.warning("Extraction failed for %s: %s", s["source_url"], e)
-                    return []
+                async with sem:
+                    try:
+                        recs = await fbextractor.extract(s["text"], prof, model_call)
+                        for r in recs:
+                            r.setdefault("source_url", s["source_url"])
+                        return recs
+                    except Exception as e:
+                        logger.warning("Extraction failed for %s: %s", s["source_url"], e)
+                        return []
 
             extraction_tasks = [_extract_one(s) for s in valid_sources]
             task_results = await asyncio.gather(*extraction_tasks)

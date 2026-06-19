@@ -255,3 +255,40 @@ def test_node_style_config_shape_drives_failover(monkeypatch, tmp_path):
     })
     assert asyncio.run(model.ainvoke("hi")) == "BACKUP-OK"
     assert constructed == ["gemini:gemini-2.5-pro", "claude-opus-4-8"]
+
+
+def test_inflight_peer_skips_just_marked_down_model(monkeypatch):
+    # Two concurrent calls share a tracker. The first marks the primary backend down
+    # (backend_fatal); the second, started after, must skip the primary entirely.
+    tracker = new_run_tracker()
+    constructed = []
+    script = {
+        "gemini:gemini-2.5-pro": Exception("429 insufficient_quota"),  # backend_fatal -> mark down
+        "claude-opus-4-8": "OK",
+    }
+    _patch_build(monkeypatch, script, constructed)
+    cfg = {"model_chain": ["gemini:gemini-2.5-pro", "claude-opus-4-8"], "stage": "extract_facts"}
+    model = configurable_claude_model().with_config(cfg)
+    asyncio.run(model.ainvoke("first"))   # marks gemini backend down
+    constructed.clear()
+    asyncio.run(model.ainvoke("second"))  # must skip gemini
+    assert constructed == ["claude-opus-4-8"]
+
+
+def test_per_attempt_skip_within_available(monkeypatch):
+    # available_chain is computed once; ensure the loop re-checks is_down before each attempt so a
+    # model marked down by a peer between chain-build and this attempt is not tried.
+    tracker = new_run_tracker()
+    constructed = []
+
+    def fake_build(model_string, max_tokens=None):
+        constructed.append(model_string)
+        # mark the primary down right after the chain was built but before we try it
+        if model_string == "nvidia:x":
+            tracker.mark_backend_down("nvidia")
+        return _FakeModel(model_string, {"nvidia:x": Exception("429"), "claude-opus-4-8": "OK"})
+
+    monkeypatch.setattr(cac, "build_chat_model", fake_build)
+    model = configurable_claude_model().with_config(
+        {"model_chain": ["nvidia:x", "claude-opus-4-8"], "stage": "extract_facts"})
+    assert asyncio.run(model.ainvoke("x")) == "OK"
