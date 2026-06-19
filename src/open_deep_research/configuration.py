@@ -123,6 +123,24 @@ class Configuration(BaseModel):
             }
         }
     )
+    max_search_results: int = Field(
+        default=5,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "slider", "default": 5, "min": 1, "max": 20, "step": 1,
+                "description": "Cap on results summarized per search query. Lower it to cut the number of per-source summarization calls (and total runtime) on broad runs."
+            }
+        }
+    )
+    summarize_search_results: bool = Field(
+        default=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean", "default": True,
+                "description": "Summarize each fetched source with the summarization model. Disable to skip that per-source LLM pass and hand the (truncated) raw content straight to compression -- far fewer model calls, at some loss of per-source distillation."
+            }
+        }
+    )
     # Model Configuration
     summarization_model: str = Field(
         default="gemini:gemini-2.5-flash",
@@ -278,6 +296,16 @@ class Configuration(BaseModel):
             }
         }
     )
+    consolidate_name_values: bool = Field(
+        default=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "default": True,
+                "description": "In facts-first answers, when a singular name property has several source-variants that text canonicalization can't merge (e.g. 'e-ID' / 'electronic identification' / 'Digi-ID'), run a cheap best-effort LLM pass to decide if they denote the same entity and pick one canonical name. Kill-switch: turn off to keep the deterministic best-variant pick."
+            }
+        }
+    )
     facts_first_mode: bool = Field(
         default=False,
         metadata={
@@ -304,6 +332,22 @@ class Configuration(BaseModel):
             "description": "Name of the factbase source registry (YAML file stem under factbase/profiles/) used for source-trust tiers.",
         }},
     )
+    auto_select_profile: bool = Field(
+        default=True,
+        metadata={"x_oap_ui_config": {
+            "type": "boolean",
+            "default": True,
+            "description": "Pick the factbase domain profile that best matches the user's question (from the profiles shipped under factbase/profiles/) instead of always using profile_name. profile_name is the fallback when no profile clearly fits.",
+        }},
+    )
+    propose_profile_extensions: bool = Field(
+        default=False,
+        metadata={"x_oap_ui_config": {
+            "type": "boolean",
+            "default": False,
+            "description": "After extraction, ask the model whether the sources contain valuable, recurring facts the active profile does NOT capture, and append them as proposed new properties to <profile>.extension.draft.yaml for manual review/merge. Never edits the production profile.",
+        }},
+    )
     compile_extraction_prompt: bool = Field(
         default=True,
         metadata={"x_oap_ui_config": {
@@ -323,6 +367,16 @@ class Configuration(BaseModel):
                 "description": "Facts-first mode only: max research rounds. After each round, if a target property still has no fact, re-research the gaps (up to this many rounds). 1 = single pass (no gap loop). Each extra round only extracts newly-fetched sources."
             }
         }
+    )
+    whole_profile_mode: bool = Field(
+        default=False,
+        metadata={"x_oap_ui_config": {"type": "boolean", "default": False,
+            "description": "Gather EVERY profile property (resolved-or-confirmed-absent) and write a profile-defined subject narrative, instead of only the question-scoped target properties."}}
+    )
+    max_profile_rounds: int = Field(
+        default=6,
+        metadata={"x_oap_ui_config": {"type": "number", "default": 6,
+            "description": "Hard cap on whole-profile gap rounds (whole_profile_mode). Higher than max_fact_rounds since whole-profile gathering needs more passes."}}
     )
     facts_answer_polish_model: Optional[str] = Field(
         default=None,

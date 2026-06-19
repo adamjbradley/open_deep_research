@@ -21,14 +21,34 @@ def _cfg(**kw):
 
 # -- routing functions (pure, config-driven) -----------------------------------
 
-def test_route_after_research_respects_facts_first():
+def test_route_after_research_respects_facts_first(monkeypatch):
+    # Isolate from an ambient FACTS_FIRST_MODE in the developer's .env: env overrides the
+    # per-call configurable, which would otherwise mask the facts_first_mode=False branch.
+    monkeypatch.delenv("FACTS_FIRST_MODE", raising=False)
     assert dr.route_after_research({}, _cfg(facts_first_mode=True)) == "extract_facts"
     assert dr.route_after_research({}, _cfg(facts_first_mode=False)) == "final_report_generation"
 
 
-def test_route_after_extract_respects_facts_first():
+def test_route_after_extract_respects_facts_first(monkeypatch):
+    monkeypatch.delenv("FACTS_FIRST_MODE", raising=False)
     assert dr.route_after_extract({}, _cfg(facts_first_mode=True)) == "assess_sufficiency"
     assert dr.route_after_extract({}, _cfg(facts_first_mode=False)) == "persist_research"
+
+
+def test_route_after_research_whole_profile_goes_to_extract(monkeypatch):
+    monkeypatch.delenv("FACTS_FIRST_MODE", raising=False)
+    monkeypatch.delenv("WHOLE_PROFILE_MODE", raising=False)
+    assert dr.route_after_research({}, _cfg(whole_profile_mode=True)) == "extract_facts"
+    assert dr.route_after_research({}, _cfg(facts_first_mode=True)) == "extract_facts"
+    assert dr.route_after_research({}, _cfg()) == "final_report_generation"  # both off -> report
+
+
+def test_route_after_extract_whole_profile_goes_to_assess_completeness(monkeypatch):
+    monkeypatch.delenv("FACTS_FIRST_MODE", raising=False)
+    monkeypatch.delenv("WHOLE_PROFILE_MODE", raising=False)
+    assert dr.route_after_extract({}, _cfg(whole_profile_mode=True)) == "assess_completeness"
+    assert dr.route_after_extract({}, _cfg(facts_first_mode=True)) == "assess_sufficiency"
+    assert dr.route_after_extract({}, _cfg()) == "persist_research"  # both off
 
 
 def test_default_config_is_report_mode():
@@ -150,3 +170,178 @@ def test_assess_sufficiency_answers_when_budget_exhausted(tmp_path):
         cmd = await dr.assess_sufficiency(state, _cfg(database_path=db, max_fact_rounds=2))
         assert cmd.goto == "answer_from_facts"
     asyncio.run(run())
+
+
+def test_facts_answer_text_consolidates_singular_property_to_best_value():
+    # A singular `name` property with several conflicting source-variants must render ONE
+    # value (best-corroborated; ties broken toward non-conflict then longest), not a dump.
+    rows = [
+        {"property_name": "foundational_id_scheme", "value": "digital",
+         "admission": "provisional", "in_conflict": False, "source_count": 1},
+        {"property_name": "foundational_id_scheme", "value": "Estonia's e-ID (electronic identity)",
+         "admission": "provisional", "in_conflict": False, "source_count": 3},
+        {"property_name": "foundational_id_scheme", "value": "personal id code",
+         "admission": "provisional", "in_conflict": True, "source_count": 1},
+    ]
+    out = dr._facts_answer_text("Estonia", rows, ["foundational_id_scheme"],
+                                singular_props={"foundational_id_scheme"})
+    assert "Estonia's e-ID (electronic identity)" in out          # best (3 sources) kept
+    assert "personal id code" not in out and "**: digital" not in out  # others dropped
+    assert out.count("**foundational_id_scheme**") == 1
+
+
+def test_facts_answer_text_keeps_all_values_for_non_singular_property():
+    rows = [
+        {"property_name": "biometric_capture", "value": "fingerprint",
+         "admission": "trusted", "in_conflict": False, "source_count": 2},
+        {"property_name": "biometric_capture", "value": "iris",
+         "admission": "trusted", "in_conflict": False, "source_count": 2},
+    ]
+    out = dr._facts_answer_text("India", rows, ["biometric_capture"], singular_props=set())
+    assert "fingerprint" in out and "iris" in out
+
+
+def test_facts_research_brief_steered_by_property_catalog():
+    """Facts-first research steering must inject the profile's compiled catalog (descriptions,
+    allowed values, qualifiers) -- not just bare property names -- so the researcher gathers
+    each value WITH its required qualifiers (regression: coverage gathered without a
+    population_basis; foundational scheme gathered as loose variants)."""
+    from open_deep_research.factbase import profile as profmod
+    prof = profmod.load("country_digital_identity")
+    out = dr._steer_brief_with_catalog("ORIGINAL BRIEF", prof,
+                                       ["foundational_id_scheme", "id_coverage_pct"])
+    assert "ORIGINAL BRIEF" in out                 # original brief preserved
+    assert "single" in out.lower()                 # foundational_id_scheme tightened description
+    assert "population_basis" in out               # id_coverage_pct required qualifier surfaced
+    assert "qualifier" in out.lower()              # explicit instruction to capture qualifiers
+    assert "scheme_status" not in out              # only the targeted properties
+
+
+def test_facts_answer_text_displays_raw_variant_not_canonical():
+    # group_by_canonical sets `value` to the noise-stripped canonical ("estonia s digital")
+    # and keeps raw surface forms in `variants`. The answer must show a readable raw form.
+    rows = [{
+        "property_name": "foundational_id_scheme",
+        "value": "estonia s digital",                       # canonical (ugly)
+        "variants": ["Estonia's digital ID", "estonia digital"],
+        "admission": "provisional", "in_conflict": False, "source_count": 1,
+    }]
+    out = dr._facts_answer_text("Estonia", rows, ["foundational_id_scheme"],
+                                singular_props={"foundational_id_scheme"})
+    assert "Estonia's digital ID" in out          # readable raw form shown
+    assert "estonia s digital" not in out          # canonical key NOT shown
+
+
+# --- (C) semantic consolidation of name-variants -------------------------------------
+import asyncio as _asyncio
+
+
+class _FakeConsolidation:
+    def __init__(self, same_entity, canonical_name=""):
+        self.same_entity = same_entity
+        self.canonical_name = canonical_name
+
+
+def _rows_for(values):
+    return [{"property_name": "foundational_id_scheme", "value": v, "variants": [v],
+             "admission": "provisional", "in_conflict": False, "source_count": 1} for v in values]
+
+
+def test_consolidate_name_group_merges_same_entity():
+    calls = {}
+    async def fake_model_call(subject, prop_name, prop_desc, values):
+        calls["values"] = values
+        return _FakeConsolidation(True, "e-ID (Estonian electronic identity)")
+    rows = _rows_for(["ID-card", "Electronic Identification card (eID)", "Estonia's digital ID"])
+    merged = _asyncio.run(dr._consolidate_name_group("Estonia", "foundational_id_scheme",
+                                                     "the scheme", rows, fake_model_call))
+    assert merged is not None
+    assert dr._display_value(merged) == "e-ID (Estonian electronic identity)"
+    assert merged["source_count"] == 3           # corroboration summed across variants
+    assert merged["in_conflict"] is False
+    assert len(calls["values"]) == 3             # the model saw all distinct variants
+
+
+def test_consolidate_name_group_keeps_distinct_when_not_same_entity():
+    async def fake_model_call(*a):
+        return _FakeConsolidation(False)
+    rows = _rows_for(["Aadhaar", "Passport"])
+    assert _asyncio.run(dr._consolidate_name_group("X", "p", "d", rows, fake_model_call)) is None
+
+
+def test_consolidate_name_group_noops_on_single_value():
+    async def fake_model_call(*a):  # must NOT be called
+        raise AssertionError("model_call should not run for a single value")
+    rows = _rows_for(["only one"])
+    assert _asyncio.run(dr._consolidate_name_group("X", "p", "d", rows, fake_model_call)) is None
+
+
+def test_consolidate_name_group_best_effort_on_model_error():
+    async def boom(*a):
+        raise RuntimeError("model down")
+    rows = _rows_for(["a", "b"])
+    assert _asyncio.run(dr._consolidate_name_group("X", "p", "d", rows, boom)) is None
+
+
+def test_best_singular_row_prefers_trusted_over_longer_provisional():
+    rows = [
+        {"property_name": "foundational_id_scheme", "value": "electronic identification",
+         "admission": "trusted", "in_conflict": False, "source_count": 1},
+        {"property_name": "foundational_id_scheme", "value": "new electronic identity cards",
+         "admission": "provisional", "in_conflict": False, "source_count": 1},  # longer
+    ]
+    best = dr._best_singular_row(rows)
+    assert best["admission"] == "trusted"            # trusted wins despite being shorter
+
+
+def test_best_singular_row_source_count_still_dominates_admission():
+    rows = [
+        {"property_name": "p", "value": "a", "admission": "trusted",
+         "in_conflict": False, "source_count": 1},
+        {"property_name": "p", "value": "b", "admission": "provisional",
+         "in_conflict": False, "source_count": 5},   # better corroborated
+    ]
+    assert dr._best_singular_row(rows)["value"] == "b"
+
+
+# -- judge_absence (pure, mocked model_call) ------------------------------------
+
+import asyncio as _aio
+
+
+class _Absent:
+    def __init__(self, v): self.absent = v
+
+
+def test_judge_absence_true_when_model_confirms():
+    async def mc(prop, desc, notes): return _Absent(True)
+    assert _aio.run(dr.judge_absence("bio", "biometrics", "sources say nothing", mc)) is True
+
+
+def test_judge_absence_false_and_best_effort_on_error():
+    async def yes(prop, desc, notes): return _Absent(False)
+    async def boom(prop, desc, notes): raise RuntimeError("x")
+    assert _aio.run(dr.judge_absence("bio", "d", "n", yes)) is False
+    assert _aio.run(dr.judge_absence("bio", "d", "n", boom)) is False   # error -> not absent (keep trying)
+
+
+# -- _synthesize_dossier (pure, mocked model_call) ------------------------------
+
+def test_synthesize_dossier_uses_model_when_available():
+    async def mc(prompt):
+        class R: content = "## How it works\n... ## Coverage\n..."
+        return R()
+    out = _aio.run(dr._synthesize_dossier(
+        "Estonia",
+        [{"property_name": "scheme", "value": "eID", "variants": ["eID"]}],
+        set(), ["How it works", "Coverage"], mc))
+    assert "How it works" in out
+
+
+def test_synthesize_dossier_falls_back_to_deterministic_on_error():
+    async def boom(prompt): raise RuntimeError("x")
+    out = _aio.run(dr._synthesize_dossier(
+        "Estonia",
+        [{"property_name": "scheme", "value": "eID", "variants": ["eID"]}],
+        set(), ["Sec"], boom))
+    assert "scheme" in out          # deterministic _facts_answer_text fallback rendered

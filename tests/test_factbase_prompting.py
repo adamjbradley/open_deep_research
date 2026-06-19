@@ -95,3 +95,38 @@ def test_single_open_line_says_literal_and_known_values():
 def test_single_closed_line_unchanged():
     cat = _cat()
     assert "(enum)" in cat and "allowed values" in cat
+
+
+def test_shipped_di_profile_constrains_foundational_scheme_extraction():
+    """The foundational_id_scheme description must steer the extractor to a SINGLE official
+    scheme and away from adjacent e-services (regression: over-extraction of 'e-residency',
+    'bank' as the foundational scheme). The description compiles straight into the prompt."""
+    from open_deep_research.factbase import profile as profmod
+    prof = profmod.load("country_digital_identity")
+    cat = compile_property_catalog(prof, target_properties=["foundational_id_scheme"])
+    low = cat.lower()
+    assert "single" in low                      # only the one official scheme
+    assert "e-residency" in low or "e residency" in low  # explicit don't-extract example
+
+
+def test_catalog_includes_narrative_guidance():
+    prof = profile_from_dict({"entity_type": "country", "version": "1", "properties": [
+        {"name": "scheme", "kind": "name",
+         "narrative": {"required": True, "guidance": "Explain enrolment and caveats."}},
+    ]})
+    cat = compile_property_catalog(prof, ["scheme"])
+    assert "narrative" in cat.lower()
+    assert "enrolment" in cat
+
+
+def test_extraction_prompt_requests_flat_qualifier_tokens_and_json_array():
+    prof = profile_from_dict({"entity_type": "country", "version": "1", "properties": [
+        {"name": "cov", "kind": "percentage", "identity_qualifiers": ["population_basis"],
+         "qualifier_enums": {"population_basis": ["total_pop"]}},
+    ]})
+    p = build_extraction_prompt(prof, ["cov"], "Estonia: 99% of total population.", compiled=True)
+    low = p.lower()
+    assert "json array" in low
+    assert "evidence_span" in p
+    assert "qualifiers" in low and "list" in low      # flat list, not an object
+    assert "do not" in low and "object" in low        # explicit: not a nested object

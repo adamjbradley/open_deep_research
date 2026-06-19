@@ -16,9 +16,9 @@ from pydantic import BaseModel, model_validator
 
 KNOWN_ROLES = {"supervisor", "researcher", "summarization", "compression",
                "final_report", "facts_answer_polish"}
-KNOWN_STEPS = {"extract_facts"}  # expand as more call sites adopt model_for()
-KNOWN_BACKENDS = {"claude", "gemini", "codex"}
-KNOWN_PREFIXES = {"claude", "gemini", "google", "codex", "openai", "anthropic"}
+KNOWN_STEPS = {"extract_facts", "propose_extensions"}  # expand as more call sites adopt model_for()
+KNOWN_BACKENDS = {"claude", "gemini", "codex", "agy"}
+KNOWN_PREFIXES = {"claude", "gemini", "google", "codex", "openai", "anthropic", "nvidia", "agy"}
 KNOWN_SEARCH = {"claude", "gemini", "codex", "anthropic", "openai", "tavily", "none"}
 
 
@@ -205,3 +205,8 @@ def apply_backend_env(routing: RoutingConfig | None = None) -> None:
             os.environ.setdefault("CODEX_CLI_BIN", c.cli_bin)
         if c.sandbox is not None:
             os.environ.setdefault("CODEX_SANDBOX", c.sandbox)
+    a = routing.backends.get("agy")
+    if a:
+        if a.cli_bin is not None:
+            os.environ.setdefault("AGY_CLI_BIN", a.cli_bin)
+        os.environ.setdefault("AGY_CLI_ARGS", " ".join(a.cli_args))

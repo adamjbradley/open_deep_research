@@ -129,3 +129,31 @@ def test_toggling_open_changes_semantic_hash():
     open_ = {"entity_type": "country", "properties": [
         {"name": "r", "kind": "enum", "open": True, "value_enum": ["sender", "receiver"]}]}
     assert profile_from_dict(base).profile_hash != profile_from_dict(open_).profile_hash
+
+
+def test_profile_parses_narrative_and_completeness_fields():
+    prof = profile_from_dict({
+        "entity_type": "country", "version": "1",
+        "narrative": {"overview_sections": ["How it works", "Coverage gaps"]},
+        "properties": [
+            {"name": "scheme", "kind": "name",
+             "narrative": {"required": True, "guidance": "Explain enrolment + caveats."},
+             "completeness": "required", "absence_allowed": False},
+            {"name": "bio", "kind": "enum", "value_enum": ["photo"], "multi": True},
+        ],
+    })
+    p = prof.property("scheme")
+    assert p.narrative_required is True
+    assert "enrolment" in p.narrative_guidance
+    assert p.completeness == "required" and p.absence_allowed is False
+    assert prof.overview_sections == ["How it works", "Coverage gaps"]
+    # defaults when omitted:
+    b = prof.property("bio")
+    assert b.narrative_required is False and b.completeness == "required" and b.absence_allowed is True
+
+
+def test_back_compat_profile_without_new_fields():
+    prof = profile_from_dict({"entity_type": "country", "version": "1",
+                              "properties": [{"name": "x", "kind": "name"}]})
+    assert prof.overview_sections == []
+    assert prof.property("x").narrative_required is False

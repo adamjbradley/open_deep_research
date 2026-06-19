@@ -12,7 +12,7 @@ class FactQuery:
         self._conn.row_factory = aiosqlite.Row
         sql = (
             "SELECT f.id, f.instance_key, f.property_name, f.qualifiers_json, f.as_of, f.value, "
-            "f.unit, f.canonical_value, f.canonical_unit, f.admission, f.lifecycle, "
+            "f.unit, f.canonical_value, f.canonical_unit, f.narrative, f.admission, f.lifecycle, "
             "s.url_or_domain AS source_url, s.tier AS source_tier, "
             "EXISTS (SELECT 1 FROM conflict_member cm JOIN conflict c ON c.id=cm.conflict_id "
             "        WHERE cm.fact_id=f.id AND c.status='open') AS in_conflict "
@@ -54,13 +54,17 @@ def group_by_canonical(rows: list[dict]) -> list[dict]:
         g = groups.get(key)
         if g is None:
             g = {**r, "value": cval, "admission": "provisional",
-                 "in_conflict": False, "source_count": 0, "variants": []}
+                 "in_conflict": False, "source_count": 0, "variants": [], "narrative": ""}
             g["_sources"] = set()
             g["_variants"] = set()
+            g["_narratives"] = []
             groups[key] = g
         if r.get("source_url"):
             g["_sources"].add(r["source_url"])
         g["_variants"].add(str(r.get("value", "")))
+        n = (r.get("narrative") or "").strip()
+        if n and n not in g["_narratives"]:
+            g["_narratives"].append(n)
         if r.get("admission") == "trusted":
             g["admission"] = "trusted"
         if r.get("in_conflict"):
@@ -69,5 +73,6 @@ def group_by_canonical(rows: list[dict]) -> list[dict]:
     for g in groups.values():
         g["source_count"] = len(g.pop("_sources"))
         g["variants"] = sorted(g.pop("_variants"))
+        g["narrative"] = " / ".join(g.pop("_narratives"))
         out.append(g)
     return out

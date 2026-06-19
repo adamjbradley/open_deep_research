@@ -10,7 +10,7 @@ def _head(spec):
 def test_bundled_routing_is_importable_and_valid_json():
     text = files("open_deep_research.data").joinpath("model_routing.json").read_text(encoding="utf-8")
     data = json.loads(text)
-    assert data["active_preset"] == "balanced"  # Claude reasoning seams + Gemini throughput
+    assert data["active_preset"] == "claude"  # all-Claude default (gemini CLI deprecated -> agy)
     assert {"balanced", "gemini", "claude"} <= set(data["presets"])
     # primaries (chain heads): pure presets unchanged; balanced runs researcher on gemini.
     assert _head(data["presets"]["gemini"]["roles"]["researcher"]) == "gemini:gemini-2.5-flash"

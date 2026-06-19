@@ -1,0 +1,188 @@
+entity_type: country
+version: "2"
+notes: >
+  Comprehensive Digital-Identity profile for the country entity type (v2 DRAFT, World Bank
+  ID4D-aligned). Superset of v1: keeps the v1 foundational spine and adds governance,
+  credentials/form-factor, digital authentication, lifecycle/CRVS linkage, usage & adoption,
+  interoperability, and privacy/rights dimensions.
+
+  REVIEW DRAFT -- not auto-loaded (.draft.yaml is skipped by available_profiles). To adopt:
+  review/trim, then rename to country_digital_identity_v2.yaml (makes it selectable) or merge
+  the new properties into country_digital_identity.yaml.
+
+  NOTE: a few dimensions (system architecture rationale, controversy/court-ruling summaries,
+  breach details) are best modeled as free-text 'text'/narrative properties, which require the
+  currently-reverted text-kind support. They are listed as comments at the end rather than
+  included, so this file validates against the current schema.
+properties:
+  # ---------------------------------------------------------------------------
+  # v1 foundational spine (carried over; biometric_capture widened + opened)
+  # ---------------------------------------------------------------------------
+  - name: foundational_id_scheme
+    kind: name
+    description: "The country's primary national/foundational ID scheme."
+    value_aliases:
+      aadhaar:
+        - uidai
+        - aadhaar uid
+        - uid aadhaar
+        - unique identity scheme or aadhaar
+        - unique identity uid scheme or aadhaar
+  - name: scheme_status
+    kind: enum
+    description: "Operational maturity of the foundational ID scheme."
+    identity_qualifiers: [basis]
+    required_qualifiers: [basis]
+    qualifier_enums:
+      basis: [de_jure, de_facto]
+    value_enum: [announced, piloting, operational, mandatory]
+  - name: id_coverage_pct
+    kind: percentage
+    description: "Share of the population holding the foundational ID."
+    identity_qualifiers: [population_basis, coverage_kind, measured_modeled]
+    required_qualifiers: [population_basis]
+    qualifier_enums:
+      population_basis: [adults_15plus, total_pop, births, registered_holders]
+      coverage_kind: [enrolled, issued, active]
+      measured_modeled: [measured, modeled]
+  - name: biometric_capture
+    kind: enum
+    multi: true
+    open: true
+    description: "Biometric modalities captured at enrolment (one or more)."
+    value_enum: [photo, fingerprint, iris, face, voice, palm, signature]
+  - name: data_protection_law
+    kind: boolean
+    description: "Whether a data-protection law applies to the ID system."
+    identity_qualifiers: [jurisdiction, stage, scope]
+    required_qualifiers: [stage]
+    qualifier_enums:
+      stage: [enacted, in_force]
+      scope: [comprehensive, sectoral]
+  - name: legal_basis
+    kind: name_year
+    description: "Name + year of the statute/regulation establishing the scheme."
+    identity_qualifiers: [jurisdiction]
+
+  # ---------------------------------------------------------------------------
+  # Governance & architecture
+  # ---------------------------------------------------------------------------
+  - name: issuing_authority
+    kind: name
+    description: "Government body that owns/operates the scheme (e.g., UIDAI)."
+  - name: operating_model
+    kind: enum
+    open: true
+    description: "How the identity system is governed/operated."
+    value_enum: [centralized, federated, public_private_partnership, decentralized]
+  - name: id_platform
+    kind: name
+    description: "Underlying technology platform (e.g., MOSIP, OSIA, proprietary)."
+  - name: unique_id_number
+    kind: boolean
+    description: "Whether the scheme assigns each person a unique national ID number."
+
+  # ---------------------------------------------------------------------------
+  # Credentials & form factor
+  # ---------------------------------------------------------------------------
+  - name: credential_form_factor
+    kind: enum
+    multi: true
+    open: true
+    description: "Form(s) in which the credential is issued and presented."
+    value_enum: [physical_card, smart_card, mobile_app, qr_code, verifiable_credential, mobile_drivers_license]
+  - name: digital_wallet
+    kind: boolean
+    description: "Whether a government digital-ID wallet/app is offered to holders."
+
+  # ---------------------------------------------------------------------------
+  # Digital authentication & online identity
+  # ---------------------------------------------------------------------------
+  - name: authentication_methods
+    kind: enum
+    multi: true
+    open: true
+    description: "Methods supported to authenticate a holder online or in person."
+    value_enum: [otp, biometric_match, pki_certificate, password, qr_scan, face_match]
+  - name: online_identity_verification
+    kind: boolean
+    description: "Whether the ID enables remote identity verification / eKYC for digital services."
+  - name: assurance_levels_defined
+    kind: boolean
+    description: "Whether the scheme defines levels of assurance (LoA) for authentication."
+  - name: digital_signature_support
+    kind: boolean
+    description: "Whether the scheme supports legally-recognized digital signatures."
+
+  # ---------------------------------------------------------------------------
+  # Lifecycle & civil registration (CRVS)
+  # ---------------------------------------------------------------------------
+  - name: civil_registration_linkage
+    kind: boolean
+    description: "Whether the ID is linked to civil registration events."
+    identity_qualifiers: [event]
+    qualifier_enums:
+      event: [birth, death, marriage]
+  - name: enrollment_cost
+    kind: enum
+    open: true
+    description: "Cost to the individual to enrol for the ID."
+    value_enum: [free, subsidized, fee]
+
+  # ---------------------------------------------------------------------------
+  # Usage & adoption
+  # ---------------------------------------------------------------------------
+  - name: primary_use_cases
+    kind: enum
+    multi: true
+    open: true
+    description: "Major domains in which the ID is actually used."
+    value_enum: [banking_kyc, sim_registration, social_benefits, healthcare, taxation, voting, travel, education]
+  - name: mandatory_for_services
+    kind: boolean
+    description: "Whether the ID is mandatory to access key public services/benefits."
+
+  # ---------------------------------------------------------------------------
+  # Interoperability & standards
+  # ---------------------------------------------------------------------------
+  - name: interoperability_standards
+    kind: enum
+    multi: true
+    open: true
+    description: "Technical standards the scheme conforms to."
+    value_enum: [iso_18013_mdl, fido, openid_connect, saml, x509, w3c_vc]
+  - name: cross_border_recognition
+    kind: boolean
+    description: "Whether the ID is legally recognized across borders (e.g., eIDAS, regional bloc)."
+
+  # ---------------------------------------------------------------------------
+  # Privacy, security & rights
+  # ---------------------------------------------------------------------------
+  - name: independent_dp_regulator
+    kind: boolean
+    description: "Whether an independent data-protection authority oversees the scheme."
+  - name: reported_data_breach
+    kind: boolean
+    description: "Whether a significant data breach/security incident has been reported."
+    identity_qualifiers: [jurisdiction]
+  - name: constitutional_legal_challenge
+    kind: boolean
+    description: "Whether the scheme has faced a significant constitutional/legal challenge."
+  - name: biometric_data_storage
+    kind: enum
+    open: true
+    description: "Where enrolment biometrics are stored."
+    value_enum: [centralized_database, on_card_only, decentralized]
+
+  # ---------------------------------------------------------------------------
+  # Qualitative / narrative (kind: text). NOTE: every fact ALSO carries a per-fact
+  # `narrative` automatically, so e.g. breach scope/timing rides on reported_data_breach
+  # and legal-ruling detail rides on constitutional_legal_challenge -- no separate field
+  # needed. The two text properties below are for standalone qualitative write-ups.
+  # ---------------------------------------------------------------------------
+  - name: architecture_overview
+    kind: text
+    description: "Narrative of the system's design: registry model, deduplication, tokenization / virtual IDs."
+  - name: controversy_summary
+    kind: text
+    description: "Narrative of significant privacy/surveillance debates and key court rulings on the scheme."

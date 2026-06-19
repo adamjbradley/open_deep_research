@@ -34,6 +34,7 @@ from open_deep_research.prompts import (
     knowledge_assessment_prompt,
     lead_researcher_prompt,
     merge_reports_prompt,
+    profile_selection_prompt,
     research_system_prompt,
     subject_resolution_prompt,
     target_properties_prompt,
@@ -49,6 +50,7 @@ from open_deep_research.state import (
     ResearcherState,
     KnowledgeAssessment,
     ResearchQuestion,
+    SelectedProfile,
     SubjectResolution,
     SupervisorState,
     TargetProperties,
@@ -84,6 +86,10 @@ logger = logging.getLogger(__name__)
 # so persistence must detect them (see _report_is_failed) and avoid saving them as a
 # "completed" run or merging them into the subject dossier (which would poison the KB).
 COMPRESSION_FAILED_SENTINEL = "Error synthesizing research report: Maximum retries exceeded"
+ALL_RESEARCH_FAILED_SENTINEL = (
+    "Error: all research units failed (no usable findings). "
+    "Likely all model backends are unavailable (quota/auth). See run failovers."
+)
 REPORT_FAILED_PREFIX = "Error generating final report:"
 
 
@@ -92,7 +98,34 @@ def _report_is_failed(report: Optional[str]) -> bool:
     if not report or not report.strip():
         return True
     stripped = report.strip()
-    return stripped.startswith(REPORT_FAILED_PREFIX) or stripped == COMPRESSION_FAILED_SENTINEL
+    return (stripped.startswith(REPORT_FAILED_PREFIX)
+            or stripped == COMPRESSION_FAILED_SENTINEL
+            or stripped == ALL_RESEARCH_FAILED_SENTINEL)
+
+
+def _is_empty_run(*, fact_count: int, raw_text_source_count: int) -> bool:
+    """A run that gathered nothing: 0 researched facts AND 0 raw_text sources captured.
+
+    Distinct from a 'thin' run (sources gathered, few facts) -- that may be a legitimately
+    sparse country and is surfaced, not failed.
+    """
+    return fact_count == 0 and raw_text_source_count == 0
+
+
+async def _run_fact_count(db_path: str, run_id) -> int:
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as conn:
+        cur = await conn.execute("SELECT COUNT(*) FROM fact WHERE run_id=?", (run_id,))
+        return int((await cur.fetchone())[0])
+
+
+async def _raw_text_source_count(db_path: str, thread_id: str) -> int:
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as conn:
+        cur = await conn.execute(
+            "SELECT COUNT(*) FROM run_source WHERE thread_id=? AND capture_status='raw_text'",
+            (thread_id,))
+        return int((await cur.fetchone())[0])
 
 
 def recommended_recursion_limit(
@@ -290,6 +323,25 @@ async def answer_from_dossier(state: AgentState, config: RunnableConfig) -> dict
     }
 
 
+def _steer_brief_with_catalog(research_brief: str, prof, target_properties: list) -> str:
+    """Augment a facts-first research brief with the profile's compiled property catalog.
+
+    Steering with bare property NAMES under-specifies the research: the researcher isn't told
+    a property's definition, allowed values, or required qualifiers, so it gathers loose
+    variants and values without the qualifiers extraction needs (e.g. a coverage % with no
+    population basis). Injecting ``compile_property_catalog`` -- the same definitions/qualifiers
+    used for extraction -- tells the researcher exactly what to find, and to capture qualifiers.
+    """
+    from open_deep_research.factbase.prompting import compile_property_catalog
+    catalog = compile_property_catalog(prof, target_properties)
+    return (
+        f"{research_brief}\n\nGather the specific facts needed to answer this. For each "
+        f"property below, find a cited value that matches its definition and allowed values, "
+        f"and capture any listed qualifier the sources state (e.g. the population basis for a "
+        f"coverage percentage):\n{catalog}"
+    )
+
+
 async def write_research_brief(state: AgentState, config: RunnableConfig) -> dict:
     """Build the research brief and initialize the supervisor.
 
@@ -309,10 +361,18 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     subject = state.get("subject")
     missing_information = state.get("missing_information") or ""
 
+    # Query-driven profile selection: pick the best-matching domain profile once per run (a
+    # gap round re-enters this node, so reuse the already-selected one). Threaded via state so
+    # extract_facts uses the same profile. Falls back to configurable.profile_name.
+    selected_profile_name = state.get("selected_profile_name")
+    if configurable.auto_select_profile and not selected_profile_name:
+        selected_profile_name = await select_profile(question, configurable, config)
+    profile_name = selected_profile_name or configurable.profile_name
+
     # Facts-first answers/sufficiency resolve the fact-base instance from `subject`, but on
     # the research path subject is otherwise only resolved at persist time (and not at all
     # when the KB is off). Resolve it here so the facts nodes have an instance to query.
-    if configurable.facts_first_mode and not subject:
+    if (configurable.facts_first_mode or configurable.whole_profile_mode) and not subject:
         try:
             existing_names = await get_subject_names(get_db_path(config))
             subject = await _resolve_subject(question, question, existing_names, configurable, config)
@@ -354,18 +414,24 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
         ))])
         research_brief = response.research_brief
 
-    # Facts-first: resolve which fact properties the question needs and steer research at them.
+    # Facts-first / whole-profile: resolve which fact properties to target and steer research.
     target_properties = state.get("target_properties")
-    if configurable.facts_first_mode and not target_properties:
+    if configurable.facts_first_mode or configurable.whole_profile_mode:
         from open_deep_research.factbase import profile as _fbprofile
-        target_properties = await resolve_target_properties(
-            question, _fbprofile.load(configurable.profile_name), configurable, config
-        )
-    if configurable.facts_first_mode and target_properties:
-        research_brief = (
-            f"{research_brief}\n\nGather the specific facts needed to answer this. Focus on these "
-            f"properties: {', '.join(target_properties)}. For each, find the value with a citation."
-        )
+        _prof = _fbprofile.load(profile_name)
+        if configurable.whole_profile_mode and not target_properties:
+            # Round 1 covers the whole profile. On gap rounds, assess_completeness has narrowed
+            # target_properties to the still-incomplete set -- keep it (don't re-target resolved
+            # properties), so steering + extraction focus on what's actually missing.
+            target_properties = [pd.name for pd in _prof.properties]
+        elif not configurable.whole_profile_mode and not target_properties:
+            target_properties = await resolve_target_properties(
+                question, _prof, configurable, config
+            )
+        if target_properties:
+            # Steer research with the property catalog (definitions, allowed values,
+            # qualifiers) -- not just bare names -- so facts are gathered with their qualifiers.
+            research_brief = _steer_brief_with_catalog(research_brief, _prof, target_properties)
 
     supervisor_system_prompt = lead_researcher_prompt.format(
         date=get_today_str(),
@@ -386,6 +452,8 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     }
     if target_properties:
         update["target_properties"] = target_properties
+    if selected_profile_name:
+        update["selected_profile_name"] = selected_profile_name
     return update
 
 
@@ -523,6 +591,19 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
             update={"supervisor_messages": corrective_messages},
         )
 
+    # Guard against a blank turn (model returned text / no tool call) before any research ran.
+    # The CLI backends raise on a bad envelope, but an API model (e.g. NVIDIA) can return a
+    # text AIMessage with empty tool_calls -> the old no_tool_calls exit ended research empty
+    # (the Brazil failure). Nudge it to dispatch ConductResearch and loop, bounded by the cap.
+    if no_tool_calls and not conducted_research and not exceeded_allowed_iterations:
+        return Command(
+            goto="supervisor",
+            update={"supervisor_messages": [HumanMessage(content=(
+                "You did not call any tool. You MUST call ConductResearch with one or more "
+                "specific, standalone research_topic instructions before finishing. "
+                "Dispatch the necessary research now."))]},
+        )
+
     # Exit if any termination condition is met
     if exceeded_allowed_iterations or no_tool_calls or research_complete_tool_call:
         return Command(
@@ -650,6 +731,17 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
                 for observation in tool_results
                 if not isinstance(observation, BaseException)
             ])
+
+            allowed_n = len(allowed_conduct_research_calls)
+            all_failed = allowed_n > 0 and all(
+                isinstance(o, BaseException) for o in tool_results
+            )
+            if all_failed and not raw_notes_concat:
+                from open_deep_research.failover import get_tracker
+                fos = get_tracker((config.get("configurable") or {}).get("thread_id")).failovers
+                logger.error("All %d research units failed and produced no notes; "
+                             "failovers=%s", allowed_n, [f.as_dict() for f in fos])
+                update_payload["raw_notes"] = [ALL_RESEARCH_FAILED_SENTINEL]
 
             if raw_notes_concat:
                 update_payload["raw_notes"] = [raw_notes_concat]
@@ -991,7 +1083,20 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     notes = state.get("notes", [])
     cleared_state = {"notes": {"type": "override", "value": []}}
     findings = "\n".join(notes)
-    
+
+    # If the research phase wholesale-failed (every unit exhausted its model chain),
+    # the supervisor emits ALL_RESEARCH_FAILED_SENTINEL into raw_notes. Surface that as
+    # a failed report (caught by _report_is_failed) instead of letting the writer
+    # synthesize a misleading report from per-unit error notes — and skip the writer call.
+    raw_notes = state.get("raw_notes", [])
+    if any(ALL_RESEARCH_FAILED_SENTINEL in rn for rn in raw_notes):
+        logger.error("All research units failed; emitting failed report without a writer call")
+        return {
+            "final_report": f"{REPORT_FAILED_PREFIX} all research units failed (no usable findings)",
+            "messages": [AIMessage(content="Report generation skipped: all research units failed")],
+            **cleared_state,
+        }
+
     # Step 2: Configure the final report generation model
     configurable = Configuration.from_runnable_config(config)
     writer_model_config = {
@@ -1095,6 +1200,60 @@ async def _resolve_subject(topic, research_brief, existing_subjects, configurabl
     )
     response = await model.ainvoke([HumanMessage(content=prompt)])
     return response.subject.strip()
+
+
+def _effective_profile_name(state, configurable) -> str:
+    """The profile this run should use: the query-selected one, else the configured default."""
+    return (state.get("selected_profile_name") if state else None) or configurable.profile_name
+
+
+async def select_profile(question, configurable, config) -> str:
+    """Pick the profile whose domain best fits the question (query-driven selection).
+
+    A cheap structured call over the shipped profiles; the result is validated against the
+    available names and unknowns are dropped. Falls back to ``configurable.profile_name`` on
+    any failure, an empty answer, or when only one profile exists -- selection never starves
+    the fact path.
+    """
+    from open_deep_research.factbase import profile as _fbprofile
+    try:
+        available = _fbprofile.available_profiles()
+    except Exception as e:  # noqa: BLE001 - never block research on profile discovery
+        logger.warning("available_profiles failed; using configured profile: %s", e)
+        return configurable.profile_name
+    names = {p["name"] for p in available}
+    if len(available) <= 1:
+        return configurable.profile_name
+    try:
+        model = (
+            configurable_model
+            .with_structured_output(SelectedProfile)
+            .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+            .with_config({
+                "model": configurable.summarization_model,
+                "model_chain": configurable.model_chain("summarization"),
+                "stage": "summarization",
+                "max_tokens": configurable.summarization_model_max_tokens,
+                "api_key": get_api_key_for_model(configurable.summarization_model, config),
+                "tags": ["langsmith:nostream"],
+            })
+        )
+        listing = "\n".join(
+            f"- {p['name']} (entity: {p['entity_type']}): {p['notes'] or 'no description'} "
+            f"| properties: {', '.join(p['property_names'])}"
+            for p in available
+        )
+        prompt = profile_selection_prompt.format(question=question, profiles=listing)
+        response = await model.ainvoke([HumanMessage(content=prompt)])
+        chosen = (response.profile_name or "").strip()
+        if chosen in names:
+            logger.info("Query-selected profile: %s", chosen)
+            return chosen
+        logger.info("No profile matched the question; using configured default %s", configurable.profile_name)
+        return configurable.profile_name
+    except Exception as e:
+        logger.warning("select_profile failed; using configured profile: %s", e)
+        return configurable.profile_name
 
 
 async def resolve_target_properties(question, prof, configurable, config) -> list[str]:
@@ -1225,7 +1384,28 @@ async def persist_research(state: AgentState, config: RunnableConfig):
                 "Run produced no usable report (%r...); logged as error, dossier left unchanged.",
                 (final_report or "")[:120],
             )
-            return {"report_id": run_id, "subject": subject_for_log}
+            return {"report_id": run_id, "subject": subject_for_log,
+                    "fact_count": 0, "status": "error"}
+
+        # Empty-run gate: a run that captured no raw_text sources AND extracted no facts is a
+        # failed research attempt (the Brazil class), not a real dossier. Log it as an error so
+        # the batch ledger retries it on resume -- never merge it into the subject dossier.
+        # Scoped to dossier/facts mode only: a normal report-mode run legitimately produces 0
+        # facts and must still be persisted.
+        thread_id = (config.get("configurable") or {}).get("thread_id")
+        prealloc = state.get("prealloc_run_id")
+        fact_count = await _run_fact_count(db_path, prealloc) if prealloc else 0
+        src_count = await _raw_text_source_count(db_path, thread_id) if thread_id else 0
+        dossier_mode = configurable.facts_first_mode or configurable.whole_profile_mode
+        if dossier_mode and _is_empty_run(fact_count=fact_count, raw_text_source_count=src_count):
+            run["status"] = "error"
+            run["error"] = "empty run: 0 facts, 0 raw_text sources"
+            subject_for_log = state.get("subject") or topic
+            run_id = await log_research_run(db_path, slugify(subject_for_log), run,
+                                            run_id=state.get("prealloc_run_id"))
+            logger.error("Empty run (0 facts/0 sources); logged as error for retry.")
+            return {"report_id": run_id, "subject": subject_for_log,
+                    "fact_count": 0, "status": "error"}
 
         if configurable.accumulate_by_subject and final_report:
             # 1) Use the subject already matched by assess_knowledge, else resolve now.
@@ -1292,7 +1472,8 @@ async def persist_research(state: AgentState, config: RunnableConfig):
             now=now,
             run_id=state.get("prealloc_run_id"),
         )
-        return {"report_id": run_id, "subject": subject_name}
+        return {"report_id": run_id, "subject": subject_name,
+                "fact_count": fact_count, "status": "completed"}
     except Exception as e:
         # Persistence is best-effort: never fail a completed run on a DB error. But for a
         # knowledge-base product a silent save failure breaks the whole value prop, so log
@@ -1314,6 +1495,9 @@ class FactRecord(BaseModel):
     as_of: Optional[str] = None
     qualifiers: dict = Field(default_factory=dict)
     evidence_span: str
+    # Free-text context the source gives around this value (1-3 sentences): caveats,
+    # scope, methodology, or qualitative detail that the structured value alone omits.
+    narrative: Optional[str] = None
 
 
 class ExtractionResult(BaseModel):
@@ -1325,14 +1509,15 @@ class ExtractionResult(BaseModel):
 def _make_fact_model_call(configurable, config, target_properties=None):
     """Build an async model_call(source_text, prof) -> list[dict] for the extractor.
 
-    Mirrors the structured-output invocation pattern used elsewhere in this graph
-    (singleton ``configurable_model`` -> ``with_structured_output`` -> ``with_config``
-    -> ``ainvoke``). Best-effort: returns [] on any error so extraction never fails
-    a completed run. ``target_properties`` (facts-first mode) narrows extraction to the
-    properties the question needs; default = all profile properties.
+    Invokes the model as plain text and parses leniently via parse_lean_facts, so a
+    cheap model can emit a JSON array without needing structured-output scaffolding.
+    Best-effort: returns [] on any error so extraction never fails a completed run.
+    ``target_properties`` (facts-first mode) narrows extraction to the properties the
+    question needs; default = all profile properties.
     """
     async def model_call(source_text, prof):
         try:
+            from open_deep_research.factbase.lean_extract import parse_lean_facts
             from open_deep_research.factbase.prompting import build_extraction_prompt
             prompt = build_extraction_prompt(
                 prof, target_properties, source_text,
@@ -1345,7 +1530,6 @@ def _make_fact_model_call(configurable, config, target_properties=None):
             extraction_model = configurable.model_for("extract_facts", "researcher")
             model = (
                 configurable_model
-                .with_structured_output(ExtractionResult)
                 .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
                 .with_config({
                     "model": extraction_model,
@@ -1356,18 +1540,72 @@ def _make_fact_model_call(configurable, config, target_properties=None):
                     "tags": ["langsmith:nostream"],
                 })
             )
-            result = await model.ainvoke([HumanMessage(content=prompt)])
-            return [f.model_dump() for f in (result.facts or [])]
+            resp = await model.ainvoke([HumanMessage(content=prompt)])
+            return parse_lean_facts(str(getattr(resp, "content", "") or ""))
         except Exception as e:
             logger.warning("fact model_call failed (non-fatal): %s", e)
             return []
     return model_call
 
 
+async def _maybe_propose_extensions(configurable, config, prof, profile_name, source_texts) -> None:
+    """Ask the model for valuable facts the profile doesn't model; append them to a draft.
+
+    Reuses the assisted-scaffolding path (``scaffold.induce`` proposes only NEW properties,
+    validated against the profile meta-schema) seeded with this run's source text. The result
+    is merged into ``<profile_name>.extension.draft.yaml`` for a human to review and merge --
+    the production profile is never touched. Best-effort; the caller swallows exceptions.
+    """
+    from open_deep_research.factbase import scaffold as fbscaffold
+
+    if not source_texts:
+        return
+    existing_names = [pd.name for pd in prof.properties]
+    description = f"facts worth gathering about a {prof.entity_type} (profile '{profile_name}')"
+
+    async def _model_call(prompt):
+        model = (
+            configurable_model
+            .with_structured_output(fbscaffold.ScaffoldProposal)
+            .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+            .with_config({
+                # ScaffoldProposal is a complex nested schema (like ExtractionResult): route it
+                # to the propose_extensions step (gemini-2.5-pro primary) so flash doesn't keep
+                # failing structured-output validation and burning the Claude fallback.
+                "model": configurable.model_for("propose_extensions", "summarization"),
+                "model_chain": configurable.model_chain("summarization", "propose_extensions"),
+                "stage": "propose_extensions",
+                "max_tokens": configurable.summarization_model_max_tokens,
+                "api_key": get_api_key_for_model(configurable.model_for("propose_extensions", "summarization"), config),
+                "tags": ["langsmith:nostream"],
+            })
+        )
+        return await model.ainvoke([HumanMessage(content=prompt)])
+
+    # Cap seed sources to bound prompt size (build_scaffold_prompt also truncates each).
+    proposal = await fbscaffold.induce(
+        prof.entity_type, description, source_texts[:8], existing_names, _model_call)
+    path, added = fbscaffold.write_extension_draft(profile_name, prof.entity_type, proposal)
+    if added:
+        logger.info("Proposed %d profile extension(s) for '%s' -> %s: %s",
+                    len(added), profile_name, path, ", ".join(added))
+    else:
+        logger.info("No new profile extensions proposed for '%s'", profile_name)
+
+
 async def preallocate_run(state: AgentState, config: RunnableConfig) -> dict:
     """Create the research_runs row early so the tool layer/extract_facts share a run id."""
     thread_id = (config.get("configurable") or {}).get("thread_id")
-    new_run_tracker(thread_id)  # fresh per-run failover state keyed by thread_id for cross-node visibility
+    tracker = new_run_tracker(thread_id)  # fresh per-run failover state keyed by thread_id for cross-node visibility
+    try:
+        from open_deep_research.preflight import run_preflight
+        from open_deep_research.model_routing import load_routing
+        run_preflight(load_routing(), tracker)
+    except Exception as e:  # PreflightError (fail policy) or unexpected probe error
+        from open_deep_research.preflight import PreflightError
+        if isinstance(e, PreflightError):
+            raise
+        logger.warning("preflight skipped due to probe error: %s", e)
     configurable = Configuration.from_runnable_config(config)
     if not configurable.persist_results:
         return {}
@@ -1416,7 +1654,8 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
             schema as fbschema,
             store as fbstore,
         )
-        prof = fbprofile.load(configurable.profile_name)
+        profile_name = _effective_profile_name(state, configurable)
+        prof = fbprofile.load(profile_name)
         reg = fbregistry.SourceRegistry.load(configurable.registry_name)
         model_call = _make_fact_model_call(
             configurable, config, target_properties=state.get("target_properties"))
@@ -1437,17 +1676,17 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                     "SELECT profile_hash FROM research_runs "
                     "WHERE profile_name=? AND profile_hash IS NOT NULL AND id<>? "
                     "ORDER BY id DESC LIMIT 1",
-                    (configurable.profile_name, run_id))
+                    (profile_name, run_id))
                 _prev = await _cur.fetchone()
                 _cur_hash = getattr(prof, "profile_hash", None)
                 if _prev and _prev[0] and _cur_hash and _prev[0] != _cur_hash:
                     logger.warning(
                         "Profile '%s' changed since the last run (%s -> %s); prior facts may be "
                         "stale until `dossier recompute --profile %s`.",
-                        configurable.profile_name, _prev[0][:8], _cur_hash[:8], configurable.profile_name)
+                        profile_name, _prev[0][:8], _cur_hash[:8], profile_name)
                 await conn.execute(
                     "UPDATE research_runs SET profile_name=?, profile_version=?, profile_hash=? WHERE id=?",
-                    (configurable.profile_name,
+                    (profile_name,
                      getattr(prof, "profile_version", None),
                      getattr(prof, "profile_hash", None),
                      run_id),
@@ -1497,20 +1736,33 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                 return {}
 
             logger.info("Extracting facts from %d sources in parallel...", len(valid_sources))
-            
+
+            sem = asyncio.Semaphore(int(os.getenv("EXTRACT_FACTS_CONCURRENCY",
+                                                   str(configurable.max_concurrent_research_units or 4))))
+            _extraction_errors = []
+
             async def _extract_one(s):
-                try:
-                    recs = await fbextractor.extract(s["text"], prof, model_call)
-                    for r in recs:
-                        r.setdefault("source_url", s["source_url"])
-                    return recs
-                except Exception as e:
-                    logger.warning("Extraction failed for %s: %s", s["source_url"], e)
-                    return []
+                async with sem:
+                    try:
+                        recs = await fbextractor.extract(s["text"], prof, model_call)
+                        for r in recs:
+                            r.setdefault("source_url", s["source_url"])
+                        return recs
+                    except Exception as e:
+                        logger.warning("Extraction failed for %s: %s", s["source_url"], e)
+                        _extraction_errors.append(s["source_url"])
+                        return []
 
             extraction_tasks = [_extract_one(s) for s in valid_sources]
             task_results = await asyncio.gather(*extraction_tasks)
-            
+
+            errs = len(_extraction_errors)
+            if errs:
+                logger.warning(
+                    "extract_facts: %d/%d sources failed extraction",
+                    errs, len(valid_sources),
+                )
+
             all_records = []
             for recs in task_results:
                 all_records.extend(recs)
@@ -1527,8 +1779,23 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                     registry=reg,
                     normalize_values=configurable.normalize_fact_values,
                 ).ingest(run_id=run_id, records=all_records)
+
+            # 5. Opportunistically propose profile extensions for valuable facts the profile
+            #    doesn't capture (draft file only; never edits the production profile).
+            if configurable.propose_profile_extensions:
+                try:
+                    await _maybe_propose_extensions(
+                        configurable, config, prof, profile_name,
+                        [s["text"] for s in valid_sources if s.get("text")],
+                    )
+                except Exception as e:
+                    logger.warning("profile-extension proposal failed (non-fatal): %s", e)
+
             # Record which sources we mined so a facts-first gap round skips them.
-            return {"extracted_source_urls": [s["source_url"] for s in valid_sources]}
+            result = {"extracted_source_urls": [s["source_url"] for s in valid_sources]}
+            if errs:
+                result["extraction_errors"] = errs
+            return result
     except Exception as e:
         logger.warning("extract_facts failed (non-fatal): %s", e)
         import traceback
@@ -1572,7 +1839,8 @@ async def assess_sufficiency(state: AgentState, config: RunnableConfig) -> Comma
                 present, _trusted = _target_property_coverage(grouped, targets)
                 missing = [p for p in targets if not present[p]]
         except Exception as e:
-            logger.warning("assess_sufficiency check failed (treating as sufficient): %s", e)
+            logger.warning("assess_sufficiency check failed (treating as still-missing): %s", e)
+            missing = list(targets)
 
     if missing and rounds_used + 1 < configurable.max_fact_rounds:
         logger.info("Facts insufficient (missing %s); gap round %d", missing, rounds_used + 1)
@@ -1582,16 +1850,248 @@ async def assess_sufficiency(state: AgentState, config: RunnableConfig) -> Comma
         )
         return Command(
             goto="write_research_brief",
-            update={"missing_information": gap, "fact_rounds_used": rounds_used + 1},
+            update={"missing_information": gap, "fact_rounds_used": rounds_used + 1,
+                    "target_properties": missing},
         )
     if missing:
         logger.info("Facts still missing %s but round budget exhausted; answering with what we have", missing)
     return Command(goto="answer_from_facts", update={"fact_rounds_used": rounds_used})
 
 
-def _facts_answer_text(subject, grouped_rows, targets) -> str:
+async def assess_completeness(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "synthesize_narrative"]]:
+    """Whole-profile: loop until every REQUIRED property is resolved-or-confirmed-absent or budget hit.
+
+    Routes to write_research_brief (gap round) while any required property is incomplete and
+    the round budget (max_profile_rounds) allows; otherwise routes to synthesize_narrative (Task 7).
+    """
+    import aiosqlite
+    from open_deep_research.factbase import (
+        entities as fbentities,
+        query as fbquery,
+        profile as fbprofile,
+        completeness as fbc,
+        schema as fbschema,
+        migrations as fbmig,
+    )
+    from open_deep_research.factbase.property_status import PropertyStatusStore
+
+    configurable = Configuration.from_runnable_config(config)
+    subject = state.get("subject")
+    rounds_used = state.get("fact_rounds_used", 0) or 0
+    prof = fbprofile.load(_effective_profile_name(state, configurable))
+
+    ik = fbentities.CountryResolver().resolve_in_text(subject) if subject else None
+    if not ik:
+        # Can't resolve subject to a country — go straight to terminal
+        return Command(goto="synthesize_narrative", update={"fact_rounds_used": rounds_used})
+
+    notes_text = "\n".join(state.get("raw_notes", []) or [])[:8000]
+
+    async with aiosqlite.connect(get_db_path(config)) as conn:
+        await fbmig.apply(conn, fbschema.STEPS)
+        store = PropertyStatusStore(conn)
+        absent = await store.absent_properties(ik)
+        grouped = await fbquery.FactQuery(conn).show_grouped(ik)
+        ledger = fbc.assess_property_status(grouped, absent, prof)
+
+        # Affirmative-absence pass for still-missing REQUIRED properties (bounded by this round).
+        model_call = _make_absence_judge_call(configurable, config)
+        for pd in prof.properties:
+            if (pd.completeness == "required"
+                    and ledger.get(pd.name) == "missing_value"
+                    and getattr(pd, "absence_allowed", False)
+                    and pd.name not in absent):
+                if await judge_absence(pd.name, pd.description, notes_text, model_call):
+                    await store.record_absent(
+                        ik, pd.name, {}, "no data after targeted search",
+                        state.get("prealloc_run_id"), None,
+                    )
+                    ledger[pd.name] = "confirmed_absent"
+
+        await conn.commit()
+
+    incomplete = [
+        pd.name for pd in prof.properties
+        if pd.completeness == "required" and not fbc.is_complete(ledger.get(pd.name, "missing_value"), pd)
+    ]
+    if incomplete and rounds_used + 1 < configurable.max_profile_rounds:
+        logger.info("Whole-profile incomplete (%s); gap round %d", incomplete, rounds_used + 1)
+        gap = (
+            "These profile properties are still incomplete and MUST be resolved or, if no data "
+            "exists, explicitly confirmed unavailable after searching: "
+            + ", ".join(f"{p} ({ledger.get(p)})" for p in incomplete) + "."
+        )
+        return Command(
+            goto="write_research_brief",
+            # Narrow the next round to ONLY the still-incomplete properties: steer the catalog
+            # and target extraction at the gaps, not the whole profile (target_properties has no
+            # reducer -> this replaces the round-1 all-properties list).
+            update={"missing_information": gap, "target_properties": incomplete,
+                    "fact_rounds_used": rounds_used + 1},
+        )
+    if incomplete:
+        logger.info("Whole-profile still incomplete %s but round budget exhausted; finishing", incomplete)
+    return Command(goto="synthesize_narrative", update={"fact_rounds_used": rounds_used})
+
+
+def _best_singular_row(rows: list) -> dict:
+    """Pick the single best row for a singular property: most-corroborated, then prefer a
+    non-conflicting value, then the longest (most specific) value. Deterministic.
+
+    Sources name the same scheme many ways ("e-ID" / "electronic identification" / "personal
+    ID code"); text canonicalization can't merge generic synonyms (and value_aliases are
+    property-global, so aliasing them would corrupt other countries), so a singular property
+    collapses to its best value at render time rather than dumping every variant.
+    """
+    return max(rows, key=lambda r: (
+        r.get("source_count", 0),
+        1 if r.get("admission") == "trusted" else 0,   # a trusted value beats a provisional one
+        0 if r.get("in_conflict") else 1,
+        len(str(r.get("value") or "")),
+    ))
+
+
+def _display_value(row: dict) -> str:
+    """A readable value for the answer: a raw surface form from ``variants`` (the longest, most
+    complete one), not the noise-stripped canonical that ``group_by_canonical`` puts in ``value``
+    (e.g. show "Estonia's digital ID", not the canonical "estonia s digital")."""
+    variants = [v for v in (row.get("variants") or []) if v and v.strip()]
+    if variants:
+        return max(variants, key=len)
+    return str(row.get("value") or "")
+
+
+class AbsenceJudgement(BaseModel):
+    """Whether a property is genuinely absent for the subject after a targeted search."""
+
+    absent: bool
+
+
+async def judge_absence(prop_name, prop_desc, notes_text, model_call) -> bool:
+    """True only if the model affirms no data exists for this property after searching.
+
+    Best-effort: any error -> False (treat as still-missing, keep trying within budget).
+    """
+    try:
+        res = await model_call(prop_name, prop_desc, notes_text)
+        return bool(getattr(res, "absent", False))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("absence judge failed (non-fatal) for %s: %s", prop_name, e)
+        return False
+
+
+class NameConsolidation(BaseModel):
+    """Whether several extracted name-variants denote the SAME entity, and the best name."""
+
+    same_entity: bool
+    canonical_name: str = ""
+
+
+async def _consolidate_name_group(subject, prop_name, prop_desc, rows, model_call):
+    """Merge name-variants that denote the same entity into one row, via a best-effort model.
+
+    Deterministic canonicalization can't merge synonyms ("e-ID" / "electronic identification"
+    / "Digi-ID" are the same scheme); this asks the model whether the distinct variants name
+    the same thing and, if so, returns ONE merged row using the model's canonical name (with
+    corroboration summed). Returns None (keep variants as-is) when there is <2 to merge, the
+    model says they differ, or anything fails -- so the deterministic path still applies.
+    """
+    values = []
+    for r in rows:
+        v = _display_value(r)
+        if v and v not in values:
+            values.append(v)
+    if len(values) < 2:
+        return None
+    try:
+        result = await model_call(subject, prop_name, prop_desc, values)
+    except Exception as e:  # noqa: BLE001 - consolidation is best-effort
+        logger.warning("name consolidation failed (non-fatal) for %s: %s", prop_name, e)
+        return None
+    if not (result and getattr(result, "same_entity", False)
+            and (getattr(result, "canonical_name", "") or "").strip()):
+        return None
+    canonical = result.canonical_name.strip()
+    best = _best_singular_row(rows)
+    return {
+        **best,
+        "value": canonical,
+        "variants": [canonical],
+        "source_count": sum(int(r.get("source_count") or 0) for r in rows),
+        "in_conflict": False,
+        "admission": "trusted" if any(r.get("admission") == "trusted" for r in rows)
+        else best.get("admission"),
+    }
+
+
+def _make_name_consolidation_call(configurable, config):
+    """An async ``model_call(subject, prop_name, prop_desc, values) -> NameConsolidation``
+    on the cheap summarization chain, grounded strictly in the provided values."""
+    async def model_call(subject, prop_name, prop_desc, values):
+        model = (
+            configurable_model
+            .with_structured_output(NameConsolidation)
+            .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+            .with_config({
+                "model": configurable.summarization_model,
+                "model_chain": configurable.model_chain("summarization"),
+                "stage": "summarization",
+                "max_tokens": configurable.summarization_model_max_tokens,
+                "api_key": get_api_key_for_model(configurable.summarization_model, config),
+                "tags": ["langsmith:nostream"],
+            })
+        )
+        listing = "; ".join(f'"{v}"' for v in values)
+        prompt = (
+            f"Different sources gave these values for the '{prop_name}' of {subject}.\n"
+            f"Property meaning: {prop_desc}\nValues: {listing}\n\n"
+            f"Do these all refer to the SAME {prop_name} (the same scheme/entity), just named "
+            f"differently? If yes, set same_entity=true and canonical_name to the single best, "
+            f"most official, commonly-used name -- choose from or lightly normalise the given "
+            f"values; do NOT invent new information. If they are genuinely different things, "
+            f"set same_entity=false."
+        )
+        return await model.ainvoke([HumanMessage(content=prompt)])
+    return model_call
+
+
+def _make_absence_judge_call(configurable, config):
+    """An async ``model_call(prop_name, prop_desc, notes_text) -> AbsenceJudgement``
+    on the cheap summarization chain; returns absent=True only if the notes confirm
+    no data exists for this property (not just that it was not covered yet)."""
+    async def model_call(prop_name, prop_desc, notes_text):
+        model = (
+            configurable_model
+            .with_structured_output(AbsenceJudgement)
+            .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
+            .with_config({
+                "model": configurable.summarization_model,
+                "model_chain": configurable.model_chain("summarization"),
+                "stage": "summarization",
+                "max_tokens": configurable.summarization_model_max_tokens,
+                "api_key": get_api_key_for_model(configurable.summarization_model, config),
+                "tags": ["langsmith:nostream"],
+            })
+        )
+        prompt = (
+            f"Research notes about a subject are below. For the property '{prop_name}' "
+            f"({prop_desc}), did the research look for it and find that NO data exists / it "
+            f"is not applicable? Set absent=true ONLY if the notes show a genuine, searched "
+            f"absence; set absent=false if it simply wasn't covered yet.\n\nNOTES:\n{notes_text}"
+        )
+        return await model.ainvoke([HumanMessage(content=prompt)])
+    return model_call
+
+
+def _facts_answer_text(subject, grouped_rows, targets, singular_props=None) -> str:
     """Deterministic, grounded answer from the grouped fact base: one line per target
-    property (value | status | sources); missing targets flagged explicitly."""
+    property (value | status | sources); missing targets flagged explicitly.
+
+    ``singular_props`` names properties that hold a single value (non-``multi``); for those,
+    multiple source-variants are collapsed to the single best row (see ``_best_singular_row``)
+    instead of listing every variant.
+    """
+    singular = set(singular_props or ())
     by_prop = {}
     for r in grouped_rows:
         by_prop.setdefault(r.get("property_name"), []).append(r)
@@ -1601,11 +2101,68 @@ def _facts_answer_text(subject, grouped_rows, targets) -> str:
         if not rows:
             lines.append(f"- **{p}**: missing — not found in sources.")
             continue
+        if p in singular and len(rows) > 1:
+            rows = [_best_singular_row(rows)]
         for r in rows:
             status = "trusted" if (r.get("admission") == "trusted" and not r.get("in_conflict")) else \
                 ("in-conflict" if r.get("in_conflict") else "provisional")
-            lines.append(f"- **{p}**: {r.get('value')} ({status}, {r.get('source_count', 0)} sources)")
+            lines.append(f"- **{p}**: {_display_value(r)} ({status}, {r.get('source_count', 0)} sources)")
+            narrative = (r.get("narrative") or "").strip()
+            if narrative:
+                lines.append(f"  - {narrative}")
     return "\n".join(lines)
+
+
+async def _synthesize_dossier(subject, grouped, absent, overview_sections, model_call) -> str:
+    """Profile-defined subject narrative grounded ONLY in gathered facts; deterministic fallback."""
+    facts_block = _facts_answer_text(subject, grouped, None)   # readable, raw-value listing
+    if not overview_sections:
+        return facts_block
+    try:
+        sections = "\n".join(f"- {s}" for s in overview_sections)
+        absent_line = ("Explicitly note these have no data: " + ", ".join(sorted(absent))) if absent else ""
+        prompt = (f"Write a concise dossier about {subject}. Cover EACH section below as a '## ' "
+                  f"heading, grounded ONLY in the facts provided -- cite nothing not present, and "
+                  f"state absences plainly. {absent_line}\n\nSECTIONS:\n{sections}\n\nFACTS:\n{facts_block}")
+        resp = await model_call(prompt)
+        text = str(getattr(resp, "content", "") or "").strip()
+        return text or facts_block
+    except Exception as e:  # noqa: BLE001
+        logger.warning("narrative synthesis failed; using deterministic facts: %s", e)
+        return facts_block
+
+
+async def synthesize_narrative(state: AgentState, config: RunnableConfig) -> dict:
+    """Whole-profile: write a profile-defined subject dossier from gathered facts + confirmed-absent set."""
+    import aiosqlite
+    from open_deep_research.factbase import (entities as fbentities, query as fbquery,
+        profile as fbprofile)
+    from open_deep_research.factbase.property_status import PropertyStatusStore
+    configurable = Configuration.from_runnable_config(config)
+    subject = state.get("subject")
+    prof = fbprofile.load(_effective_profile_name(state, configurable))
+    ik = fbentities.CountryResolver().resolve_in_text(subject) if subject else None
+    grouped, absent = [], set()
+    if ik:
+        async with aiosqlite.connect(get_db_path(config)) as conn:
+            grouped = await fbquery.FactQuery(conn).show_grouped(ik)
+            absent = await PropertyStatusStore(conn).absent_properties(ik)
+
+    async def mc(prompt):
+        model_name = configurable.facts_answer_polish_model or configurable.summarization_model
+        model = configurable_model.with_config({
+            "model": model_name,
+            "model_chain": configurable.model_chain("final_report"),
+            "stage": "final_report",
+            "max_tokens": configurable.final_report_model_max_tokens,
+            "api_key": get_api_key_for_model(model_name, config),
+            "tags": ["langsmith:nostream"],
+        })
+        return await model.ainvoke([HumanMessage(content=prompt)])
+
+    answer = await _synthesize_dossier(
+        subject, grouped, absent, getattr(prof, "overview_sections", []), mc)
+    return {"final_report": answer, "messages": [AIMessage(content=answer)], "subject": subject}
 
 
 async def answer_from_facts(state: AgentState, config: RunnableConfig) -> dict:
@@ -1617,7 +2174,11 @@ async def answer_from_facts(state: AgentState, config: RunnableConfig) -> dict:
 
     import aiosqlite
     from open_deep_research.factbase import entities as fbentities, query as fbquery
-    instance_key = fbentities.CountryResolver().resolve(subject) if subject else None
+    # Resolve the country from the subject PHRASE (e.g. "Estonia's digital identity scheme"),
+    # not just an exact country name -- extraction stores facts under the country key (EST),
+    # so the answer path must find that country inside the descriptive subject or it retrieves
+    # nothing and renders every property "missing".
+    instance_key = fbentities.CountryResolver().resolve_in_text(subject) if subject else None
     grouped = []
     if instance_key:
         async with aiosqlite.connect(get_db_path(config)) as conn:
@@ -1625,7 +2186,43 @@ async def answer_from_facts(state: AgentState, config: RunnableConfig) -> dict:
     if targets:
         grouped = [r for r in grouped if r.get("property_name") in targets]
 
-    deterministic = _facts_answer_text(subject, grouped, targets)
+    # Singular (non-multi) properties collapse to their single best value at render time.
+    singular_props = set()
+    prof = None
+    try:
+        from open_deep_research.factbase import profile as fbprofile
+        prof = fbprofile.load(_effective_profile_name(state, configurable))
+        singular_props = {pd.name for pd in prof.properties if not getattr(pd, "multi", False)}
+    except Exception as e:  # noqa: BLE001 - profile is best-effort here; fall back to listing all
+        logger.warning("facts-answer: could not load profile for singular collapse: %s", e)
+
+    # (C) Semantic consolidation: merge name-variants that denote the same entity (e.g.
+    # "e-ID"/"electronic identification"/"Digi-ID") into one canonical value via a best-effort
+    # LLM pass -- deterministic canonicalization can't merge synonyms. Falls back silently.
+    if configurable.consolidate_name_values and prof is not None and subject:
+        name_singular = {pd.name for pd in prof.properties
+                         if not getattr(pd, "multi", False)
+                         and getattr(pd, "value_kind", None) in ("name", "name_year")}
+        if targets:
+            name_singular &= set(targets)
+        if name_singular:
+            model_call = _make_name_consolidation_call(configurable, config)
+            by_prop = {}
+            for r in grouped:
+                by_prop.setdefault(r.get("property_name"), []).append(r)
+            for p in name_singular:
+                rows = by_prop.get(p) or []
+                if len(rows) <= 1:
+                    continue
+                try:
+                    desc = getattr(prof.property(p), "description", "") or ""
+                except Exception:  # noqa: BLE001
+                    desc = ""
+                merged = await _consolidate_name_group(subject, p, desc, rows, model_call)
+                if merged:
+                    grouped = [r for r in grouped if r.get("property_name") != p] + [merged]
+
+    deterministic = _facts_answer_text(subject, grouped, targets, singular_props=singular_props)
 
     # Optional cheap-LLM polish, grounded ONLY in the deterministic facts (best-effort).
     answer = deterministic
@@ -1672,25 +2269,33 @@ deep_researcher_builder.add_node("research_supervisor", supervisor_subgraph)    
 deep_researcher_builder.add_node("final_report_generation", final_report_generation)  # Report generation phase
 deep_researcher_builder.add_node("extract_facts", extract_facts)                   # Per-source fact extraction (research path)
 deep_researcher_builder.add_node("assess_sufficiency", assess_sufficiency)         # Facts-first: enough to answer?
+deep_researcher_builder.add_node("assess_completeness", assess_completeness)       # Whole-profile: completeness loop
 deep_researcher_builder.add_node("answer_from_facts", answer_from_facts)           # Facts-first: answer from the fact base
+deep_researcher_builder.add_node("synthesize_narrative", synthesize_narrative)     # Whole-profile: profile-defined dossier
 deep_researcher_builder.add_node("persist_research", persist_research)             # Persist results to SQLite
 
 
 def route_after_research(state: AgentState, config: RunnableConfig) -> str:
-    """Facts-first mode skips the prose report and goes straight to fact extraction."""
-    return "extract_facts" if Configuration.from_runnable_config(config).facts_first_mode \
+    """Facts-first or whole-profile mode skips the prose report and goes straight to fact extraction."""
+    configurable = Configuration.from_runnable_config(config)
+    return "extract_facts" if (configurable.facts_first_mode or configurable.whole_profile_mode) \
         else "final_report_generation"
 
 
 def route_after_extract(state: AgentState, config: RunnableConfig) -> str:
-    """Facts-first mode checks sufficiency next; report mode persists as before."""
-    return "assess_sufficiency" if Configuration.from_runnable_config(config).facts_first_mode \
-        else "persist_research"
+    """Whole-profile mode goes to completeness check; facts-first to sufficiency; else persist."""
+    configurable = Configuration.from_runnable_config(config)
+    if configurable.whole_profile_mode:
+        return "assess_completeness"
+    if configurable.facts_first_mode:
+        return "assess_sufficiency"
+    return "persist_research"
 
 
 # Define main workflow edges. assess_knowledge (entry) branches via Command(goto)
 # to answer_from_dossier / write_research_brief / clarify_with_user; assess_sufficiency
-# branches via Command(goto) to write_research_brief (gap round) / answer_from_facts.
+# branches via Command(goto) to write_research_brief (gap round) / answer_from_facts;
+# assess_completeness branches via Command(goto) to write_research_brief / synthesize_narrative.
 deep_researcher_builder.add_edge(START, "preallocate_run")                          # Entry point: preallocate the run id
 deep_researcher_builder.add_edge("preallocate_run", "assess_knowledge")             # Then check the knowledge base
 deep_researcher_builder.add_edge("answer_from_dossier", "persist_research")         # Cached answer -> log the run
@@ -1699,10 +2304,12 @@ deep_researcher_builder.add_conditional_edges(                                  
     "research_supervisor", route_after_research,
     {"final_report_generation": "final_report_generation", "extract_facts": "extract_facts"})
 deep_researcher_builder.add_edge("final_report_generation", "extract_facts")       # Report to fact extraction
-deep_researcher_builder.add_conditional_edges(                                      # Facts -> persist (default) | sufficiency (facts-first)
+deep_researcher_builder.add_conditional_edges(                                      # Facts -> persist (default) | sufficiency (facts-first) | completeness (whole-profile)
     "extract_facts", route_after_extract,
-    {"persist_research": "persist_research", "assess_sufficiency": "assess_sufficiency"})
+    {"persist_research": "persist_research", "assess_sufficiency": "assess_sufficiency",
+     "assess_completeness": "assess_completeness"})
 deep_researcher_builder.add_edge("answer_from_facts", "persist_research")           # Facts answer -> persist
+deep_researcher_builder.add_edge("synthesize_narrative", "persist_research")        # Narrative dossier -> persist
 deep_researcher_builder.add_edge("persist_research", END)                          # Final exit point
 
 # Compile the complete deep researcher workflow

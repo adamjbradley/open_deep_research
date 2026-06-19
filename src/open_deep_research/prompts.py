@@ -430,6 +430,24 @@ Write a clear, direct answer to the question in markdown. Then add a final itali
 the latest to update it.*
 """
 
+profile_selection_prompt = """You are routing a research question to the single best-matching
+fact-gathering DOMAIN PROFILE.
+
+Each profile defines the structured facts worth gathering about one kind of entity in one
+domain (e.g. a country's digital-identity scheme, a country's CBDC programme). Choose the ONE
+profile whose entity type and properties most directly fit the question.
+
+Return the profile's exact name. If NO profile is a good fit, return an empty string.
+
+Question:
+{question}
+
+Available profiles:
+{profiles}
+
+Return the best-matching profile name (or empty string).
+"""
+
 target_properties_prompt = """You are scoping a STRUCTURED fact-gathering task.
 
 Given a research question and the list of available fact properties (with short glosses),

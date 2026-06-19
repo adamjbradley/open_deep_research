@@ -48,3 +48,23 @@ def test_preset_switch_via_env(monkeypatch):
 def test_resolve_search_role_then_env(monkeypatch):
     assert resolve_search(routing=_R, env_value=None, configurable_value=None, code_default="none") == "tavily"
     assert resolve_search(routing=_R, env_value="codex", configurable_value=None, code_default="none") == "codex"
+
+
+def test_propose_extensions_step_routes_to_pro_in_gemini_preset(monkeypatch):
+    # ScaffoldProposal/RegistryProposal are complex schemas -> the propose_extensions step
+    # override routes them to gemini-2.5-pro (with a Claude backup) instead of flash.
+    monkeypatch.setenv("MODEL_ROUTING_PRESET", "gemini")
+    from open_deep_research.model_routing import load_routing, model_chain, KNOWN_STEPS
+    assert "propose_extensions" in KNOWN_STEPS
+    chain = model_chain("summarization", routing=load_routing(), step="propose_extensions")
+    assert chain[0] == "gemini:gemini-2.5-pro"
+    assert "claude-haiku-4-5" in chain          # backup preserved
+
+
+def test_dossier_scaffold_cfg_uses_pro_chain(monkeypatch):
+    monkeypatch.setenv("MODEL_ROUTING_PRESET", "gemini")
+    from open_deep_research.factbase.dossier import _propose_extensions_cfg
+    cfg = _propose_extensions_cfg()
+    assert cfg["stage"] == "propose_extensions"
+    assert cfg["model"] == "gemini:gemini-2.5-pro"
+    assert cfg["model_chain"][0] == "gemini:gemini-2.5-pro"

@@ -83,7 +83,7 @@ _MAX_CONCURRENCY = int(os.getenv("CLAUDE_SDK_MAX_CONCURRENCY", "4"))
 # different loop raises "RuntimeError: <Semaphore> is bound to a different event loop"
 # -- a hard, non-retryable model-call failure. Keying by the running loop avoids that;
 # WeakKeyDictionary lets entries drop when a loop is garbage-collected.
-_SEMAPHORES: "WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = WeakKeyDictionary()
+_SEMAPHORES: WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = WeakKeyDictionary()
 
 
 def _semaphore() -> asyncio.Semaphore:
@@ -104,6 +104,11 @@ _SDK_TIMEOUT_S = int(os.getenv("CLI_BACKEND_TIMEOUT", "600"))
 # Bounded retry for transient/spurious SDK & CLI failures (see _is_transient_sdk_error).
 _SDK_MAX_ATTEMPTS = max(1, int(os.getenv("CLAUDE_SDK_MAX_ATTEMPTS", "3")))
 _SDK_RETRY_BACKOFF_S = float(os.getenv("CLAUDE_SDK_RETRY_BACKOFF", "1.5"))
+# After the drain timeout fires, how long to let cancellation try to tear the subprocess
+# down before ABANDONING a wedged task rather than freezing the run. A CLI subprocess can
+# wedge in uninterruptible I/O (kernel 'D' state) and not die even on SIGKILL until the
+# call returns; we won't block the whole run waiting for that. See _drain_query_with_timeout.
+_DRAIN_REAP_GRACE_S = float(os.getenv("CLI_DRAIN_REAP_GRACE", "10"))
 
 # Substrings that mark a failure as transient -- worth retrying rather than surfacing.
 # "error result: success" is the contradictory envelope the CLI emits under load
@@ -161,18 +166,51 @@ async def _run_with_retry(attempt, *, max_attempts: int, backoff_s: float):
                 await asyncio.sleep(backoff_s * (2 ** i))
 
 
+def _detach(task: asyncio.Task) -> None:
+    """Let an abandoned task's eventual exception be retrieved silently (no warning)."""
+    def _swallow(t: asyncio.Task) -> None:
+        try:
+            if not t.cancelled():
+                t.exception()
+        except Exception:  # noqa: BLE001 - the task was abandoned; its outcome is irrelevant
+            pass
+    task.add_done_callback(_swallow)
+
+
 async def _drain_query_with_timeout(prompt, options, handler, timeout_s: float) -> None:
     """Consume ``cas.query`` feeding each message to ``handler``, bounded by a timeout.
 
-    The timeout wraps the ``async for`` itself so it runs in the same event loop
-    that owns the CLI subprocess -- cancelling on timeout therefore tears the
-    query (and its subprocess) down rather than leaking a hung process.
+    Hardening against a wedged subprocess: a plain ``asyncio.wait_for(_drain(), t)`` does
+    fire its timeout, but then *awaits the inner task's cancellation* -- and that
+    cancellation blocks while it tries to tear down a CLI subprocess stuck in uninterruptible
+    I/O (kernel 'D' state), which never returns. The whole run then freezes despite the
+    timeout. Instead we time the drain with a SHIELD (so the timeout doesn't await
+    cancellation), then cancel and give a bounded grace; if the subprocess still won't die
+    we ABANDON the task (it self-completes when the kernel I/O eventually returns) and raise
+    TimeoutError so the caller (`_run_with_retry` -> failover) makes progress instead of hanging.
     """
     async def _drain() -> None:
         async for msg in cas.query(prompt=prompt, options=options):
             handler(msg)
 
-    await asyncio.wait_for(_drain(), timeout=timeout_s)
+    task = asyncio.ensure_future(_drain())
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=timeout_s)
+        return
+    except asyncio.TimeoutError:
+        pass  # timed out -> bounded teardown below (a real error would have propagated)
+
+    task.cancel()
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=_DRAIN_REAP_GRACE_S)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        pass
+    except Exception:  # noqa: BLE001 - any teardown error is irrelevant; we're abandoning
+        pass
+    if not task.done():
+        _detach(task)  # wedged in I/O: abandon rather than freeze the run
+    raise asyncio.TimeoutError(
+        f"CLI subprocess drain exceeded {timeout_s}s (subprocess may be wedged in I/O)")
 
 
 def use_subscription() -> bool:
@@ -245,6 +283,37 @@ def to_gemini_model(model_name: Optional[str]) -> str:
     return "gemini-2.0-pro"
 
 
+# agy's --model requires the EXACT display-name string; an unrecognized id silently defaults
+# to Gemini 3.5 Flash, so we map our stable tier-explicit slugs and RAISE on anything else.
+_AGY_MODELS = {
+    "gemini-3.5-flash-low":    "Gemini 3.5 Flash (Low)",
+    "gemini-3.5-flash-medium": "Gemini 3.5 Flash (Medium)",
+    "gemini-3.5-flash-high":   "Gemini 3.5 Flash (High)",
+    "gemini-3.1-pro-low":      "Gemini 3.1 Pro (Low)",
+    "gemini-3.1-pro-high":     "Gemini 3.1 Pro (High)",
+    "claude-opus-4.6":         "Claude Opus 4.6 (Thinking)",
+    "claude-sonnet-4.6":       "Claude Sonnet 4.6 (Thinking)",
+    "gpt-oss-120b":            "GPT-OSS 120B (Medium)",
+}
+
+
+def to_agy_model(slug: str) -> str:
+    """Map a stable agy slug (optionally 'agy:'-prefixed) to agy's exact --model display name.
+
+    Raises ValueError on an unknown slug: agy silently defaults unrecognized ids to Gemini 3.5
+    Flash, so a typo must fail loudly rather than mis-route.
+    """
+    s = (slug or "").strip()
+    if s.lower().startswith("agy:"):
+        s = s.split(":", 1)[1].strip()
+    try:
+        return _AGY_MODELS[s.lower()]
+    except KeyError:
+        raise ValueError(
+            f"unknown agy model slug {slug!r}; known: {sorted(_AGY_MODELS)}"
+        ) from None
+
+
 def to_codex_model(model_name: Optional[str]) -> str:
     """Map a configured model string to a Codex CLI model id.
 
@@ -268,6 +337,148 @@ def to_codex_model(model_name: Optional[str]) -> str:
     if low.startswith(("gpt", "o1", "o3", "o4")):
         return s
     return default
+
+
+# NVIDIA's hosted API (integrate.api.nvidia.com) speaks the OpenAI protocol, so the
+# "nvidia:" backend is a plain ChatOpenAI pointed at that endpoint -- no CLI, no new
+# dependency. Any NVIDIA-hosted model id is addressable as "nvidia:<vendor/model>", e.g.
+# "nvidia:nvidia/nemotron-3-ultra-550b-a55b", "nvidia:minimaxai/minimax-m3",
+# "nvidia:moonshotai/kimi-k2.6", "nvidia:deepseek-ai/deepseek-v4-pro", "nvidia:z-ai/glm-5.1".
+# All config (key + per-model knobs) is read from the environment / .env -- nothing hardcoded.
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+NVIDIA_DEFAULT_REASONING_BUDGET = 16384
+
+
+def to_nvidia_model(model_name: Optional[str]) -> str:
+    """Map a configured model string to an NVIDIA model id.
+
+    Strips a leading "nvidia:" prefix and passes the vendor id through unchanged
+    (e.g. "nvidia:nvidia/nemotron-3-ultra-550b-a55b" -> "nvidia/nemotron-3-ultra-550b-a55b").
+    """
+    s = (model_name or "").strip()
+    if s.lower().startswith("nvidia:"):
+        s = s.split(":", 1)[1].strip()
+    return s
+
+
+def _nvidia_thinking_enabled(model_id: str) -> bool:
+    """Whether to forward NVIDIA's reasoning/'thinking' knobs for ``model_id``.
+
+    ``NVIDIA_ENABLE_THINKING`` forces it on/off globally when set. Unset, it
+    auto-detects: NVIDIA's Nemotron reasoning models accept ``chat_template_kwargs``
+    + ``reasoning_budget``, while most other hosted models (e.g. minimax, llama)
+    reject those NIM extensions -- so thinking defaults on only for nemotron.
+    """
+    raw = os.getenv("NVIDIA_ENABLE_THINKING")
+    if raw is not None:
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return "nemotron" in model_id.lower()
+
+
+def _nvidia_extra_body(model_id: str) -> Optional[dict]:
+    """Return the OpenAI ``extra_body`` (NVIDIA NIM extensions) for ``model_id``, or None.
+
+    Resolution (all externalised to the environment / .env -- nothing hardcoded per model):
+      1. ``NVIDIA_EXTRA_BODY`` -- raw JSON object, used verbatim. The universal escape hatch
+         for any model's 'thinking' dialect, since these differ across NVIDIA-hosted models
+         (Nemotron uses ``chat_template_kwargs.enable_thinking`` + ``reasoning_budget``;
+         DeepSeek-v4 uses ``chat_template_kwargs.thinking`` + ``reasoning_effort``). Applies
+         to every nvidia: model resolved this run.
+      2. Else, for Nemotron (or ``NVIDIA_ENABLE_THINKING`` forced on) -> the Nemotron dialect.
+      3. Else None -- a clean request (minimax / kimi / glm reject NIM thinking knobs).
+    """
+    raw = os.getenv("NVIDIA_EXTRA_BODY")
+    if raw and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"NVIDIA_EXTRA_BODY is not valid JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise RuntimeError(
+                f"NVIDIA_EXTRA_BODY must be a JSON object, got {type(parsed).__name__}."
+            )
+        return parsed
+    if _nvidia_thinking_enabled(model_id):
+        budget = os.getenv("NVIDIA_REASONING_BUDGET")
+        return {
+            "chat_template_kwargs": {"enable_thinking": True},
+            "reasoning_budget": int(budget) if budget else NVIDIA_DEFAULT_REASONING_BUDGET,
+        }
+    return None
+
+
+# Per-model client-side rate limiters. NVIDIA's free tier caps each model at ~40 requests/
+# minute (the ceiling is PER MODEL, not per account -- confirmed live: one model throttling
+# while others stayed up), and 429 storms come from bursts, not total volume. One shared
+# limiter per model id paces calls under that ceiling proactively so we rarely hit a 429 at
+# all. Keyed by model id; module-global so every ChatOpenAI for that model shares the budget.
+_NVIDIA_RATE_LIMITERS: dict[str, Any] = {}
+
+
+def _nvidia_rate_limiter(model_id: str):
+    """Return a shared InMemoryRateLimiter for ``model_id`` paced at NVIDIA_RPM (0 disables)."""
+    rpm = float(os.getenv("NVIDIA_RPM", "30"))  # under the ~40 RPM free-tier per-model ceiling
+    if rpm <= 0:
+        return None
+    limiter = _NVIDIA_RATE_LIMITERS.get(model_id)
+    if limiter is None:
+        from langchain_core.rate_limiters import InMemoryRateLimiter
+        per_sec = rpm / 60.0
+        limiter = InMemoryRateLimiter(
+            requests_per_second=per_sec,
+            check_every_n_seconds=0.1,
+            max_bucket_size=max(1.0, per_sec * 2),  # allow only a tiny burst
+        )
+        _NVIDIA_RATE_LIMITERS[model_id] = limiter
+    return limiter
+
+
+def build_nvidia_chat_model(model_string: Optional[str], max_tokens: Optional[int] = None) -> BaseChatModel:
+    """Construct a ChatOpenAI bound to NVIDIA's OpenAI-compatible endpoint.
+
+    Authenticates with ``NVIDIA_API_KEY`` (required) regardless of Claude-subscription
+    mode -- this is an API backend, not a CLI one. Per-model 'thinking' knobs are resolved
+    by :func:`_nvidia_extra_body` and forwarded through OpenAI ``extra_body``; models that
+    don't take them (e.g. minimax / kimi / glm) get a clean request with no ``extra_body``.
+    Multimodal models (e.g. minimax-m3 image/video parts) work via the standard LangChain
+    content-list message format -- no extra wiring needed here. All settings come from the
+    environment / .env (``NVIDIA_API_KEY``, ``NVIDIA_BASE_URL``, ``NVIDIA_TEMPERATURE``,
+    ``NVIDIA_TOP_P``, ``NVIDIA_EXTRA_BODY`` / ``NVIDIA_ENABLE_THINKING`` / ``NVIDIA_REASONING_BUDGET``).
+    """
+    from langchain_openai import ChatOpenAI
+
+    api_key = os.getenv("NVIDIA_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "NVIDIA_API_KEY is not set; it is required for the 'nvidia:' backend "
+            "(NVIDIA's OpenAI-compatible API is key-authenticated, not subscription/CLI-based)."
+        )
+
+    model_id = to_nvidia_model(model_string)
+    kwargs: dict[str, Any] = {
+        "model": model_id,
+        "api_key": api_key,
+        "base_url": os.getenv("NVIDIA_BASE_URL", NVIDIA_BASE_URL),
+        "temperature": float(os.getenv("NVIDIA_TEMPERATURE", "1")),
+        "top_p": float(os.getenv("NVIDIA_TOP_P", "0.95")),
+        # Bound each request so one slow/hung call can't wedge a caller (e.g. the role-fit
+        # benchmark): a too-slow reasoning model timing out is itself useful signal.
+        "timeout": float(os.getenv("NVIDIA_TIMEOUT", "120")),
+        # Retry transient throttles (429) with backoff at the client level. NVIDIA's hosted
+        # tiers rate-limit aggressively; without this a burst of 429s fails instantly and
+        # (for the benchmark, which has no graph-failover layer above it) masquerades as a
+        # capability failure. The graph's own failover still applies on top in production.
+        "max_retries": int(os.getenv("NVIDIA_MAX_RETRIES", "2")),
+    }
+    extra_body = _nvidia_extra_body(model_id)
+    if extra_body:
+        kwargs["extra_body"] = extra_body
+    if max_tokens:
+        kwargs["max_tokens"] = max_tokens
+    limiter = _nvidia_rate_limiter(model_id)
+    if limiter is not None:
+        kwargs["rate_limiter"] = limiter
+    return ChatOpenAI(**kwargs)
 
 
 # Instructions appended to the system prompt when tools are bound, telling the
@@ -387,6 +598,25 @@ def _extract_json(text: str) -> Optional[dict]:
                         break
         start = stripped.find("{", start + 1)
     return None
+
+
+def _gemini_response_text(raw: str) -> str:
+    """Extract the model's final text from ``gemini -o json`` stdout.
+
+    The CLI wraps the answer as ``{"session_id", "response", "stats"}`` and puts
+    ONLY the final assistant text in ``response`` -- excluding agentic tool-call
+    artifacts (e.g. ``update_topic(...)``) and control tokens (``<ctrl46>``) that
+    gemini-2.5-flash intermittently leaks into plain ``-o text`` stdout. Falls back
+    to the raw string if the wrapper can't be parsed (CLI format drift), so output
+    is never silently lost.
+    """
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return raw
+    if isinstance(data, dict) and isinstance(data.get("response"), str):
+        return data["response"]
+    return raw
 
 
 def _loop_handles_subprocess() -> bool:
@@ -776,7 +1006,7 @@ class _CLIJsonChat(BaseChatModel):
 
 
 class GeminiCLIChat(_CLIJsonChat):
-    """LLM backend driven by Google's ``agy`` CLI (replacement for ``gemini``).
+    """LLM backend driven by Google's ``gemini`` CLI.
 
     Gemini has no schema-enforcement flag, so structured output is coerced by
     appending the envelope schema to the prompt and parsing the JSON back.
@@ -807,11 +1037,61 @@ class GeminiCLIChat(_CLIJsonChat):
         bin_ = os.getenv("GEMINI_CLI_BIN", "gemini")
         # agy uses --dangerously-skip-permissions to approve tools non-interactively.
         extra = os.getenv("GEMINI_CLI_ARGS", "").split()  # standard gemini CLI: no agy flags
-        # Pass the prompt via STDIN to survive the Windows cmd /c shim.
-        cmd = [bin_, "--model", self.model, *extra]
-        raw = await self._invoke(cmd, stdin=full)
+        # `-o json` returns {session_id, response, stats}: the model's final text lives in
+        # `response`, EXCLUDING agentic tool-call artifacts (update_topic) and control tokens
+        # that gemini-2.5-flash intermittently leaks into plain text-mode stdout. Pass the
+        # prompt via STDIN to survive the Windows cmd /c shim.
+        cmd = [bin_, "--model", self.model, "-o", "json", *extra]
+        raw = _gemini_response_text(await self._invoke(cmd, stdin=full))
         # agy occasionally appends a "### Summary" section to prose; strip it.
         if "### Summary" in raw:
+            raw = raw.split("### Summary")[0].strip()
+        return raw, None
+
+
+class AgyCLIChat(_CLIJsonChat):
+    """LLM backend driven by Google's ``agy`` CLI (the Antigravity replacement for ``gemini``).
+
+    Exposes agy's Gemini 3.x / Claude 4.6 / GPT-OSS models. agy rejects ``-o json`` and its
+    plain output is already clean, so we invoke it without it. By default it runs WITHOUT tool
+    auto-approval (the graph owns the agentic loop); an operator may opt into
+    ``--dangerously-skip-permissions`` via ``AGY_CLI_ARGS`` only inside a sandbox. Like the
+    gemini CLI it has no native schema flag, so structured output is coerced via the JSON
+    envelope in the prompt (the _CLIJsonChat base). ``self.model`` is already the agy display
+    name (mapped by ``to_agy_model`` in build_chat_model).
+    """
+
+    _backend_name = "agy-cli"
+
+    def _subprocess_env(self) -> dict:
+        # agy authenticates via the Antigravity login store, not env vars. Scrub app secrets so a
+        # prompt-injected tool call can't exfiltrate them; pass everything else through.
+        env = dict(os.environ)
+        for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY",
+                    "GOOGLE_GENAI_API_KEY", "GEMINI_API_KEY", "TAVILY_API_KEY",
+                    "LANGSMITH_API_KEY", "LANGCHAIN_API_KEY", "NVIDIA_API_KEY",
+                    "SUPABASE_KEY", "EXA_API_KEY"):
+            env.pop(key, None)
+        return env
+
+    async def _backend_generate(self, system_prompt, prompt, schema):
+        if schema is not None:
+            prompt = (
+                prompt
+                + "\n\nReturn ONLY a single JSON object matching this schema "
+                "(no markdown fences, no commentary):\n"
+                + json.dumps(schema)
+            )
+        full = _combine_system_prompt(system_prompt, prompt)
+        bin_ = os.getenv("AGY_CLI_BIN", "agy")
+        # SECURITY: do NOT auto-approve tool execution by default. agy emits plain text / the
+        # JSON tool-selection envelope for our prompt-and-parse usage and does not need to run
+        # tools itself (the graph owns the agentic loop). Operators may opt into
+        # --dangerously-skip-permissions via AGY_CLI_ARGS ONLY inside a sandbox.
+        extra = os.getenv("AGY_CLI_ARGS", "").split()
+        cmd = [bin_, "--model", self.model, *extra]   # NO -o json (agy rejects it)
+        raw = await self._invoke(cmd, stdin=full)
+        if "### Summary" in raw:                       # agy occasionally appends a Summary section
             raw = raw.split("### Summary")[0].strip()
         return raw, None
 
@@ -863,7 +1143,7 @@ class CodexCLIChat(_CLIJsonChat):
                    "--output-last-message", out_path, "-"]
             await self._invoke(cmd, stdin=full)
             try:
-                with open(out_path, "r", encoding="utf-8") as f:
+                with open(out_path, encoding="utf-8") as f:
                     content = f.read()
             except OSError:
                 content = ""
@@ -1011,7 +1291,7 @@ async def run_codex_search(
 
     try:
         await _run_with_retry(_attempt, max_attempts=_SDK_MAX_ATTEMPTS, backoff_s=_SDK_RETRY_BACKOFF_S)
-        with open(out_path, "r", encoding="utf-8") as f:
+        with open(out_path, encoding="utf-8") as f:
             return f.read().strip() or "No search results found."
     except Exception as e:
         logger.error("Codex web search failed: %s", e, exc_info=True)
@@ -1031,6 +1311,8 @@ _BACKEND_PREFIXES = {
     "google": "gemini",
     "codex": "codex",
     "openai": "codex",
+    "nvidia": "nvidia",
+    "agy": "agy",
 }
 
 
@@ -1053,6 +1335,10 @@ def parse_backend(model_string: Optional[str]) -> tuple[str, str]:
         return "gemini", s
     if low == "codex" or low.startswith(("gpt", "o1", "o3", "o4")):
         return "codex", s
+    if low.startswith("nvidia"):
+        return "nvidia", s
+    if low.startswith("agy"):
+        return "agy", s
     return "claude", s
 
 
@@ -1060,10 +1346,14 @@ def build_chat_model(model_string: Optional[str], max_tokens: Optional[int] = No
     """Construct the right CLI-backed chat model for a (possibly prefixed) string."""
     backend, model = parse_backend(model_string)
     subscription = use_subscription()
+    if backend == "agy":
+        return AgyCLIChat(model=to_agy_model(model), max_tokens=max_tokens, subscription=subscription)
     if backend == "gemini":
         return GeminiCLIChat(model=to_gemini_model(model), max_tokens=max_tokens, subscription=subscription)
     if backend == "codex":
         return CodexCLIChat(model=to_codex_model(model), max_tokens=max_tokens, subscription=subscription)
+    if backend == "nvidia":
+        return build_nvidia_chat_model(model, max_tokens=max_tokens)
     return ClaudeAgentChat(model=to_claude_model(model), max_tokens=max_tokens, subscription=subscription)
 
 
@@ -1086,7 +1376,7 @@ class configurable_claude_model(Runnable):
         self._queue = list(queue or [])
 
     # -- declarative chaining (all return new copies) -----------------------
-    def _copy(self, default_config=None, queue=None) -> "configurable_claude_model":
+    def _copy(self, default_config=None, queue=None) -> configurable_claude_model:
         return configurable_claude_model(
             default_config if default_config is not None else self._default_config,
             queue if queue is not None else self._queue,
@@ -1130,7 +1420,7 @@ class configurable_claude_model(Runnable):
             model = getattr(model, name)(*args, **kwargs)
         return model
 
-    def _resolve_chain(self, config: Optional[RunnableConfig] = None) -> "tuple[list[str], str, str | None]":
+    def _resolve_chain(self, config: Optional[RunnableConfig] = None) -> tuple[list[str], str, str | None]:
         """The model chain to try (primary first), the stage label for logging, and the run key.
 
         Returns a 3-tuple: (chain, stage, run_key).  ``run_key`` is an explicit
@@ -1149,7 +1439,13 @@ class configurable_claude_model(Runnable):
 
     # -- Runnable interface -------------------------------------------------
     async def ainvoke(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
-        from open_deep_research.failover import classify_error, get_tracker, reason_for
+        from open_deep_research.failover import (
+            backend_of,
+            classify_error,
+            get_tracker,
+            reason_for,
+            transient_strike_limit,
+        )
 
         chain, stage, run_key = self._resolve_chain(config)
         if len(chain) <= 1:
@@ -1171,14 +1467,33 @@ class configurable_claude_model(Runnable):
         available = tracker.available_chain(chain) or chain[-1:]
         last_exc: Optional[BaseException] = None
         for idx, model_string in enumerate(available):
+            if tracker.is_down(model_string) and idx < len(available) - 1:
+                continue  # a peer marked this down after the chain was built; skip to backup
             try:
-                return await self._materialize(config, model_override=model_string).ainvoke(
+                result = await self._materialize(config, model_override=model_string).ainvoke(
                     input, config, **kwargs)
+                tracker.clear_strikes(model_string)  # success resets the circuit breaker
+                return result
             except Exception as exc:  # noqa: BLE001 - re-raised below when the chain is exhausted
                 last_exc = exc
                 kind = classify_error(exc)
-                if kind == "hard":
-                    tracker.mark_down(model_string)  # sticky only for hard failures
+                if kind == "backend_fatal":
+                    bk = backend_of(model_string)
+                    tracker.mark_backend_down(bk)
+                    from open_deep_research.failover import record_backend_exhausted
+                    record_backend_exhausted(bk)
+                elif kind == "model_fatal":
+                    tracker.mark_down(model_string)
+                elif kind == "transient":
+                    # Circuit breaker: a model that keeps throttling/timing out within a run is
+                    # marked down once it hits the strike limit, so later calls skip it (and its
+                    # retry-before-failover cost) and go straight to the backup.
+                    strikes = tracker.record_transient(model_string)
+                    if strikes >= transient_strike_limit():
+                        tracker.mark_down(model_string)
+                        logger.warning(
+                            "circuit-break[%s]: %s hit %d consecutive transient failures -> "
+                            "marked down for this run", stage, model_string, strikes)
                 if idx >= len(available) - 1:
                     raise  # nothing left to fail over to
                 next_model = available[idx + 1]
@@ -1190,6 +1505,11 @@ class configurable_claude_model(Runnable):
         raise last_exc
 
     def invoke(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
+        chain, _, _ = self._resolve_chain(config)
+        if len(chain) > 1:
+            raise RuntimeError(
+                "sync invoke() does not support model failover; use ainvoke() for a "
+                f"multi-element chain ({chain})")
         return self._materialize(config).invoke(input, config, **kwargs)
 
     async def astream(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):

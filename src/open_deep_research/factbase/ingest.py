@@ -57,7 +57,8 @@ class Ingestor:
                 f = model.Fact(fact_id=None, tuple_key=tk, as_of=as_of, value=rec["value"],
                                unit=rec.get("unit"), source_meets_bar=meets_bar,
                                has_unspecified_required=has_unspec,
-                               canonical_value=cval, canonical_unit=cunit)
+                               canonical_value=cval, canonical_unit=cunit,
+                               value_kind=pd.value_kind, narrative=rec.get("narrative"))
                 candidates.append((rec, f, source_id, instance_key, pd.name, quals))
 
             # Group by (tuple_key, as_of), insert facts, then detect conflicts + promote.
@@ -88,10 +89,11 @@ class Ingestor:
                         continue
                     c = await self._conn.execute(
                         "INSERT INTO fact (tuple_key, instance_key, property_name, qualifiers_json, as_of, "
-                        "value, unit, canonical_value, canonical_unit, source_id, admission, lifecycle, "
-                        "run_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "value, unit, canonical_value, canonical_unit, narrative, source_id, admission, "
+                        "lifecycle, run_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (tk, instance_key, property_name, json.dumps(quals), as_of, f.value, f.unit,
-                         f.canonical_value, f.canonical_unit, sid, "provisional", "current", run_id, now),
+                         f.canonical_value, f.canonical_unit, f.narrative, sid, "provisional", "current",
+                         run_id, now),
                     )
                     f.fact_id = c.lastrowid
                     await self._conn.execute(

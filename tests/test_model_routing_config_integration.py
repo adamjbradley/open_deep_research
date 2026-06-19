@@ -5,9 +5,9 @@ def test_config_uses_routing_preset_for_roles(monkeypatch):
     for k in ("RESEARCHER_MODEL", "SUPERVISOR_MODEL", "MODEL_ROUTING_FILE", "MODEL_ROUTING_PRESET"):
         monkeypatch.delenv(k, raising=False)
     c = Configuration.from_runnable_config({})
-    # active preset = balanced (Claude reasoning seams + Gemini researcher/throughput)
-    assert c.researcher_model == "gemini:gemini-2.5-flash"   # researcher on the throughput king
-    assert c.supervisor_model == "claude-opus-4-8"           # reasoning seam stays Claude
+    # active preset = claude (all-Claude default; gemini CLI deprecated -> agy backups)
+    assert c.researcher_model == "claude-opus-4-6"   # claude preset researcher head
+    assert c.supervisor_model == "claude-opus-4-8"   # opus dispatches as supervisor
 
 
 def test_env_overrides_routing(monkeypatch):

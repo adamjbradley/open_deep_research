@@ -2,9 +2,11 @@ import asyncio
 
 import pytest
 
+from open_deep_research import failover as fo
 from open_deep_research.failover import (
     AvailabilityTracker,
     FailoverRecord,
+    backend_of,
     classify_error,
     get_tracker,
     new_run_tracker,
@@ -17,15 +19,22 @@ from open_deep_research.model_routing import (
 )
 
 
+@pytest.fixture
+def _disable_health_file(monkeypatch):
+    """Disable health file to avoid pollution from other tests."""
+    monkeypatch.setenv("ODR_BACKEND_HEALTH", "off")
+
+
 @pytest.mark.parametrize("message,expected", [
-    # hard: model won't recover this run -> fail over now
-    ("Error: 429 RESOURCE_EXHAUSTED: Quota exceeded for quota metric", "hard"),
-    ("insufficient_quota: You exceeded your current quota", "hard"),
-    ("billing hard limit reached", "hard"),
-    ("404 model not found: gemini-2.0-pro", "hard"),
-    ("The model `gpt-9` does not exist", "hard"),
-    ("401 Unauthorized: invalid api key", "hard"),
-    ("403 permission denied", "hard"),
+    # backend_fatal: the whole backend is unusable (quota/auth/billing)
+    ("Error: 429 RESOURCE_EXHAUSTED: Quota exceeded for quota metric", "backend_fatal"),
+    ("insufficient_quota: You exceeded your current quota", "backend_fatal"),
+    ("billing hard limit reached", "backend_fatal"),
+    ("401 Unauthorized: invalid api key", "backend_fatal"),
+    ("403 permission denied", "backend_fatal"),
+    # model_fatal: only this model id is bad (wrong/removed name)
+    ("404 model not found: gemini-2.0-pro", "model_fatal"),
+    ("The model `gpt-9` does not exist", "model_fatal"),
     # transient: retry the same model first
     ("429 rate limit exceeded, please slow down", "transient"),
     ("overloaded_error: the service is overloaded", "transient"),
@@ -45,14 +54,14 @@ def test_timeout_is_transient():
 
 
 def test_quota_429_beats_rate_limit_429():
-    # a 429 that is really a quota exhaustion must classify HARD, not transient
-    assert classify_error(Exception("429 quota exceeded")) == "hard"
+    # a 429 that is really a quota exhaustion must classify backend_fatal, not transient
+    assert classify_error(Exception("429 quota exceeded")) == "backend_fatal"
 
 
 def test_reason_for_is_short_single_line():
     exc = Exception("boom: line one\nline two\n" + "x" * 500)
-    r = reason_for(exc, "hard")
-    assert r.startswith("hard: boom: line one")
+    r = reason_for(exc, "backend_fatal")
+    assert r.startswith("backend_fatal: boom: line one")
     assert "\n" not in r
     assert len(r) <= 140
 
@@ -62,7 +71,7 @@ def test_classify_error_empty_message():
 
 
 def test_reason_for_empty_message():
-    assert reason_for(Exception(""), "hard") == "hard: Exception"
+    assert reason_for(Exception(""), "backend_fatal") == "backend_fatal: Exception"
 
 
 def test_tracker_mark_down_and_available_chain():
@@ -77,17 +86,36 @@ def test_tracker_mark_down_and_available_chain():
 
 def test_tracker_records_failovers():
     t = AvailabilityTracker()
-    t.record_failover("supervisor", "gemini:gemini-2.5-pro", "claude-opus-4-8", "hard: quota")
+    t.record_failover("supervisor", "gemini:gemini-2.5-pro", "claude-opus-4-8", "backend_fatal: quota")
     assert t.failovers == [
-        FailoverRecord("supervisor", "gemini:gemini-2.5-pro", "claude-opus-4-8", "hard: quota")
+        FailoverRecord("supervisor", "gemini:gemini-2.5-pro", "claude-opus-4-8", "backend_fatal: quota")
     ]
     assert t.failovers[0].as_dict() == {
         "stage": "supervisor", "from": "gemini:gemini-2.5-pro",
-        "to": "claude-opus-4-8", "reason": "hard: quota",
+        "to": "claude-opus-4-8", "reason": "backend_fatal: quota",
     }
 
 
-def test_new_run_tracker_resets_state():
+def test_transient_strikes_accumulate_per_model():
+    t = AvailabilityTracker()
+    assert t.record_transient("nvidia:m3") == 1
+    assert t.record_transient("nvidia:m3") == 2
+    assert t.record_transient("nvidia:glm") == 1  # tracked independently per model
+    t.clear_strikes("nvidia:m3")                   # a success resets the counter
+    assert t.record_transient("nvidia:m3") == 1
+
+
+def test_transient_strike_limit_env(monkeypatch):
+    from open_deep_research.failover import transient_strike_limit
+    monkeypatch.delenv("MODEL_FAILOVER_TRANSIENT_STRIKES", raising=False)
+    assert transient_strike_limit() == 3  # default
+    monkeypatch.setenv("MODEL_FAILOVER_TRANSIENT_STRIKES", "2")
+    assert transient_strike_limit() == 2
+    monkeypatch.setenv("MODEL_FAILOVER_TRANSIENT_STRIKES", "0")
+    assert transient_strike_limit() == 1  # floored at 1
+
+
+def test_new_run_tracker_resets_state(_disable_health_file):
     first = new_run_tracker()
     first.mark_down("gemini:gemini-2.5-flash")
     assert get_tracker() is first
@@ -118,6 +146,50 @@ def test_available_chain_all_down_returns_empty():
     t.mark_down("model-a")
     t.mark_down("model-b")
     assert t.available_chain(chain) == []
+
+
+# ---------------------------------------------------------------------------
+# Task 1: Backend-level mark-down (G1)
+# ---------------------------------------------------------------------------
+
+def test_backend_of_derives_backend():
+    assert backend_of("gemini:gemini-2.5-flash") == "gemini"
+    assert backend_of("codex:gpt-5.5") == "codex"
+    assert backend_of("claude-opus-4-8") == "claude"
+    assert backend_of("claude:opus") == "claude"
+
+
+def test_classify_three_way():
+    assert classify_error(Exception("429 insufficient_quota")) == "backend_fatal"
+    assert classify_error(Exception("401 unauthorized")) == "backend_fatal"
+    assert classify_error(Exception("model not found: foo")) == "model_fatal"
+    assert classify_error(Exception("404")) == "model_fatal"
+    assert classify_error(Exception("overloaded, try again")) == "transient"
+    assert classify_error(TimeoutError()) == "transient"
+
+
+@pytest.mark.parametrize("msg", [
+    "Please run gemini auth login: not logged in",
+    "Error: not authenticated",
+    "no credentials found, please authenticate",
+    "reauthenticate to continue",
+])
+def test_gemini_logged_out_is_backend_fatal(msg):
+    assert classify_error(Exception(msg)) == "backend_fatal"
+
+
+def test_backend_down_skips_all_models_of_backend():
+    t = AvailabilityTracker()
+    t.mark_backend_down("claude")
+    chain = ["gemini:gemini-2.5-flash", "claude-opus-4-6", "claude-opus-4-8"]
+    assert t.available_chain(chain) == ["gemini:gemini-2.5-flash"]
+
+
+def test_model_fatal_does_not_kill_backend():
+    t = AvailabilityTracker()
+    t.mark_down("claude-opus-4-6")
+    assert t.is_backend_down("claude") is False
+    assert t.available_chain(["claude-opus-4-6", "claude-opus-4-8"]) == ["claude-opus-4-8"]
 
 
 # ---------------------------------------------------------------------------
@@ -270,3 +342,54 @@ def test_configuration_model_chain_unset_optional_role_is_empty(monkeypatch, tmp
     c = Configuration.from_runnable_config({})
     assert c.facts_answer_polish_model is None
     assert c.model_chain("facts_answer_polish") == []
+
+
+# ---------------------------------------------------------------------------
+# Task 3: Cross-run backend health file (G2)
+# ---------------------------------------------------------------------------
+
+def test_health_file_roundtrip_and_ttl(tmp_path, monkeypatch):
+    f = tmp_path / "backend_health.json"
+    monkeypatch.setenv("ODR_BACKEND_HEALTH_FILE", str(f))
+    monkeypatch.setenv("ODR_BACKEND_HEALTH_TTL", "100")
+    fo.record_backend_exhausted("claude", now=1000.0)
+    assert fo.load_exhausted_backends(now=1050.0) == {"claude"}   # within TTL
+    assert fo.load_exhausted_backends(now=1200.0) == set()        # past TTL
+
+
+def test_health_off_disables(tmp_path, monkeypatch):
+    f = tmp_path / "backend_health.json"
+    monkeypatch.setenv("ODR_BACKEND_HEALTH_FILE", str(f))
+    monkeypatch.setenv("ODR_BACKEND_HEALTH", "off")
+    fo.record_backend_exhausted("claude", now=1000.0)
+    assert not f.exists()
+    assert fo.load_exhausted_backends(now=1000.0) == set()
+
+
+def test_corrupt_health_file_is_ignored(tmp_path, monkeypatch):
+    f = tmp_path / "backend_health.json"; f.write_text("{ not json")
+    monkeypatch.setenv("ODR_BACKEND_HEALTH_FILE", str(f))
+    assert fo.load_exhausted_backends(now=1000.0) == set()
+
+
+def test_new_run_tracker_seeds_downed_backends(tmp_path, monkeypatch):
+    f = tmp_path / "backend_health.json"
+    monkeypatch.setenv("ODR_BACKEND_HEALTH_FILE", str(f))
+    monkeypatch.setenv("ODR_BACKEND_HEALTH_TTL", "100")
+    fo.record_backend_exhausted("claude", now=1000.0)
+    t = fo.new_run_tracker("thread-x", now=1050.0)
+    assert t.is_backend_down("claude") is True
+
+
+# ---------------------------------------------------------------------------
+# Task 6: Sync-path failover guard (G6)
+# ---------------------------------------------------------------------------
+
+def test_sync_invoke_rejects_multielement_chain():
+    """Sync invoke() should reject multi-element chains and direct to ainvoke()."""
+    from open_deep_research.claude_agent_chat import configurable_claude_model
+
+    m = configurable_claude_model({"model_chain": ["gemini:gemini-2.5-flash", "claude-opus-4-8"],
+                                    "stage": "researcher"})
+    with pytest.raises(RuntimeError, match="sync invoke"):
+        m.invoke("hi")

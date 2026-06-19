@@ -7,7 +7,7 @@ guardrails. Kept out of deep_researcher.py so it can be unit-tested without the 
 """
 from __future__ import annotations
 
-_SOURCE_CAP = 8000
+_SOURCE_CAP = 24000
 
 
 def compile_property_catalog(prof, target_properties=None) -> str:
@@ -47,6 +47,8 @@ def compile_property_catalog(prof, target_properties=None) -> str:
             line += f" | qualifiers: {quals}"
         elif pd.identity_qualifiers:
             line += f" | qualifiers: {pd.identity_qualifiers}"
+        if getattr(pd, "narrative_required", False) and getattr(pd, "narrative_guidance", ""):
+            line += f" | narrative (required): {pd.narrative_guidance}"
         lines.append(line)
     return "\n".join(lines)
 
@@ -63,9 +65,20 @@ def build_extraction_prompt(prof, target_properties, source_text, *, compiled: b
             "Rules: emit a qualifier ONLY if the source explicitly states it (do not guess); "
             "for enum properties use the listed values; when a property says 'select all "
             "that apply', return every applicable value separated by commas; when it allows "
-            "literals, you may give a value outside the list; "
+            "literals, you may give a value outside the list; for 'text' properties give the "
+            "relevant prose verbatim or lightly condensed; "
             "evidence_span MUST be a verbatim substring of the source text supporting the value; "
-            "if nothing is stated, return an empty list.\n\nSOURCE:\n" + src
+            "narrative is a short (1-3 sentence) prose note of context the source gives around "
+            "the value (caveats, scope, methodology) -- omit it if the source adds nothing; "
+            "if nothing is stated, return an empty list.\n"
+            "Output: return a JSON array (no prose, no markdown fences). Each element is an "
+            "object with keys: property, instance_name, value, evidence_span, and optionally "
+            "narrative. For qualifiers, include a 'qualifiers' key whose value is a flat LIST "
+            "of the applicable qualifier enum tokens from the catalog above (e.g. "
+            "[\"total_pop\", \"issued\"]) -- do NOT emit qualifiers as a nested object, and "
+            "include only tokens the source explicitly supports. evidence_span MUST be a "
+            "verbatim substring of the source. If nothing is stated, return [].\n"
+            "\nSOURCE:\n" + src
         )
     prop_names = target_properties or [pd.name for pd in prof.properties]
     return (
@@ -73,5 +86,14 @@ def build_extraction_prompt(prof, target_properties, source_text, *, compiled: b
         f"Only use these property names: {prop_names}. "
         "Emit a qualifier ONLY if the source explicitly states it; otherwise omit it (do not guess). "
         "evidence_span MUST be a verbatim substring of the source text supporting the value. "
-        "If nothing is stated, return an empty list.\n\nSOURCE:\n" + src
+        "narrative is an optional short (1-3 sentence) prose note of context around the value. "
+        "If nothing is stated, return an empty list.\n"
+        "Output: return a JSON array (no prose, no markdown fences). Each element is an "
+        "object with keys: property, instance_name, value, evidence_span, and optionally "
+        "narrative. For qualifiers, include a 'qualifiers' key whose value is a flat LIST "
+        "of the applicable qualifier enum tokens from the catalog above (e.g. "
+        "[\"total_pop\", \"issued\"]) -- do NOT emit qualifiers as a nested object, and "
+        "include only tokens the source explicitly supports. evidence_span MUST be a "
+        "verbatim substring of the source. If nothing is stated, return [].\n"
+        "\nSOURCE:\n" + src
     )

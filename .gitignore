@@ -72,3 +72,6 @@ temp/
 *.db
 *.db-shm
 *.db-wal
+
+# Claude Code worktrees (agent-created, ephemeral)
+.claude/worktrees/

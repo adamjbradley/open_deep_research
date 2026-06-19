@@ -14,7 +14,7 @@ from pydantic import BaseModel, model_validator
 
 from .profile import Profile, PropertyDef
 
-_VALID_KINDS = {"name", "enum", "percentage", "boolean", "name_year", "number"}
+_VALID_KINDS = {"name", "enum", "percentage", "boolean", "name_year", "number", "text"}
 
 
 class _EnumValue(BaseModel):
@@ -34,6 +34,9 @@ class PropertyModel(BaseModel):
     value_aliases: dict[str, list[str]] = {}
     multi: bool = False
     open: bool = False
+    narrative: Optional[dict] = None
+    completeness: str = "required"
+    absence_allowed: bool = True
 
     @model_validator(mode="after")
     def _check(self) -> "PropertyModel":
@@ -67,6 +70,10 @@ class PropertyModel(BaseModel):
                         f"property {self.name!r}: alias {surface!r} maps to multiple canonicals"
                     )
                 seen[key] = canonical
+        if self.completeness not in ("required", "optional"):
+            raise ValueError(f"property {self.name!r}: completeness must be 'required' or 'optional'")
+        if self.narrative is not None and not isinstance(self.narrative, dict):
+            raise ValueError(f"property {self.name!r}: narrative must be a mapping")
         return self
 
     def enum_values(self) -> Optional[list[str]]:
@@ -86,6 +93,7 @@ class ProfileModel(BaseModel):
     entity_type: str
     version: str = "1"
     notes: Optional[str] = None
+    narrative: Optional[dict] = None
     properties: list[PropertyModel]
 
     @model_validator(mode="after")
@@ -116,10 +124,18 @@ def profile_from_dict(data: dict) -> Profile:
             value_aliases={k: list(v) for k, v in p.value_aliases.items()},
             multi=p.multi,
             open_world=p.open,
+            narrative_required=bool((p.narrative or {}).get("required", False)),
+            narrative_guidance=str((p.narrative or {}).get("guidance", "") or ""),
+            completeness=p.completeness,
+            absence_allowed=p.absence_allowed,
         )
         for p in model.properties
     ]
-    prof = Profile(entity_type=model.entity_type, properties=props)
+    prof = Profile(
+        entity_type=model.entity_type,
+        properties=props,
+        overview_sections=list((data.get("narrative") or {}).get("overview_sections", []) or []),
+    )
     prof.profile_version = model.version
     # Hash the SEMANTIC profile (validated, normalized) — NOT raw file bytes — so inert
     # comments, `description`/`notes`, and formatting churn don't trigger false drift.

@@ -93,7 +93,10 @@ def canonical_value(property_def, value: str, unit: str | None) -> tuple[str, st
             v = _YEAR_SUFFIX.sub("", v)
         v = _WS.sub(" ", _NON_WORD.sub(" ", v)).strip()
         toks = [t for t in v.split(" ") if t and t not in _ARTICLES]
-        while toks and toks[-1] in _NOISE_WORDS:  # strip only TRAILING noise words
+        # Strip TRAILING noise words ("Aadhaar Card" == "Aadhaar"), but never empty the
+        # value: a name that is ALL noise words ("ID card") must keep its first token, not
+        # collapse to "" (a degenerate grouping key that can't dedupe/merge).
+        while len(toks) > 1 and toks[-1] in _NOISE_WORDS:
             toks.pop()
         v = " ".join(toks)
         aliases_for = getattr(property_def, "aliases_for", None)

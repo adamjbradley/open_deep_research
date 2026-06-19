@@ -25,3 +25,18 @@ def test_explicit_env_is_not_overridden(monkeypatch):
     apply_backend_env(_R)
     import os
     assert os.environ["GEMINI_CLI_BIN"] == "agy"  # setdefault: explicit wins
+
+
+def test_agy_backend_env_pushed(monkeypatch):
+    for k in ("AGY_CLI_BIN", "AGY_CLI_ARGS"):
+        monkeypatch.delenv(k, raising=False)
+    from open_deep_research.model_routing import routing_from_dict, apply_backend_env
+    r = routing_from_dict({
+        "version": "1", "active_preset": "p",
+        "backends": {"agy": {"cli_bin": "agy", "cli_args": ["--print-timeout", "600"]}},
+        "presets": {"p": {"roles": {"researcher": "agy:gemini-3.5-flash-high"}, "search": "tavily"}},
+    })
+    apply_backend_env(r)
+    import os
+    assert os.environ["AGY_CLI_BIN"] == "agy"
+    assert os.environ["AGY_CLI_ARGS"] == "--print-timeout 600"   # args pushed (no skip-permissions)

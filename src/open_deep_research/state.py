@@ -72,6 +72,17 @@ class TargetProperties(BaseModel):
         ),
     )
 
+class SelectedProfile(BaseModel):
+    """The factbase domain profile that best matches a question (query-driven selection)."""
+
+    profile_name: str = Field(
+        default="",
+        description=(
+            "The name of the single best-matching profile, EXACTLY as listed. Empty "
+            "string if no profile clearly fits (caller falls back to the default)."
+        ),
+    )
+
 class KnowledgeAssessment(BaseModel):
     """Whether existing stored knowledge already answers a question, and the gaps."""
 
@@ -119,6 +130,9 @@ class AgentState(MessagesState):
     target_properties: Optional[list[str]]
     fact_rounds_used: Optional[int]
     extracted_source_urls: Annotated[list[str], override_reducer] = []
+    # Query-driven profile selection: the profile chosen for this question (falls back to
+    # Configuration.profile_name). Set once in write_research_brief; read by extract_facts.
+    selected_profile_name: Optional[str]
 
 class SupervisorState(TypedDict):
     """State for the supervisor that manages research tasks."""
