@@ -42,8 +42,16 @@ def test_agy_command_has_no_o_json_and_no_skip_permissions_by_default(monkeypatc
 
 
 def test_agy_subprocess_env_scrubs_secrets(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
-    monkeypatch.setenv("TAVILY_API_KEY", "tvly-secret")
+    from open_deep_research.claude_agent_chat import build_chat_model
+    scrubbed = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY",
+                "GOOGLE_GENAI_API_KEY", "GEMINI_API_KEY", "TAVILY_API_KEY",
+                "LANGSMITH_API_KEY", "LANGCHAIN_API_KEY", "NVIDIA_API_KEY",
+                "SUPABASE_KEY", "EXA_API_KEY")
+    for k in scrubbed:
+        monkeypatch.setenv(k, "secret-" + k)
+    monkeypatch.setenv("SOME_NONSECRET_VAR", "keepme")
     m = build_chat_model("agy:gemini-3.5-flash-high")
     env = m._subprocess_env()
-    assert "ANTHROPIC_API_KEY" not in env and "TAVILY_API_KEY" not in env
+    for k in scrubbed:
+        assert k not in env, f"{k} should be scrubbed"
+    assert env.get("SOME_NONSECRET_VAR") == "keepme"   # non-secrets pass through

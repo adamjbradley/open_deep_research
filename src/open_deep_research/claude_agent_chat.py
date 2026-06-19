@@ -435,6 +435,14 @@ def build_nvidia_chat_model(model_string: Optional[str], max_tokens: Optional[in
         "base_url": os.getenv("NVIDIA_BASE_URL", NVIDIA_BASE_URL),
         "temperature": float(os.getenv("NVIDIA_TEMPERATURE", "1")),
         "top_p": float(os.getenv("NVIDIA_TOP_P", "0.95")),
+        # Bound each request so one slow/hung call can't wedge a caller (e.g. the role-fit
+        # benchmark): a too-slow reasoning model timing out is itself useful signal.
+        "timeout": float(os.getenv("NVIDIA_TIMEOUT", "120")),
+        # Retry transient throttles (429) with backoff at the client level. NVIDIA's hosted
+        # tiers rate-limit aggressively; without this a burst of 429s fails instantly and
+        # (for the benchmark, which has no graph-failover layer above it) masquerades as a
+        # capability failure. The graph's own failover still applies on top in production.
+        "max_retries": int(os.getenv("NVIDIA_MAX_RETRIES", "2")),
     }
     extra_body = _nvidia_extra_body(model_id)
     if extra_body:
@@ -969,7 +977,7 @@ class _CLIJsonChat(BaseChatModel):
 
 
 class GeminiCLIChat(_CLIJsonChat):
-    """LLM backend driven by Google's ``agy`` CLI (replacement for ``gemini``).
+    """LLM backend driven by Google's ``gemini`` CLI.
 
     Gemini has no schema-enforcement flag, so structured output is coerced by
     appending the envelope schema to the prompt and parsing the JSON back.
@@ -1016,10 +1024,12 @@ class AgyCLIChat(_CLIJsonChat):
     """LLM backend driven by Google's ``agy`` CLI (the Antigravity replacement for ``gemini``).
 
     Exposes agy's Gemini 3.x / Claude 4.6 / GPT-OSS models. agy rejects ``-o json`` and its
-    plain output is already clean, so we invoke it without it; ``--dangerously-skip-permissions``
-    auto-approves tools non-interactively. Like the gemini CLI it has no native schema flag, so
-    structured output is coerced via the JSON envelope in the prompt (the _CLIJsonChat base).
-    ``self.model`` is already the agy display name (mapped by ``to_agy_model`` in build_chat_model).
+    plain output is already clean, so we invoke it without it. By default it runs WITHOUT tool
+    auto-approval (the graph owns the agentic loop); an operator may opt into
+    ``--dangerously-skip-permissions`` via ``AGY_CLI_ARGS`` only inside a sandbox. Like the
+    gemini CLI it has no native schema flag, so structured output is coerced via the JSON
+    envelope in the prompt (the _CLIJsonChat base). ``self.model`` is already the agy display
+    name (mapped by ``to_agy_model`` in build_chat_model).
     """
 
     _backend_name = "agy-cli"
@@ -1029,7 +1039,9 @@ class AgyCLIChat(_CLIJsonChat):
         # prompt-injected tool call can't exfiltrate them; pass everything else through.
         env = dict(os.environ)
         for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY",
-                    "GOOGLE_GENAI_API_KEY", "GEMINI_API_KEY", "TAVILY_API_KEY"):
+                    "GOOGLE_GENAI_API_KEY", "GEMINI_API_KEY", "TAVILY_API_KEY",
+                    "LANGSMITH_API_KEY", "LANGCHAIN_API_KEY", "NVIDIA_API_KEY",
+                    "SUPABASE_KEY", "EXA_API_KEY"):
             env.pop(key, None)
         return env
 
