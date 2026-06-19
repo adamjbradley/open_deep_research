@@ -32,6 +32,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.config import get_store
 from mcp import McpError
 from tavily import AsyncTavilyClient
+from exa_py import Exa
 
 from open_deep_research.claude_agent_chat import (
     ClaudeAgentChat,
@@ -115,6 +116,40 @@ async def _acquire_tavily(queries, n, topic, config) -> dict:
             if url not in unique_results:
                 unique_results[url] = {**result, "query": response["query"]}
     return unique_results
+
+
+async def _acquire_exa(queries, n, topic, config) -> dict:
+    """Exa neural search + dedup -> normalized {url:{url,title,content,raw_content,query}}.
+
+    Best-effort: any failure (missing key, API/timeout) logs and returns {} so exa_search
+    degrades to empty and the hybrid degrades to tavily-only. `topic` is ignored (no Exa equivalent).
+    """
+    try:
+        configurable = Configuration.from_runnable_config(config)
+        max_chars = configurable.max_content_length
+        exa = Exa(api_key=get_exa_api_key(config))
+        timeout_s = float(os.getenv("EXA_TIMEOUT", os.getenv("CLI_BACKEND_TIMEOUT", "120")))
+        loop = asyncio.get_event_loop()
+
+        def _one(q):
+            return exa.search_and_contents(q, text={"max_characters": max_chars},
+                                           summary=True, num_results=n)
+        responses = await asyncio.wait_for(
+            asyncio.gather(*[loop.run_in_executor(None, _one, q) for q in queries]),
+            timeout=timeout_s)
+        unique = {}
+        for q, resp in zip(queries, responses):
+            for r in getattr(resp, "results", []) or []:
+                url = getattr(r, "url", "")
+                if url and url not in unique:
+                    unique[url] = {"url": url, "title": getattr(r, "title", "") or "",
+                                   "content": getattr(r, "summary", "") or "",
+                                   "raw_content": getattr(r, "text", "") or "",
+                                   "query": q}
+        return unique
+    except Exception as e:  # noqa: BLE001 - best-effort; never break search
+        logger.warning("Exa search failed (non-fatal): %s", e)
+        return {}
 
 
 async def _finalize_search(unique_results: dict, config) -> str:
@@ -1150,3 +1185,12 @@ def get_tavily_api_key(config: RunnableConfig):
         return api_keys.get("TAVILY_API_KEY")
     else:
         return os.getenv("TAVILY_API_KEY")
+
+
+def get_exa_api_key(config: RunnableConfig) -> "str | None":
+    """Exa API key from config apiKeys, else EXA_API_KEY env (mirrors get_tavily_api_key)."""
+    if config:
+        api_keys = (config.get("configurable", {}) or {}).get("apiKeys")
+        if api_keys:
+            return api_keys.get("EXA_API_KEY")
+    return os.getenv("EXA_API_KEY")

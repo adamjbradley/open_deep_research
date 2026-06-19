@@ -160,3 +160,46 @@ def test_tavily_search_reports_no_results(monkeypatch):
     monkeypatch.setattr(utils, "tavily_search_async", fake_async)
     out = asyncio.run(utils.tavily_search.coroutine(queries=["q1"], config=None))
     assert "No valid search results found" in out
+
+
+# -- Exa search (_acquire_exa) ------------------------------------------
+
+class _FakeExaResult:
+    def __init__(self, url, title, text, summary):
+        self.url, self.title, self.text, self.summary = url, title, text, summary
+
+
+class _FakeExaResp:
+    def __init__(self, results):
+        self.results = results
+
+
+class _FakeExa:
+    def __init__(self, *a, **k):
+        pass
+
+    def search_and_contents(self, q, **k):
+        return _FakeExaResp([_FakeExaResult("http://x", "TX", "FULLTEXT", "SUMMARY")])
+
+
+def test_acquire_exa_normalizes(monkeypatch):
+    monkeypatch.setattr(utils, "Exa", _FakeExa, raising=False)
+    monkeypatch.setenv("EXA_API_KEY", "k")
+    out = asyncio.run(utils._acquire_exa(["q"], 5, "general", None))
+    rec = out["http://x"]
+    assert rec["raw_content"] == "FULLTEXT"     # text -> raw_content
+    assert rec["content"] == "SUMMARY"          # summary -> content
+    assert rec["title"] == "TX" and rec["query"] == "q"
+
+
+def test_acquire_exa_errors_return_empty(monkeypatch):
+    class _Boom:
+        def __init__(self, *a, **k):
+            pass
+
+        def search_and_contents(self, *a, **k):
+            raise RuntimeError("api down")
+
+    monkeypatch.setattr(utils, "Exa", _Boom, raising=False)
+    monkeypatch.setenv("EXA_API_KEY", "k")
+    assert asyncio.run(utils._acquire_exa(["q"], 5, "general", None)) == {}
