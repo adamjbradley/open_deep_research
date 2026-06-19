@@ -292,3 +292,26 @@ def test_per_attempt_skip_within_available(monkeypatch):
     model = configurable_claude_model().with_config(
         {"model_chain": ["nvidia:x", "claude-opus-4-8"], "stage": "extract_facts"})
     assert asyncio.run(model.ainvoke("x")) == "OK"
+
+
+def test_per_attempt_skip_skips_model_marked_down_after_chain_build(monkeypatch):
+    """A model that survives available_chain but is marked down while an earlier model is
+    being processed must be skipped by the per-attempt is_down re-check (never built)."""
+    tracker = new_run_tracker()
+    constructed = []
+
+    def fake_build(model_string, max_tokens=None):
+        constructed.append(model_string)
+        if model_string == "nvidia:a":
+            # simulate a concurrent peer marking the MIDDLE model down mid-flight
+            tracker.mark_down("nvidia:b")
+        script = {"nvidia:a": Exception("overloaded, try again"),  # transient -> fail over
+                  "nvidia:b": "B-SHOULD-NOT-BE-USED",
+                  "claude-opus-4-8": "OK"}
+        return _FakeModel(model_string, script)
+
+    monkeypatch.setattr(cac, "build_chat_model", fake_build)
+    model = configurable_claude_model().with_config(
+        {"model_chain": ["nvidia:a", "nvidia:b", "claude-opus-4-8"], "stage": "extract_facts"})
+    assert asyncio.run(model.ainvoke("x")) == "OK"
+    assert constructed == ["nvidia:a", "claude-opus-4-8"]  # nvidia:b skipped, never built
