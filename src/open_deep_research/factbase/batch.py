@@ -85,6 +85,29 @@ class BatchRunner:
                 "resolved": [k for _, k in resolved]}
 
 
+def _default_run_one_configurable(profile_name: str, db_path: str,
+                                   registry_name: str = "") -> dict:
+    """The per-country batch run config (excluding the per-run thread_id).
+
+    Single source of truth: ``default_run_one`` builds its configurable from this dict
+    so tests that import this helper guard the real production settings.
+    """
+    cfg = {
+        "profile_name": profile_name,
+        "database_path": db_path,
+        "use_knowledge_base": False,        # fresh research per country
+        "allow_clarification": False,
+        "persist_results": True,            # explicit: each country's dossier must be saved
+        "max_concurrent_research_units": 2,
+        "max_researcher_iterations": 2,
+        "whole_profile_mode": True,         # comprehensive per-profile dossier (targeted gap rounds)
+        "summarize_search_results": False,  # extraction reads raw text; per-source summaries are wasted
+    }
+    if registry_name:
+        cfg["registry_name"] = registry_name
+    return cfg
+
+
 async def default_run_one(country_name, instance_key, *, profile_name, db_path,
                           registry_name="") -> str:
     """Production run_one: one deep_researcher invocation scoped to a country + profile.
@@ -99,19 +122,9 @@ async def default_run_one(country_name, instance_key, *, profile_name, db_path,
     from open_deep_research.deep_researcher import deep_researcher, recommended_recursion_limit
 
     configurable = {
+        **_default_run_one_configurable(profile_name, db_path, registry_name),
         "thread_id": str(uuid.uuid4()),
-        "profile_name": profile_name,
-        "database_path": db_path,
-        "use_knowledge_base": False,        # fresh research per country
-        "allow_clarification": False,
-        "persist_results": True,            # explicit: each country's dossier must be saved
-        "max_concurrent_research_units": 2,
-        "max_researcher_iterations": 2,
-        "whole_profile_mode": True,         # comprehensive per-profile dossier (targeted gap rounds)
-        "summarize_search_results": False,  # extraction reads raw text; per-source summaries are wasted
     }
-    if registry_name:
-        configurable["registry_name"] = registry_name
     topic = (f"Research {country_name} for the '{profile_name}' profile: cover its properties "
              f"with sources and dates.")
     result = await deep_researcher.ainvoke(
