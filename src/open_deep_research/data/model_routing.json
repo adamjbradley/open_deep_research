@@ -74,21 +74,23 @@
       "step_overrides": {}
     },
     "nvidia": {
-      "comment": "EXAMPLE preset for NVIDIA's OpenAI-compatible API (integrate.api.nvidia.com). Needs NVIDIA_API_KEY set (key-authenticated, independent of Claude subscription mode); the 'nvidia:' prefix routes to a ChatOpenAI pointed at that endpoint. Tool-calling/structured-output support varies by NVIDIA-hosted model, so every role keeps a cross-backend Claude backup that takes over on any failure. The NIM 'thinking' knobs are auto-applied per model (ON for nemotron*, OFF for others like nvidia:minimaxai/minimax-m3); override with NVIDIA_ENABLE_THINKING / NVIDIA_REASONING_BUDGET / NVIDIA_TEMPERATURE / NVIDIA_TOP_P (see .env.example). Swap the nemotron id for whatever NVIDIA model you have access to. Activate with MODEL_ROUTING_PRESET=nvidia.",
+      "comment": "NVIDIA OpenAI-compatible API (integrate.api.nvidia.com); needs NVIDIA_API_KEY. Roles are DISTRIBUTED across DIFFERENT NVIDIA models on purpose: the free tier rate-limits ~40 RPM PER MODEL, so spreading the high-volume roles (researcher, summarization, extract_facts) onto separate models multiplies the usable budget and avoids 429 storms. Client-side NVIDIA_RPM pacing (default 30/model) + max_retries(Retry-After) keep each model under its ceiling; the per-model circuit breaker abandons a sustained-throttled model. THREE-TIER failover per role: NVIDIA primary -> agy (Antigravity CLI, no API key, independent of the NVIDIA budget) -> claude_agent_sdk subscription as the final safety net (independent of BOTH the NVIDIA budget AND agy auth). Per-role claude tier follows the benchmark mix: opus-4-8 for dispatch/synthesis, opus-4-6 for research/extract, haiku for bulk summarize/compress. NVIDIA picks are the winners of the 2026-06-19 role-fit benchmark (kimi-k2.6 / minimax-m3 = best all-rounders; glm-5.1 strong; minimax-m2.7 best at compress). nemotron is intentionally OMITTED (too slow: reasoning calls exceed the 120s timeout). Activate with MODEL_ROUTING_PRESET=nvidia (agy CLI logged in preferred; claude subscription is the guaranteed last resort).",
       "roles": {
-        "supervisor": ["claude-opus-4-8", "nvidia:nvidia/nemotron-3-ultra-550b-a55b"],
-        "researcher": ["nvidia:nvidia/nemotron-3-ultra-550b-a55b", "claude-opus-4-6"],
-        "summarization": ["nvidia:nvidia/nemotron-3-ultra-550b-a55b", "claude-haiku-4-5"],
-        "compression": ["nvidia:nvidia/nemotron-3-ultra-550b-a55b", "claude-haiku-4-5"],
-        "final_report": ["nvidia:nvidia/nemotron-3-ultra-550b-a55b", "claude-opus-4-8"]
+        "supervisor": ["nvidia:minimaxai/minimax-m3", "agy:claude-opus-4.6", "claude-opus-4-8"],
+        "researcher": ["nvidia:moonshotai/kimi-k2.6", "agy:gemini-3.5-flash-high", "claude-opus-4-6"],
+        "summarization": ["nvidia:z-ai/glm-5.1", "agy:gemini-3.5-flash-medium", "claude-haiku-4-5"],
+        "compression": ["nvidia:minimaxai/minimax-m2.7", "agy:gemini-3.5-flash-medium", "claude-haiku-4-5"],
+        "final_report": ["nvidia:minimaxai/minimax-m3", "agy:gemini-3.1-pro-high", "claude-opus-4-8"]
       },
       "search": "tavily",
-      "step_overrides": {}
+      "step_overrides": {
+        "extract_facts": ["nvidia:minimaxai/minimax-m3", "agy:gemini-3.5-flash-high", "claude-opus-4-6"]
+      }
     },
     "agy": {
-      "comment": "Antigravity CLI (agy) backend -- the working replacement after the gemini CLI free tier was deprecated. Dispatch (supervisor) routed to Claude-via-agy for reliable tool-calling; gemini-3.x throughput for research/text; claude_agent_sdk backups everywhere (independent of agy auth). extract_facts on gemini-3.5-flash-high (the lean schema makes flash sufficient).",
+      "comment": "Antigravity CLI (agy) backend -- the working replacement after the gemini CLI free tier was deprecated. gemini-3.x throughput primary across roles (per-stage role-fit bench 2026-06-19: gemini-3.5-flash-high 7/7 on supervisor dispatch + researcher + extract_facts, fastest of the three); claude_agent_sdk backups everywhere (independent of agy auth). final_report on gemini-3.1-pro-high (best prose; opus-via-agy was slow+weak there). extract_facts on gemini-3.5-flash-high (lean schema makes flash sufficient).",
       "roles": {
-        "supervisor": ["agy:claude-opus-4.6", "claude-opus-4-8"],
+        "supervisor": ["agy:gemini-3.5-flash-high", "claude-opus-4-8"],
         "researcher": ["agy:gemini-3.5-flash-high", "claude-opus-4-6"],
         "summarization": ["agy:gemini-3.5-flash-medium", "claude-haiku-4-5"],
         "compression": ["agy:gemini-3.5-flash-medium", "claude-haiku-4-5"],
