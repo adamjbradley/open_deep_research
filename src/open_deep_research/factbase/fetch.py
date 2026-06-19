@@ -7,6 +7,7 @@ NEVER raises: returns None on any failure (timeout, non-HTML, oversize, network)
 from __future__ import annotations
 import ipaddress
 import logging
+import os
 import socket
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
@@ -78,8 +79,13 @@ def _pin_url(url: str, ip: str):
     return ip_url, parsed.netloc, host
 
 
-async def fetch_text(url: str, *, client=None, timeout: float = 10.0,
+async def fetch_text(url: str, *, client=None, timeout: float | None = None,
                      max_bytes: int = 2_000_000, max_redirects: int = 5) -> str | None:
+    # Per-phase httpx timeout (connect/read/write/pool), env-configurable for consistency
+    # with the other backends. Note: each redirect hop gets this budget, so worst-case
+    # wall-clock for one URL is ~timeout x (max_redirects + 1). Ignored when a client is passed.
+    if timeout is None:
+        timeout = float(os.getenv("FACTBASE_FETCH_TIMEOUT", "10"))
     if not (url or "").lower().startswith(("http://", "https://")):
         return None
     own = client is None
