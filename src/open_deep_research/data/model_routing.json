@@ -84,7 +84,7 @@
       },
       "search": "tavily",
       "step_overrides": {
-        "extract_facts": ["nvidia:minimaxai/minimax-m3", "agy:gemini-3.5-flash-high", "claude-opus-4-6"]
+        "extract_facts": ["agy:gemini-3.1-pro-high", "claude-opus-4-6"]
       }
     },
     "agy": {
