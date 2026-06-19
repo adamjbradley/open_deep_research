@@ -566,6 +566,19 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
             update={"supervisor_messages": corrective_messages},
         )
 
+    # Guard against a blank turn (model returned text / no tool call) before any research ran.
+    # The CLI backends raise on a bad envelope, but an API model (e.g. NVIDIA) can return a
+    # text AIMessage with empty tool_calls -> the old no_tool_calls exit ended research empty
+    # (the Brazil failure). Nudge it to dispatch ConductResearch and loop, bounded by the cap.
+    if no_tool_calls and not conducted_research and not exceeded_allowed_iterations:
+        return Command(
+            goto="supervisor",
+            update={"supervisor_messages": [HumanMessage(content=(
+                "You did not call any tool. You MUST call ConductResearch with one or more "
+                "specific, standalone research_topic instructions before finishing. "
+                "Dispatch the necessary research now."))]},
+        )
+
     # Exit if any termination condition is met
     if exceeded_allowed_iterations or no_tool_calls or research_complete_tool_call:
         return Command(

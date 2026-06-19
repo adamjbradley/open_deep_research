@@ -151,8 +151,12 @@ def test_empty_research_topic_is_rejected():
     assert "raw_notes" not in cmd.update, "nothing should have been researched"
 
 
-def test_no_tool_calls_still_ends():
-    """An empty tool-call envelope still terminates; the guard only intercepts ResearchComplete."""
+def test_no_tool_calls_before_research_is_nudged():
+    """A blank turn (no tool calls) before any ConductResearch loops back with a corrective nudge.
+
+    Previously this hit the no_tool_calls exit block and routed to END, producing an empty
+    dossier (the 'Brazil' failure). The blank-turn guard now intercepts it and loops to supervisor.
+    """
     messages = [
         SystemMessage(content="supervisor prompt"),
         HumanMessage(content="research brief"),
@@ -166,4 +170,26 @@ def test_no_tool_calls_still_ends():
 
     cmd = asyncio.run(supervisor_tools(state, _config()))
 
-    assert cmd.goto == END
+    assert cmd.goto == "supervisor", "blank turn before any research must nudge back, not END"
+    msgs = cmd.update["supervisor_messages"]
+    assert msgs and "ConductResearch" in msgs[-1].content
+
+
+def test_no_tool_calls_after_research_still_ends():
+    """A blank turn AFTER research has already run terminates normally."""
+    messages = [
+        SystemMessage(content="supervisor prompt"),
+        HumanMessage(content="research brief"),
+        AIMessage(content="delegating", tool_calls=[{"name": "ConductResearch", "id": "call_cr", "args": {"research_topic": "test"}}]),
+        ToolMessage(content="found: A, B, C", name="ConductResearch", tool_call_id="call_cr"),
+        AIMessage(content="nothing more to do", tool_calls=[]),
+    ]
+    state = {
+        "supervisor_messages": messages,
+        "research_iterations": 2,
+        "research_brief": "brief",
+    }
+
+    cmd = asyncio.run(supervisor_tools(state, _config()))
+
+    assert cmd.goto == END, "blank turn after real research should end the phase"
