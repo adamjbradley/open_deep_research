@@ -19,3 +19,15 @@ def test_gap_round_narrows_target_properties(monkeypatch, tmp_path):
                                                                      "database_path": str(tmp_path/'x.db')}}))
     assert cmd.goto == "write_research_brief"
     assert cmd.update["target_properties"] == ["legal_basis", "id_coverage_pct"]
+
+
+def test_db_error_loops_instead_of_finishing(monkeypatch, tmp_path):
+    import open_deep_research.factbase.entities as ent
+    monkeypatch.setattr(ent.CountryResolver, "resolve", lambda self, s: "BRA")
+    import open_deep_research.factbase.query as q
+    async def boom(self, key): raise RuntimeError("db locked")
+    monkeypatch.setattr(q.FactQuery, "show_grouped", boom)
+    state = {"target_properties": ["legal_basis"], "subject": "Brazil", "fact_rounds_used": 0}
+    cmd = asyncio.run(dr.assess_sufficiency(state, {"configurable": {"max_fact_rounds": 3,
+                                                                     "database_path": str(tmp_path/'x.db')}}))
+    assert cmd.goto == "write_research_brief"   # loops on error, does NOT finalize thin

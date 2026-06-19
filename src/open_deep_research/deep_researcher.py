@@ -1824,7 +1824,8 @@ async def assess_sufficiency(state: AgentState, config: RunnableConfig) -> Comma
                 present, _trusted = _target_property_coverage(grouped, targets)
                 missing = [p for p in targets if not present[p]]
         except Exception as e:
-            logger.warning("assess_sufficiency check failed (treating as sufficient): %s", e)
+            logger.warning("assess_sufficiency check failed (treating as still-missing): %s", e)
+            missing = list(targets)
 
     if missing and rounds_used + 1 < configurable.max_fact_rounds:
         logger.info("Facts insufficient (missing %s); gap round %d", missing, rounds_used + 1)
