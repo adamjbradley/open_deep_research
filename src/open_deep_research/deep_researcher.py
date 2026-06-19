@@ -946,10 +946,51 @@ async def researcher_tools(state: ResearcherState, config: RunnableConfig) -> Co
     # Step 3: Check late exit conditions (after processing tools)
     exceeded_iterations = state.get("tool_call_iterations", 0) >= configurable.max_react_tool_calls
     research_complete_called = any(
-        tool_call["name"] == "ResearchComplete" 
+        tool_call["name"] == "ResearchComplete"
         for tool_call in most_recent_message.tool_calls
     )
-    
+
+    # Premature-completion guard (mirrors the supervisor_tools guard): the CLI/subscription
+    # tool-selection envelope can pick the no-argument ResearchComplete before any search has
+    # run, ending this researcher unit with zero sources/notes (the empty-dossier failure). If
+    # ResearchComplete is selected before a single search has returned -- and iterations remain
+    # -- withhold it: answer the ResearchComplete tool call(s) with a corrective nudge (keeping
+    # any real tool outputs from this turn) and loop back so the researcher actually searches.
+    # The max_react_tool_calls cap above still bounds the loop if the model refuses.
+    search_tool_names = {
+        name for name, tool in tools_by_name.items()
+        if getattr(tool, "metadata", None) and (tool.metadata or {}).get("type") == "search"
+    }
+    conducted_search = (
+        any(isinstance(m, ToolMessage) and getattr(m, "name", "") in search_tool_names
+            for m in researcher_messages)
+        or any(getattr(t, "name", "") in search_tool_names for t in tool_outputs)
+        or has_native_search
+    )
+    if research_complete_called and not conducted_search and not exceeded_iterations:
+        rc_ids = {
+            tool_call["id"] for tool_call in most_recent_message.tool_calls
+            if tool_call["name"] == "ResearchComplete"
+        }
+        kept = [t for t in tool_outputs if getattr(t, "tool_call_id", None) not in rc_ids]
+        nudge = [
+            ToolMessage(
+                content=(
+                    "No research has been conducted yet. Before calling ResearchComplete you "
+                    "MUST call the web search tool at least once to gather sourced information. "
+                    "Do not rely on facts stated in the request -- verify them with searches. "
+                    "Run the necessary searches now."
+                ),
+                name="ResearchComplete",
+                tool_call_id=rc_id,
+            )
+            for rc_id in rc_ids
+        ]
+        return Command(
+            goto="researcher",
+            update={"researcher_messages": kept + nudge},
+        )
+
     if exceeded_iterations or research_complete_called:
         # End research and proceed to compression
         return Command(
