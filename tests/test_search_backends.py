@@ -214,3 +214,24 @@ def test_get_exa_api_key_respects_config_gate(monkeypatch):
     # gate on -> config wins
     monkeypatch.setenv("GET_API_KEYS_FROM_CONFIG", "true")
     assert utils.get_exa_api_key(cfg) == "cfg-key"
+
+
+# -- Hybrid search (_acquire_hybrid) ----------------------------------------
+
+def _mk(url): return {"url": url, "title": f"T{url}", "content": f"c{url}", "raw_content": f"r{url}", "query": "q"}
+
+def test_hybrid_interleaves_exa_first_dedups_caps(monkeypatch):
+    tav = {"http://a": _mk("http://a"), "http://b": _mk("http://b")}
+    exa = {"http://x": _mk("http://x"), "http://a": _mk("http://a")}  # 'a' overlaps tavily
+    monkeypatch.setattr(utils, "_acquire_tavily", AsyncMock(return_value=tav))
+    monkeypatch.setattr(utils, "_acquire_exa", AsyncMock(return_value=exa))
+    out = asyncio.run(utils._acquire_hybrid(["q"], 3, "general", None))
+    assert list(out) == ["http://x", "http://a", "http://b"]   # exa-first, dedup 'a', cap 3
+    out2 = asyncio.run(utils._acquire_hybrid(["q"], 2, "general", None))
+    assert len(out2) == 2 and list(out2)[0] == "http://x"       # cap respected
+
+def test_hybrid_degrades_when_exa_empty(monkeypatch):
+    monkeypatch.setattr(utils, "_acquire_tavily", AsyncMock(return_value={"http://a": _mk("http://a")}))
+    monkeypatch.setattr(utils, "_acquire_exa", AsyncMock(return_value={}))
+    out = asyncio.run(utils._acquire_hybrid(["q"], 5, "general", None))
+    assert list(out) == ["http://a"]                            # tavily-only

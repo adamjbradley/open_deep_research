@@ -256,6 +256,46 @@ async def _finalize_search(unique_results: dict, config) -> str:
     return formatted_output
 
 
+async def _acquire_hybrid(queries, n, topic, config) -> dict:
+    """Union of tavily + exa: interleave Exa-first, dedup by URL, cap at n. Auto-degrades:
+    exa-empty -> tavily-only; tavily-empty -> exa-only."""
+    tav, exa = await asyncio.gather(_acquire_tavily(queries, n, topic, config),
+                                    _acquire_exa(queries, n, topic, config))
+    tav_list, exa_list = list(tav.values()), list(exa.values())
+    merged, seen = {}, set()
+    for i in range(max(len(tav_list), len(exa_list))):
+        for src in (exa_list[i:i+1] + tav_list[i:i+1]):   # exa first
+            if src["url"] not in seen and len(merged) < n:
+                seen.add(src["url"]); merged[src["url"]] = src
+    return merged
+
+
+EXA_SEARCH_DESCRIPTION = ("Search the web using Exa's neural/semantic search. Returns relevant "
+                          "sources with content for research questions.")
+@tool(description=EXA_SEARCH_DESCRIPTION)
+async def exa_search(queries: List[str],
+                     max_results: Annotated[int, InjectedToolArg] = 5,
+                     topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
+                     config: RunnableConfig = None) -> str:
+    """Search the web via Exa (neural) and summarize results."""
+    configurable = Configuration.from_runnable_config(config)
+    n = min(max_results, configurable.max_search_results)
+    return await _finalize_search(await _acquire_exa(queries, n, topic, config), config)
+
+
+TAVILY_EXA_SEARCH_DESCRIPTION = ("Search the web using BOTH Tavily and Exa, merged for breadth. "
+                                 "Best general research option.")
+@tool(description=TAVILY_EXA_SEARCH_DESCRIPTION)
+async def tavily_exa_search(queries: List[str],
+                            max_results: Annotated[int, InjectedToolArg] = 5,
+                            topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
+                            config: RunnableConfig = None) -> str:
+    """Search via Tavily + Exa (interleaved, deduped, capped) and summarize."""
+    configurable = Configuration.from_runnable_config(config)
+    n = min(max_results, configurable.max_search_results)
+    return await _finalize_search(await _acquire_hybrid(queries, n, topic, config), config)
+
+
 @tool(description=TAVILY_SEARCH_DESCRIPTION)
 async def tavily_search(
     queries: List[str],
