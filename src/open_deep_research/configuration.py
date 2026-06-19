@@ -17,6 +17,8 @@ class SearchAPI(Enum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
     TAVILY = "tavily"
+    EXA = "exa"
+    TAVILY_EXA = "tavily_exa"
     NONE = "none"
 
 class MCPConfig(BaseModel):
@@ -90,6 +92,8 @@ class Configuration(BaseModel):
                     {"label": "Gemini Google Search", "value": SearchAPI.GEMINI.value},
                     {"label": "Codex Web Search", "value": SearchAPI.CODEX.value},
                     {"label": "Tavily", "value": SearchAPI.TAVILY.value},
+                    {"label": "Exa (neural)", "value": SearchAPI.EXA.value},
+                    {"label": "Tavily + Exa (hybrid)", "value": SearchAPI.TAVILY_EXA.value},
                     {"label": "OpenAI Native Web Search", "value": SearchAPI.OPENAI.value},
                     {"label": "Anthropic Native Web Search", "value": SearchAPI.ANTHROPIC.value},
                     {"label": "None", "value": SearchAPI.NONE.value}

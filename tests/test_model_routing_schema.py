@@ -58,3 +58,13 @@ def test_nvidia_extract_facts_leads_with_strong_extractor():
     from open_deep_research.model_routing import load_routing
     chain = load_routing().presets["nvidia"].step_overrides["extract_facts"]
     assert chain[0] == "agy:gemini-3.1-pro-high"   # strong recall, not the throttled minimax-m3
+
+
+def test_known_search_accepts_exa_hybrid():
+    r = routing_from_dict({"version": "1", "active_preset": "p",
+        "presets": {"p": {"roles": {"researcher": "claude:haiku"}, "search": "tavily_exa"}}})
+    assert r.presets["p"].search == "tavily_exa"
+
+    r2 = routing_from_dict({"version": "1", "active_preset": "p",
+        "presets": {"p": {"roles": {"researcher": "claude:haiku"}, "search": "exa"}}})
+    assert r2.presets["p"].search == "exa"

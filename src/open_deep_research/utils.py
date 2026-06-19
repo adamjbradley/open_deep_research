@@ -32,6 +32,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.config import get_store
 from mcp import McpError
 from tavily import AsyncTavilyClient
+from exa_py import Exa
 
 from open_deep_research.claude_agent_chat import (
     ClaudeAgentChat,
@@ -104,45 +105,61 @@ def _summary_cache(thread_id) -> dict:
     return _SUMMARY_CACHE.setdefault(str(thread_id), {})
 
 
-@tool(description=TAVILY_SEARCH_DESCRIPTION)
-async def tavily_search(
-    queries: List[str],
-    max_results: Annotated[int, InjectedToolArg] = 5,
-    topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
-    config: RunnableConfig = None
-) -> str:
-    """Fetch and summarize search results from Tavily search API.
-
-    Args:
-        queries: List of search queries to execute
-        max_results: Maximum number of results to return per query
-        topic: Topic filter for search results (general, news, or finance)
-        config: Runtime configuration for API keys and model settings
-
-    Returns:
-        Formatted string containing summarized search results
-    """
-    # Step 1: Execute search queries asynchronously
-    configurable = Configuration.from_runnable_config(config)
-    max_results = min(max_results, configurable.max_search_results)  # cap per-query fan-out
-    logger.info("Tavily search executing for queries: %s (max_results=%d)", queries, max_results)
-    search_results = await tavily_search_async(
-        queries,
-        max_results=max_results,
-        topic=topic,
-        include_raw_content=True,
-        config=config
-    )
-    
-    # Step 2: Deduplicate results by URL
+async def _acquire_tavily(queries, n, topic, config) -> dict:
+    """Tavily search + dedup -> normalized {url:{url,title,content,raw_content,query}}."""
+    search_results = await tavily_search_async(queries, max_results=n, topic=topic,
+                                               include_raw_content=True, config=config)
     unique_results = {}
     for response in search_results:
-        for result in response['results']:
-            url = result['url']
+        for result in response["results"]:
+            url = result["url"]
             if url not in unique_results:
-                unique_results[url] = {**result, "query": response['query']}
+                unique_results[url] = {**result, "query": response["query"]}
+    return unique_results
 
-    logger.info("Tavily found %d unique results for %d queries", len(unique_results), len(queries))
+
+async def _acquire_exa(queries, n, topic, config) -> dict:
+    """Exa neural search + dedup -> normalized {url:{url,title,content,raw_content,query}}.
+
+    Best-effort: any failure (missing key, API/timeout) logs and returns {} so exa_search
+    degrades to empty and the hybrid degrades to tavily-only. `topic` is ignored (no Exa equivalent).
+    """
+    try:
+        configurable = Configuration.from_runnable_config(config)
+        max_chars = configurable.max_content_length
+        exa = Exa(api_key=get_exa_api_key(config))
+        timeout_s = float(os.getenv("EXA_TIMEOUT", os.getenv("CLI_BACKEND_TIMEOUT", "120")))
+        loop = asyncio.get_running_loop()
+
+        def _one(q):
+            return exa.search_and_contents(q, text={"max_characters": max_chars},
+                                           summary=True, num_results=n)
+        responses = await asyncio.wait_for(
+            asyncio.gather(*[loop.run_in_executor(None, _one, q) for q in queries]),
+            timeout=timeout_s)
+        unique = {}
+        for q, resp in zip(queries, responses):
+            for r in getattr(resp, "results", []) or []:
+                url = getattr(r, "url", "")
+                if url and url not in unique:
+                    unique[url] = {"url": url, "title": getattr(r, "title", "") or "",
+                                   "content": getattr(r, "summary", "") or "",
+                                   "raw_content": getattr(r, "text", "") or "",
+                                   "query": q}
+        return unique
+    except Exception as e:  # noqa: BLE001 - best-effort; never break search
+        logger.warning("Exa search failed (non-fatal): %s", e)
+        return {}
+
+
+async def _finalize_search(unique_results: dict, config) -> str:
+    """Record sources to the factbase, summarize each, format the result string.
+
+    Backend-agnostic: operates on the normalized unique_results dict, so tavily/exa/hybrid
+    all feed record_search_sources + summarization identically.
+    """
+    configurable = Configuration.from_runnable_config(config)
+    max_char_to_include = configurable.max_content_length
 
     # Persist per-source raw text for fact extraction (best-effort; never break search).
     try:
@@ -163,8 +180,6 @@ async def tavily_search(
 
     # Step 3: Set up the summarization model with configuration
     # Character limit to stay within model token limits (configurable)
-    max_char_to_include = configurable.max_content_length
-
     # Initialize summarization model with retry logic
     summarization_model = (
         configurable_claude_model()
@@ -213,32 +228,89 @@ async def tavily_search(
 
     # Step 5: Execute summarization tasks, bounded to _SUMMARIZE_MAX in flight at once
     summaries = await asyncio.gather(*summarization_tasks)
-    
+
     # Step 6: Combine results with their summaries
     summarized_results = {
         url: {
-            'title': result['title'], 
+            'title': result['title'],
             'content': result['content'] if summary is None else summary
         }
         for url, result, summary in zip(
-            unique_results.keys(), 
-            unique_results.values(), 
+            unique_results.keys(),
+            unique_results.values(),
             summaries
         )
     }
-    
+
     # Step 7: Format the final output
     if not summarized_results:
         return "No valid search results found. Please try different search queries or use a different search API."
-    
+
     formatted_output = "Search results: \n\n"
     for i, (url, result) in enumerate(summarized_results.items()):
         formatted_output += f"\n\n--- SOURCE {i+1}: {result['title']} ---\n"
         formatted_output += f"URL: {url}\n\n"
         formatted_output += f"SUMMARY:\n{result['content']}\n\n"
         formatted_output += "\n\n" + "-" * 80 + "\n"
-    
+
     return formatted_output
+
+
+async def _acquire_hybrid(queries, n, topic, config) -> dict:
+    """Union of tavily + exa: interleave Exa-first, dedup by URL, cap at n. Auto-degrades:
+    exa-empty -> tavily-only; tavily-empty -> exa-only."""
+    tav, exa = await asyncio.gather(_acquire_tavily(queries, n, topic, config),
+                                    _acquire_exa(queries, n, topic, config))
+    tav_list, exa_list = list(tav.values()), list(exa.values())
+    merged, seen = {}, set()
+    for i in range(max(len(tav_list), len(exa_list))):
+        for src in (exa_list[i:i+1] + tav_list[i:i+1]):   # exa first
+            if src["url"] not in seen and len(merged) < n:
+                seen.add(src["url"]); merged[src["url"]] = src
+    return merged
+
+
+EXA_SEARCH_DESCRIPTION = ("Search the web using Exa's neural/semantic search. Returns relevant "
+                          "sources with content for research questions.")
+@tool(description=EXA_SEARCH_DESCRIPTION)
+async def exa_search(queries: List[str],
+                     max_results: Annotated[int, InjectedToolArg] = 5,
+                     topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
+                     config: RunnableConfig = None) -> str:
+    """Search the web via Exa (neural) and summarize results."""
+    configurable = Configuration.from_runnable_config(config)
+    n = min(max_results, configurable.max_search_results)
+    return await _finalize_search(await _acquire_exa(queries, n, topic, config), config)
+
+
+TAVILY_EXA_SEARCH_DESCRIPTION = ("Search the web using BOTH Tavily and Exa, merged for breadth. "
+                                 "Best general research option.")
+@tool(description=TAVILY_EXA_SEARCH_DESCRIPTION)
+async def tavily_exa_search(queries: List[str],
+                            max_results: Annotated[int, InjectedToolArg] = 5,
+                            topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
+                            config: RunnableConfig = None) -> str:
+    """Search via Tavily + Exa (interleaved, deduped, capped) and summarize."""
+    configurable = Configuration.from_runnable_config(config)
+    n = min(max_results, configurable.max_search_results)
+    return await _finalize_search(await _acquire_hybrid(queries, n, topic, config), config)
+
+
+@tool(description=TAVILY_SEARCH_DESCRIPTION)
+async def tavily_search(
+    queries: List[str],
+    max_results: Annotated[int, InjectedToolArg] = 5,
+    topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
+    config: RunnableConfig = None
+) -> str:
+    """Fetch and summarize search results from Tavily search API."""
+    configurable = Configuration.from_runnable_config(config)
+    n = min(max_results, configurable.max_search_results)
+    logger.info("Tavily search executing for queries: %s (max_results=%d)", queries, n)
+    unique_results = await _acquire_tavily(queries, n, topic, config)
+    logger.info("Tavily found %d unique results for %d queries", len(unique_results), len(queries))
+    return await _finalize_search(unique_results, config)
+
 
 async def tavily_search_async(
     search_queries, 
@@ -747,6 +819,26 @@ async def get_search_tool(search_api: SearchAPI):
         }
         return [search_tool]
 
+    elif search_api == SearchAPI.EXA:
+        # Exa neural search
+        search_tool = exa_search
+        search_tool.metadata = {
+            **(search_tool.metadata or {}),
+            "type": "search",
+            "name": "web_search"
+        }
+        return [search_tool]
+
+    elif search_api == SearchAPI.TAVILY_EXA:
+        # Hybrid Tavily + Exa search
+        search_tool = tavily_exa_search
+        search_tool.metadata = {
+            **(search_tool.metadata or {}),
+            "type": "search",
+            "name": "web_search"
+        }
+        return [search_tool]
+
     elif search_api == SearchAPI.ANTHROPIC:
         # Anthropic's native web search with usage limits
         return [{
@@ -754,17 +846,17 @@ async def get_search_tool(search_api: SearchAPI):
             "name": "web_search",
             "max_uses": 5
         }]
-        
+
     elif search_api == SearchAPI.OPENAI:
         # OpenAI's web search preview functionality
         return [{"type": "web_search_preview"}]
-        
+
     elif search_api == SearchAPI.TAVILY:
         # Configure Tavily search tool with metadata
         search_tool = tavily_search
         search_tool.metadata = {
-            **(search_tool.metadata or {}), 
-            "type": "search", 
+            **(search_tool.metadata or {}),
+            "type": "search",
             "name": "web_search"
         }
         return [search_tool]
@@ -1154,3 +1246,15 @@ def get_tavily_api_key(config: RunnableConfig):
         return api_keys.get("TAVILY_API_KEY")
     else:
         return os.getenv("TAVILY_API_KEY")
+
+
+def get_exa_api_key(config: RunnableConfig):
+    """Get Exa API key from environment or config (mirrors get_tavily_api_key precedence)."""
+    should_get_from_config = os.getenv("GET_API_KEYS_FROM_CONFIG", "false")
+    if should_get_from_config.lower() == "true":
+        api_keys = config.get("configurable", {}).get("apiKeys", {})
+        if not api_keys:
+            return None
+        return api_keys.get("EXA_API_KEY")
+    else:
+        return os.getenv("EXA_API_KEY")
