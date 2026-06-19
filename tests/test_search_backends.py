@@ -48,6 +48,28 @@ def test_finalize_formats_and_records(monkeypatch):
     assert "http://a" in out and "TA" in out and "CA" in out
 
 
+def test_finalize_summarizes_raw_content_and_records(monkeypatch):
+    uniq = {"http://e": {"url": "http://e", "title": "TE", "content": "snippet",
+                         "raw_content": "FULL-EXA-TEXT", "query": "q"}}
+    recorded = {}
+    async def _fake_record(store, tid, results):
+        recorded["results"] = results
+    monkeypatch.setattr(utils, "record_search_sources", _fake_record)
+    seen = {}
+    async def _fake_summarize(model, text):
+        seen["text"] = text
+        return "SUMMARized"
+    monkeypatch.setattr(utils, "summarize_webpage", _fake_summarize)
+    monkeypatch.setattr(utils.Configuration, "from_runnable_config",
+        lambda c: type("C", (), {"summarize_search_results": True, "max_content_length": 5000,
+        "max_search_results": 5, "summarization_model": "claude:haiku",
+        "summarization_model_max_tokens": 1000, "max_structured_output_retries": 3,
+        "model_chain": lambda *a, **k: ["claude:haiku"], "persist_results": False})())
+    out = asyncio.run(utils._finalize_search(uniq, None))
+    assert seen["text"] == "FULL-EXA-TEXT"      # raw text (not the snippet) reaches the summarizer
+    assert "SUMMARized" in out
+
+
 # -- Claude SDK web search (run_search_agent) ------------------------------
 
 def _assistant(text: str):

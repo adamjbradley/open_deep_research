@@ -129,7 +129,7 @@ async def _acquire_exa(queries, n, topic, config) -> dict:
         max_chars = configurable.max_content_length
         exa = Exa(api_key=get_exa_api_key(config))
         timeout_s = float(os.getenv("EXA_TIMEOUT", os.getenv("CLI_BACKEND_TIMEOUT", "120")))
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def _one(q):
             return exa.search_and_contents(q, text={"max_characters": max_chars},
@@ -310,6 +310,7 @@ async def tavily_search(
     unique_results = await _acquire_tavily(queries, n, topic, config)
     logger.info("Tavily found %d unique results for %d queries", len(unique_results), len(queries))
     return await _finalize_search(unique_results, config)
+
 
 async def tavily_search_async(
     search_queries, 
