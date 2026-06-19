@@ -45,3 +45,11 @@ def test_probe_is_memoized(monkeypatch):
     assert pf.probe_backend("gemini") is True
     assert pf.probe_backend("gemini") is True
     assert calls == ["gemini"]
+
+def test_probe_agy_backend(monkeypatch):
+    monkeypatch.setattr(pf.shutil, "which", lambda b: "/bin/agy" if b == "agy" else None)
+    monkeypatch.setattr(pf.subprocess, "run",
+                        lambda *a, **k: type("R", (), {"returncode": 0})())
+    assert pf._probe_uncached("agy") is True
+    monkeypatch.setattr(pf.shutil, "which", lambda b: None)
+    assert pf._probe_uncached("agy") is False

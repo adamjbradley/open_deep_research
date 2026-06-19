@@ -42,6 +42,15 @@ def _probe_uncached(backend: str) -> bool:
             return False
     if backend == "codex":
         return shutil.which(os.environ.get("CODEX_CLI_BIN", "codex")) is not None
+    if backend == "agy":
+        binname = os.environ.get("AGY_CLI_BIN", "agy")
+        if shutil.which(binname) is None:
+            return False
+        try:
+            r = subprocess.run([binname, "--version"], capture_output=True, timeout=15)
+            return r.returncode == 0
+        except Exception:  # noqa: BLE001
+            return False
     return True
 
 
