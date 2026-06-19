@@ -67,3 +67,16 @@ def test_load_routing_reads_existing_on_disk_file(monkeypatch, tmp_path):
     r = load_routing()
     assert r.active_preset == "codex"
     assert r.presets["codex"].roles["researcher"] == "codex:gpt-5.5"
+
+
+def test_agy_preset_resolves(monkeypatch):
+    """The agy preset resolves all roles to agy backend with Claude backups."""
+    _clear(monkeypatch)
+    monkeypatch.setenv("MODEL_ROUTING_PRESET", "agy")
+    from open_deep_research.model_routing import load_routing, model_chain
+    r = load_routing()
+    assert "agy" in r.presets
+    assert model_chain("researcher", routing=r)[0].startswith("agy:")
+    assert model_chain("supervisor", routing=r)[0].startswith("agy:")
+    # extract_facts step override present and agy-primary
+    assert model_chain("researcher", routing=r, step="extract_facts")[0].startswith("agy:")

@@ -5,7 +5,8 @@
     "gemini": { "cli_bin": "gemini", "cli_args": [], "trust_workspace": true,
                 "model_aliases": { "flash": "gemini-2.5-flash" } },
     "codex":  { "cli_bin": "codex", "sandbox": "read-only" },
-    "claude": { "subscription": true }
+    "claude": { "subscription": true },
+    "agy": { "cli_bin": "agy", "cli_args": [] }
   },
   "presets": {
     "balanced": {
@@ -83,6 +84,18 @@
       },
       "search": "tavily",
       "step_overrides": {}
+    },
+    "agy": {
+      "comment": "Antigravity CLI (agy) backend -- the working replacement after the gemini CLI free tier was deprecated. Dispatch (supervisor) routed to Claude-via-agy for reliable tool-calling; gemini-3.x throughput for research/text; claude_agent_sdk backups everywhere (independent of agy auth). extract_facts on gemini-3.5-flash-high (the lean schema makes flash sufficient).",
+      "roles": {
+        "supervisor": ["agy:claude-opus-4.6", "claude-opus-4-8"],
+        "researcher": ["agy:gemini-3.5-flash-high", "claude-opus-4-6"],
+        "summarization": ["agy:gemini-3.5-flash-medium", "claude-haiku-4-5"],
+        "compression": ["agy:gemini-3.5-flash-medium", "claude-haiku-4-5"],
+        "final_report": ["agy:gemini-3.1-pro-high", "claude-opus-4-8"]
+      },
+      "search": "tavily",
+      "step_overrides": { "extract_facts": ["agy:gemini-3.5-flash-high", "claude-haiku-4-5"] }
     }
   }
 }
