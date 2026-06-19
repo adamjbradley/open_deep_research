@@ -10,11 +10,42 @@ loop, the property the researcher relies on.
 by tests/test_extract_facts_backfill_wiring.py and tests/test_graph_extract_facts_wiring.py.)
 """
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 import claude_agent_sdk as cas
 
 import open_deep_research.claude_agent_chat as cac
 from open_deep_research import utils
+
+
+# -- _acquire_tavily + _finalize_search (Task-1 refactor) ------------------
+
+def _tav_resp(query, urls):
+    return {"query": query, "results": [
+        {"url": u, "title": f"T-{u}", "content": f"snippet-{u}", "raw_content": f"RAW-{u}"} for u in urls]}
+
+
+def test_acquire_tavily_normalizes_and_dedups():
+    with patch.object(utils, "tavily_search_async", new=AsyncMock(
+            return_value=[_tav_resp("q", ["http://a", "http://b", "http://a"])])):
+        out = asyncio.run(utils._acquire_tavily(["q"], 5, "general", None))
+    assert set(out) == {"http://a", "http://b"}                 # dedup by URL
+    rec = out["http://a"]
+    assert rec["url"] == "http://a" and rec["title"] == "T-http://a"
+    assert rec["raw_content"] == "RAW-http://a" and rec["query"] == "q"   # normalized contract
+
+
+def test_finalize_formats_and_records(monkeypatch):
+    uniq = {"http://a": {"url": "http://a", "title": "TA", "content": "CA", "raw_content": "RA", "query": "q"}}
+    monkeypatch.setattr(utils, "record_search_sources", AsyncMock())
+    # summarize OFF -> no model call; uses 'content'
+    monkeypatch.setattr(utils.Configuration, "from_runnable_config",
+                        lambda c: type("C", (), {"summarize_search_results": False, "max_content_length": 5000,
+                        "max_search_results": 5, "summarization_model": "claude:haiku",
+                        "summarization_model_max_tokens": 1000, "model_chain": lambda *a, **k: ["claude:haiku"],
+                        "persist_results": False, "max_structured_output_retries": 3})())
+    out = asyncio.run(utils._finalize_search(uniq, None))
+    assert "http://a" in out and "TA" in out and "CA" in out
 
 
 # -- Claude SDK web search (run_search_agent) ------------------------------

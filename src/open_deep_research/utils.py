@@ -104,45 +104,27 @@ def _summary_cache(thread_id) -> dict:
     return _SUMMARY_CACHE.setdefault(str(thread_id), {})
 
 
-@tool(description=TAVILY_SEARCH_DESCRIPTION)
-async def tavily_search(
-    queries: List[str],
-    max_results: Annotated[int, InjectedToolArg] = 5,
-    topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
-    config: RunnableConfig = None
-) -> str:
-    """Fetch and summarize search results from Tavily search API.
-
-    Args:
-        queries: List of search queries to execute
-        max_results: Maximum number of results to return per query
-        topic: Topic filter for search results (general, news, or finance)
-        config: Runtime configuration for API keys and model settings
-
-    Returns:
-        Formatted string containing summarized search results
-    """
-    # Step 1: Execute search queries asynchronously
-    configurable = Configuration.from_runnable_config(config)
-    max_results = min(max_results, configurable.max_search_results)  # cap per-query fan-out
-    logger.info("Tavily search executing for queries: %s (max_results=%d)", queries, max_results)
-    search_results = await tavily_search_async(
-        queries,
-        max_results=max_results,
-        topic=topic,
-        include_raw_content=True,
-        config=config
-    )
-    
-    # Step 2: Deduplicate results by URL
+async def _acquire_tavily(queries, n, topic, config) -> dict:
+    """Tavily search + dedup -> normalized {url:{url,title,content,raw_content,query}}."""
+    search_results = await tavily_search_async(queries, max_results=n, topic=topic,
+                                               include_raw_content=True, config=config)
     unique_results = {}
     for response in search_results:
-        for result in response['results']:
-            url = result['url']
+        for result in response["results"]:
+            url = result["url"]
             if url not in unique_results:
-                unique_results[url] = {**result, "query": response['query']}
+                unique_results[url] = {**result, "query": response["query"]}
+    return unique_results
 
-    logger.info("Tavily found %d unique results for %d queries", len(unique_results), len(queries))
+
+async def _finalize_search(unique_results: dict, config) -> str:
+    """Record sources to the factbase, summarize each, format the result string.
+
+    Backend-agnostic: operates on the normalized unique_results dict, so tavily/exa/hybrid
+    all feed record_search_sources + summarization identically.
+    """
+    configurable = Configuration.from_runnable_config(config)
+    max_char_to_include = configurable.max_content_length
 
     # Persist per-source raw text for fact extraction (best-effort; never break search).
     try:
@@ -163,8 +145,6 @@ async def tavily_search(
 
     # Step 3: Set up the summarization model with configuration
     # Character limit to stay within model token limits (configurable)
-    max_char_to_include = configurable.max_content_length
-
     # Initialize summarization model with retry logic
     summarization_model = (
         configurable_claude_model()
@@ -213,32 +193,48 @@ async def tavily_search(
 
     # Step 5: Execute summarization tasks, bounded to _SUMMARIZE_MAX in flight at once
     summaries = await asyncio.gather(*summarization_tasks)
-    
+
     # Step 6: Combine results with their summaries
     summarized_results = {
         url: {
-            'title': result['title'], 
+            'title': result['title'],
             'content': result['content'] if summary is None else summary
         }
         for url, result, summary in zip(
-            unique_results.keys(), 
-            unique_results.values(), 
+            unique_results.keys(),
+            unique_results.values(),
             summaries
         )
     }
-    
+
     # Step 7: Format the final output
     if not summarized_results:
         return "No valid search results found. Please try different search queries or use a different search API."
-    
+
     formatted_output = "Search results: \n\n"
     for i, (url, result) in enumerate(summarized_results.items()):
         formatted_output += f"\n\n--- SOURCE {i+1}: {result['title']} ---\n"
         formatted_output += f"URL: {url}\n\n"
         formatted_output += f"SUMMARY:\n{result['content']}\n\n"
         formatted_output += "\n\n" + "-" * 80 + "\n"
-    
+
     return formatted_output
+
+
+@tool(description=TAVILY_SEARCH_DESCRIPTION)
+async def tavily_search(
+    queries: List[str],
+    max_results: Annotated[int, InjectedToolArg] = 5,
+    topic: Annotated[Literal["general", "news", "finance"], InjectedToolArg] = "general",
+    config: RunnableConfig = None
+) -> str:
+    """Fetch and summarize search results from Tavily search API."""
+    configurable = Configuration.from_runnable_config(config)
+    n = min(max_results, configurable.max_search_results)
+    logger.info("Tavily search executing for queries: %s (max_results=%d)", queries, n)
+    unique_results = await _acquire_tavily(queries, n, topic, config)
+    logger.info("Tavily found %d unique results for %d queries", len(unique_results), len(queries))
+    return await _finalize_search(unique_results, config)
 
 async def tavily_search_async(
     search_queries, 
