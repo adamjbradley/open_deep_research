@@ -62,3 +62,16 @@ def test_extract_drops_ungrounded_evidence_span():
         return [{"property": "cov", "instance_name": "Estonia", "value": "50",
                  "evidence_span": "this text is NOT in the source", "qualifiers": []}]
     assert asyncio.run(extractor.extract(SRC_LEAN, PROF_LEAN, model_call)) == []
+
+
+# ---------------------------------------------------------------------------
+# C1: Unicode normalization (_norm handles NBSP + curly quotes)
+# ---------------------------------------------------------------------------
+
+from open_deep_research.factbase.extractor import _norm
+
+
+def test_norm_unicode_nbsp_and_quotes():
+    src = "Coverage is “99%” as of 2023"   # NBSP + curly quotes
+    span = 'Coverage is "99%" as of 2023'                 # plain space + straight quotes
+    assert _norm(span) in _norm(src)

@@ -5,16 +5,22 @@ unit-testable without a live model.
 """
 from __future__ import annotations
 
+import difflib
 import re
+import unicodedata
 
 from .lean_extract import slot_qualifiers
 from .profile import Profile
 
 _WS = re.compile(r"\s+")
+_FUZZY_THRESHOLD = 0.9
 
 
 def _norm(s: str) -> str:
-    return _WS.sub(" ", (s or "").strip().lower())
+    s = unicodedata.normalize("NFKD", s or "")
+    s = s.replace(" ", " ").replace("“", '"').replace("”", '"') \
+         .replace("‘", "'").replace("’", "'").replace("–", "-").replace("—", "-")
+    return _WS.sub(" ", s.strip().lower())
 
 
 async def extract(source_text: str, prof: Profile, model_call) -> list[dict]:
