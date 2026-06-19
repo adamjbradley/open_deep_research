@@ -203,3 +203,14 @@ def test_acquire_exa_errors_return_empty(monkeypatch):
     monkeypatch.setattr(utils, "Exa", _Boom, raising=False)
     monkeypatch.setenv("EXA_API_KEY", "k")
     assert asyncio.run(utils._acquire_exa(["q"], 5, "general", None)) == {}
+
+
+def test_get_exa_api_key_respects_config_gate(monkeypatch):
+    # default (env-only): returns env, ignores config apiKeys
+    monkeypatch.delenv("GET_API_KEYS_FROM_CONFIG", raising=False)
+    monkeypatch.setenv("EXA_API_KEY", "env-key")
+    cfg = {"configurable": {"apiKeys": {"EXA_API_KEY": "cfg-key"}}}
+    assert utils.get_exa_api_key(cfg) == "env-key"
+    # gate on -> config wins
+    monkeypatch.setenv("GET_API_KEYS_FROM_CONFIG", "true")
+    assert utils.get_exa_api_key(cfg) == "cfg-key"

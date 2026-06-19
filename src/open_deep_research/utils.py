@@ -1187,10 +1187,13 @@ def get_tavily_api_key(config: RunnableConfig):
         return os.getenv("TAVILY_API_KEY")
 
 
-def get_exa_api_key(config: RunnableConfig) -> "str | None":
-    """Exa API key from config apiKeys, else EXA_API_KEY env (mirrors get_tavily_api_key)."""
-    if config:
-        api_keys = (config.get("configurable", {}) or {}).get("apiKeys")
-        if api_keys:
-            return api_keys.get("EXA_API_KEY")
-    return os.getenv("EXA_API_KEY")
+def get_exa_api_key(config: RunnableConfig):
+    """Get Exa API key from environment or config (mirrors get_tavily_api_key precedence)."""
+    should_get_from_config = os.getenv("GET_API_KEYS_FROM_CONFIG", "false")
+    if should_get_from_config.lower() == "true":
+        api_keys = config.get("configurable", {}).get("apiKeys", {})
+        if not api_keys:
+            return None
+        return api_keys.get("EXA_API_KEY")
+    else:
+        return os.getenv("EXA_API_KEY")
