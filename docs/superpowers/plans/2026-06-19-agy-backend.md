@@ -4,7 +4,7 @@
 
 **Goal:** Add a unified `agy:` CLI backend (the working Antigravity replacement for the dead gemini CLI) exposing Gemini 3.x / Claude 4.6 / GPT-OSS via stable tier-explicit slugs, with the silent-default footgun closed.
 
-**Architecture:** A dedicated `AgyCLIChat(_CLIJsonChat)` mirrors `GeminiCLIChat` but invokes `agy` without `-o json` and with `--dangerously-skip-permissions`, mapping our slugs to agy's exact display names via `to_agy_model` (unknown slug raises). The `agy:` prefix routes through `build_chat_model`; `agy` is a known backend with `backends.agy` settings and an `agy` preset; preflight probes the binary.
+**Architecture:** A dedicated `AgyCLIChat(_CLIJsonChat)` mirrors `GeminiCLIChat` but invokes `agy` without `-o json` (and without auto tool-approval — security), mapping our slugs to agy's exact display names via `to_agy_model` (unknown slug raises). The `agy:` prefix routes through `build_chat_model`; `agy` is a known backend with `backends.agy` settings and an `agy` preset; preflight probes the binary.
 
 **Tech Stack:** Python 3.11, pydantic v2, pytest, the existing CLI-backend machinery in `claude_agent_chat.py` (`_CLIJsonChat`, `_invoke`), `model_routing.py`, `preflight.py`. Spec: `docs/superpowers/specs/2026-06-19-agy-backend-design.md`.
 
@@ -13,7 +13,7 @@
 - Tests run with `.venv/bin/python -m pytest` (bare `python` is not on PATH).
 - Already on branch `harden-routing-failover`; do NOT branch or touch main.
 - **Additive only:** do NOT change the existing `gemini`/`codex`/`claude` backends. agy is a new, separate backend/class.
-- agy invocation: **no `-o json`** (agy rejects `-o`); prompt via **stdin**; `--dangerously-skip-permissions` in args; auth env passed through (do NOT blank credentials).
+- agy invocation: **no `-o json`** (agy rejects `-o`); prompt via **stdin**; **no `--dangerously-skip-permissions` default** (security — opt-in via `AGY_CLI_ARGS` only in a sandbox); `_subprocess_env` scrubs app secrets (ANTHROPIC/OPENAI/GOOGLE/GEMINI/TAVILY keys), passes the rest through.
 - **Unknown slug must raise `ValueError`** in `to_agy_model` — never let agy silently default to Gemini 3.5 Flash.
 - `"agy"` must be added to BOTH `KNOWN_PREFIXES` and `KNOWN_BACKENDS` BEFORE the routing JSON references it (Task 3 precedes Task 4).
 - Do NOT change `active_preset` (it stays `claude`; the `agy` preset is opt-in).
@@ -225,13 +225,13 @@ def test_agy_backend_env_pushed(monkeypatch):
     from open_deep_research.model_routing import routing_from_dict, apply_backend_env
     r = routing_from_dict({
         "version": "1", "active_preset": "p",
-        "backends": {"agy": {"cli_bin": "agy", "cli_args": ["--dangerously-skip-permissions"]}},
+        "backends": {"agy": {"cli_bin": "agy", "cli_args": ["--print-timeout", "600"]}},
         "presets": {"p": {"roles": {"researcher": "agy:gemini-3.5-flash-high"}, "search": "tavily"}},
     })
     apply_backend_env(r)
     import os
     assert os.environ["AGY_CLI_BIN"] == "agy"
-    assert "--dangerously-skip-permissions" in os.environ["AGY_CLI_ARGS"]
+    assert os.environ["AGY_CLI_ARGS"] == "--print-timeout 600"   # args pushed (no skip-permissions)
 ```
 
 - [ ] **Step 2: Run test, verify fail**
@@ -301,7 +301,7 @@ Expected: FAIL — no `agy` preset.
 
 - [ ] **Step 3: Add `backends.agy` + the `agy` preset to model_routing.json**
 
-In `backends`, add: `"agy": { "cli_bin": "agy", "cli_args": ["--dangerously-skip-permissions"] }`.
+In `backends`, add: `"agy": { "cli_bin": "agy", "cli_args": [] }` (NO `--dangerously-skip-permissions` — see security note; opt-in only in a sandbox via `AGY_CLI_ARGS`).
 In `presets`, add (do NOT change `active_preset`):
 ```json
     "agy": {

@@ -58,18 +58,22 @@ CLI-backend machinery and the session's tool-dispatch-reliability lessons.
 In `AgyCLIChat._backend_generate`:
 ```python
 bin_ = os.getenv("AGY_CLI_BIN", "agy")
-extra = os.getenv("AGY_CLI_ARGS", "--dangerously-skip-permissions").split()
+extra = os.getenv("AGY_CLI_ARGS", "").split()               # SECURITY: no skip-permissions default
 cmd = [bin_, "--model", to_agy_model(self.model), *extra]   # NO -o json
 raw = await self._invoke(cmd, stdin=full)                    # prompt via stdin
 # strip a trailing "### Summary" section if present (reuse existing cleanup)
 ```
 - **No `-o json`** (agy rejects it; output is already clean). Because `AgyCLIChat` is a separate
   class, `GeminiCLIChat` keeps its `-o json` untouched.
-- **`--dangerously-skip-permissions`** so agy auto-approves tool prompts non-interactively;
-  configurable via `AGY_CLI_ARGS` / the backend `cli_args`.
-- **Auth/env:** `AgyCLIChat._subprocess_env` passes the environment through WITHOUT blanking
-  credentials (agy uses the Antigravity login store, not `GEMINI_API_KEY`). Minimal — verified
-  working with the plain env.
+- **No `--dangerously-skip-permissions` by default (security).** Defaulting to it would let
+  prompt-injected web content drive agy's agentic tool execution (RCE path), and it's
+  unnecessary — empirically agy emits plain text / the JSON envelope for our prompt-and-parse
+  usage without it (the graph owns the agentic loop, mirroring the Claude SDK's `allowed_tools=[]`).
+  An operator may opt in via `AGY_CLI_ARGS` ONLY inside a sandbox.
+- **Auth/env:** `AgyCLIChat._subprocess_env` scrubs app secrets (`ANTHROPIC_API_KEY`,
+  `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_GENAI_API_KEY`, `GEMINI_API_KEY`, `TAVILY_API_KEY`)
+  so a prompt-injected tool call can't exfiltrate them, and passes everything else through (agy
+  authenticates via the Antigravity login store, not env vars).
 - **Tool-call / structured output:** reuse the `_CLIJsonChat` base (append tool catalog +
   JSON-envelope schema to the prompt, parse the returned JSON into `AIMessage.tool_calls`).
 - **Infra reuse:** existing `_invoke`/`_offload_subprocess`/drain-timeout/concurrency machinery,
