@@ -91,9 +91,9 @@ def test_default_run_one_passes_registry_name(monkeypatch):
         return {"report_id": 7}
 
     monkeypatch.setattr(dr.deep_researcher, "ainvoke", fake_ainvoke)
-    rid = asyncio.run(default_run_one("Nigeria", "NGA", profile_name="country_cbdc",
-                                      db_path=":memory:", registry_name="country_cbdc_source_registry"))
-    assert rid == "7"
+    outcome = asyncio.run(default_run_one("Nigeria", "NGA", profile_name="country_cbdc",
+                                          db_path=":memory:", registry_name="country_cbdc_source_registry"))
+    assert outcome["report_id"] == "7"
     assert captured["config"]["configurable"]["registry_name"] == "country_cbdc_source_registry"
 
 

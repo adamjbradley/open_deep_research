@@ -179,4 +179,7 @@ STEPS: list[tuple[int, str]] = [
     CREATE INDEX IF NOT EXISTS ix_property_status_instance
         ON property_status(instance_key, property_name);
     """),
+    (10, """
+    ALTER TABLE batch_item ADD COLUMN attempt_count INTEGER DEFAULT 0;
+    """),
 ]

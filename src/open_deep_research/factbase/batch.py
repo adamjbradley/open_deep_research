@@ -65,9 +65,17 @@ class BatchRunner:
                 async with sem:
                     await led.mark(key, status="running")
                     try:
-                        run_id = await self._run_one(
+                        outcome = await self._run_one(
                             name, key, profile_name=self._profile, db_path=self._db)
-                        await led.mark(key, status="done", run_id=str(run_id))
+                        # Back-compat: a bare run id string counts as a non-empty success.
+                        if isinstance(outcome, dict):
+                            rid, status, fc = outcome["report_id"], outcome["status"], outcome["fact_count"]
+                        else:
+                            rid, status, fc = str(outcome), "completed", 1
+                        if status == "error" or fc == 0:
+                            await led.mark(key, status="failed", error="empty run (auto-retry)", run_id=rid)
+                        else:
+                            await led.mark(key, status="done", run_id=rid)
                     except Exception as e:  # noqa: BLE001 - isolate per-country failure
                         await led.mark(key, status="failed", error=str(e))
 
@@ -108,4 +116,6 @@ async def default_run_one(country_name, instance_key, *, profile_name, db_path,
         {"messages": [HumanMessage(content=topic)]},
         config={"configurable": configurable,
                 "recursion_limit": recommended_recursion_limit(2, 2)})
-    return str(result.get("report_id") or "")
+    return {"report_id": str(result.get("report_id") or ""),
+            "fact_count": int(result.get("fact_count") or 0),
+            "status": str(result.get("status") or "completed")}
