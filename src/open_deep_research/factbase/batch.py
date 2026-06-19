@@ -107,6 +107,8 @@ async def default_run_one(country_name, instance_key, *, profile_name, db_path,
         "persist_results": True,            # explicit: each country's dossier must be saved
         "max_concurrent_research_units": 2,
         "max_researcher_iterations": 2,
+        "whole_profile_mode": True,         # comprehensive per-profile dossier (targeted gap rounds)
+        "summarize_search_results": False,  # extraction reads raw text; per-source summaries are wasted
     }
     if registry_name:
         configurable["registry_name"] = registry_name
