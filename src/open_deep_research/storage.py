@@ -346,6 +346,10 @@ async def reap_stale_running(db_path: str, older_than_iso: str) -> int:
     """Mark stale 'running' runs (last_heartbeat < cutoff) as 'error'. Returns rows changed."""
     async with aiosqlite.connect(db_path) as conn:
         await _ensure_schema(conn)
+        # last_heartbeat is added by the factbase migrations (not the base schema); apply
+        # them so the reaper works on a fresh DB too (it can run before the first preallocate).
+        from open_deep_research.factbase import migrations, schema
+        await migrations.apply(conn, schema.STEPS)
         cur = await conn.execute(
             "UPDATE research_runs SET status='error', error='reaped: stale running run' "
             "WHERE status='running' AND last_heartbeat IS NOT NULL AND last_heartbeat < ?",

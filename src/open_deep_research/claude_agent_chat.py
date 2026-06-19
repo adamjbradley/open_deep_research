@@ -644,9 +644,11 @@ async def _offload_subprocess(make_coro: Callable[[], Any]) -> Any:
     if _loop_handles_subprocess():
         return await make_coro()
     box: dict = {}
+    loop_box: dict = {}
 
     def runner():
         loop = asyncio.ProactorEventLoop()
+        loop_box["loop"] = loop
         try:
             asyncio.set_event_loop(loop)
             box["value"] = loop.run_until_complete(make_coro())
@@ -654,7 +656,16 @@ async def _offload_subprocess(make_coro: Callable[[], Any]) -> Any:
             asyncio.set_event_loop(None)
             loop.close()
 
-    await asyncio.to_thread(runner)
+    try:
+        await asyncio.to_thread(runner)  # re-raises any exception from runner
+    except asyncio.CancelledError:
+        # An outer cancellation (enclosing wait_for, client disconnect) can't cross the
+        # to_thread boundary on its own; forward it by stopping the worker loop so the
+        # in-flight subprocess is torn down promptly rather than lingering.
+        loop = loop_box.get("loop")
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(loop.stop)
+        raise
     return box.get("value")
 
 

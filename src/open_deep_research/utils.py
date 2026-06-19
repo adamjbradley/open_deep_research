@@ -226,8 +226,12 @@ async def _finalize_search(unique_results: dict, config) -> str:
 
     summarization_tasks = [_summarize_one(result) for result in unique_results.values()]
 
-    # Step 5: Execute summarization tasks, bounded to _SUMMARIZE_MAX in flight at once
-    summaries = await asyncio.gather(*summarization_tasks)
+    # Step 5: Execute summarization tasks, bounded to _SUMMARIZE_MAX in flight at once.
+    # return_exceptions so a single summarization blowing up (beyond summarize_webpage's own
+    # fallback) can't sink the whole search tool -- a failed summary falls back to the result's
+    # short content.
+    summaries = await asyncio.gather(*summarization_tasks, return_exceptions=True)
+    summaries = [None if isinstance(s, BaseException) else s for s in summaries]
 
     # Step 6: Combine results with their summaries
     summarized_results = {
