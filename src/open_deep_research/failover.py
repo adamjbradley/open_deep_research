@@ -61,7 +61,7 @@ _TRANSIENT_MARKERS = (
     "timeout",
 )
 
-_KNOWN_PREFIXES = {"gemini", "google", "codex", "openai", "claude", "anthropic"}
+_KNOWN_PREFIXES = {"gemini", "google", "codex", "openai", "claude", "anthropic", "nvidia"}
 
 
 def backend_of(model: str) -> str:
@@ -102,6 +102,16 @@ def reason_for(exc: BaseException, kind: str) -> str:
     return f"{kind}: {first}"[:140]
 
 
+def transient_strike_limit() -> int:
+    """Consecutive transient failures that trip the per-model circuit breaker.
+
+    After this many throttle/timeout failures in a row within a run, the model is marked down
+    so later calls skip it (and its retry-before-failover cost). Env
+    ``MODEL_FAILOVER_TRANSIENT_STRIKES``, default 3, floored at 1.
+    """
+    return max(1, int(os.getenv("MODEL_FAILOVER_TRANSIENT_STRIKES", "3")))
+
+
 @dataclass(eq=True)
 class FailoverRecord:
     """One failover event, for logging + persistence on the run."""
@@ -126,6 +136,7 @@ class AvailabilityTracker:
 
     _down: set[str] = field(default_factory=set)
     _down_backends: set[str] = field(default_factory=set)
+    _transient_strikes: dict[str, int] = field(default_factory=dict)
     failovers: list[FailoverRecord] = field(default_factory=list)
 
     def is_down(self, model: str) -> bool:
@@ -133,6 +144,23 @@ class AvailabilityTracker:
 
     def mark_down(self, model: str) -> None:
         self._down.add(model)
+
+    def record_transient(self, model: str) -> int:
+        """Count a consecutive transient failure for ``model``; return the new running count.
+
+        Used by the circuit breaker: a model that keeps throttling/timing out within a run is
+        marked down once the count hits ``transient_strike_limit()``.
+        """
+        n = self._transient_strikes.get(model, 0) + 1
+        self._transient_strikes[model] = n
+        return n
+
+    def clear_strikes(self, model: str) -> None:
+        """Reset ``model``'s transient-strike counter after a successful call.
+
+        Transient noise interspersed with successes then never trips the breaker.
+        """
+        self._transient_strikes.pop(model, None)
 
     def is_backend_down(self, backend: str) -> bool:
         return backend in self._down_backends

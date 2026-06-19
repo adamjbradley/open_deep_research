@@ -35,6 +35,14 @@ def test_unknown_model_prefix_rejected():
         routing_from_dict(bad)
 
 
+def test_nvidia_model_prefix_accepted():
+    # NVIDIA's OpenAI-compatible backend is addressed by an ``nvidia:`` prefix.
+    ok = {**_VALID, "presets": {"gemini": {"roles": {
+        "researcher": "nvidia:nvidia/nemotron-3-ultra-550b-a55b"}}}}
+    r = routing_from_dict(ok)
+    assert r.presets["gemini"].roles["researcher"].startswith("nvidia:")
+
+
 def test_unknown_step_override_key_rejected():
     bad = {**_VALID, "presets": {"gemini": {"roles": {}, "step_overrides": {"no_such_step": "claude:sonnet"}}}}
     with pytest.raises(ValueError):

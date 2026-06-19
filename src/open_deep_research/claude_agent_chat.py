@@ -83,7 +83,7 @@ _MAX_CONCURRENCY = int(os.getenv("CLAUDE_SDK_MAX_CONCURRENCY", "4"))
 # different loop raises "RuntimeError: <Semaphore> is bound to a different event loop"
 # -- a hard, non-retryable model-call failure. Keying by the running loop avoids that;
 # WeakKeyDictionary lets entries drop when a loop is garbage-collected.
-_SEMAPHORES: "WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = WeakKeyDictionary()
+_SEMAPHORES: WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = WeakKeyDictionary()
 
 
 def _semaphore() -> asyncio.Semaphore:
@@ -407,6 +407,32 @@ def _nvidia_extra_body(model_id: str) -> Optional[dict]:
     return None
 
 
+# Per-model client-side rate limiters. NVIDIA's free tier caps each model at ~40 requests/
+# minute (the ceiling is PER MODEL, not per account -- confirmed live: one model throttling
+# while others stayed up), and 429 storms come from bursts, not total volume. One shared
+# limiter per model id paces calls under that ceiling proactively so we rarely hit a 429 at
+# all. Keyed by model id; module-global so every ChatOpenAI for that model shares the budget.
+_NVIDIA_RATE_LIMITERS: dict[str, Any] = {}
+
+
+def _nvidia_rate_limiter(model_id: str):
+    """Return a shared InMemoryRateLimiter for ``model_id`` paced at NVIDIA_RPM (0 disables)."""
+    rpm = float(os.getenv("NVIDIA_RPM", "30"))  # under the ~40 RPM free-tier per-model ceiling
+    if rpm <= 0:
+        return None
+    limiter = _NVIDIA_RATE_LIMITERS.get(model_id)
+    if limiter is None:
+        from langchain_core.rate_limiters import InMemoryRateLimiter
+        per_sec = rpm / 60.0
+        limiter = InMemoryRateLimiter(
+            requests_per_second=per_sec,
+            check_every_n_seconds=0.1,
+            max_bucket_size=max(1.0, per_sec * 2),  # allow only a tiny burst
+        )
+        _NVIDIA_RATE_LIMITERS[model_id] = limiter
+    return limiter
+
+
 def build_nvidia_chat_model(model_string: Optional[str], max_tokens: Optional[int] = None) -> BaseChatModel:
     """Construct a ChatOpenAI bound to NVIDIA's OpenAI-compatible endpoint.
 
@@ -449,6 +475,9 @@ def build_nvidia_chat_model(model_string: Optional[str], max_tokens: Optional[in
         kwargs["extra_body"] = extra_body
     if max_tokens:
         kwargs["max_tokens"] = max_tokens
+    limiter = _nvidia_rate_limiter(model_id)
+    if limiter is not None:
+        kwargs["rate_limiter"] = limiter
     return ChatOpenAI(**kwargs)
 
 
@@ -1114,7 +1143,7 @@ class CodexCLIChat(_CLIJsonChat):
                    "--output-last-message", out_path, "-"]
             await self._invoke(cmd, stdin=full)
             try:
-                with open(out_path, "r", encoding="utf-8") as f:
+                with open(out_path, encoding="utf-8") as f:
                     content = f.read()
             except OSError:
                 content = ""
@@ -1262,7 +1291,7 @@ async def run_codex_search(
 
     try:
         await _run_with_retry(_attempt, max_attempts=_SDK_MAX_ATTEMPTS, backoff_s=_SDK_RETRY_BACKOFF_S)
-        with open(out_path, "r", encoding="utf-8") as f:
+        with open(out_path, encoding="utf-8") as f:
             return f.read().strip() or "No search results found."
     except Exception as e:
         logger.error("Codex web search failed: %s", e, exc_info=True)
@@ -1347,7 +1376,7 @@ class configurable_claude_model(Runnable):
         self._queue = list(queue or [])
 
     # -- declarative chaining (all return new copies) -----------------------
-    def _copy(self, default_config=None, queue=None) -> "configurable_claude_model":
+    def _copy(self, default_config=None, queue=None) -> configurable_claude_model:
         return configurable_claude_model(
             default_config if default_config is not None else self._default_config,
             queue if queue is not None else self._queue,
@@ -1391,7 +1420,7 @@ class configurable_claude_model(Runnable):
             model = getattr(model, name)(*args, **kwargs)
         return model
 
-    def _resolve_chain(self, config: Optional[RunnableConfig] = None) -> "tuple[list[str], str, str | None]":
+    def _resolve_chain(self, config: Optional[RunnableConfig] = None) -> tuple[list[str], str, str | None]:
         """The model chain to try (primary first), the stage label for logging, and the run key.
 
         Returns a 3-tuple: (chain, stage, run_key).  ``run_key`` is an explicit
@@ -1410,7 +1439,13 @@ class configurable_claude_model(Runnable):
 
     # -- Runnable interface -------------------------------------------------
     async def ainvoke(self, input: Any, config: Optional[RunnableConfig] = None, **kwargs: Any):
-        from open_deep_research.failover import backend_of, classify_error, get_tracker, reason_for
+        from open_deep_research.failover import (
+            backend_of,
+            classify_error,
+            get_tracker,
+            reason_for,
+            transient_strike_limit,
+        )
 
         chain, stage, run_key = self._resolve_chain(config)
         if len(chain) <= 1:
@@ -1433,8 +1468,10 @@ class configurable_claude_model(Runnable):
         last_exc: Optional[BaseException] = None
         for idx, model_string in enumerate(available):
             try:
-                return await self._materialize(config, model_override=model_string).ainvoke(
+                result = await self._materialize(config, model_override=model_string).ainvoke(
                     input, config, **kwargs)
+                tracker.clear_strikes(model_string)  # success resets the circuit breaker
+                return result
             except Exception as exc:  # noqa: BLE001 - re-raised below when the chain is exhausted
                 last_exc = exc
                 kind = classify_error(exc)
@@ -1445,6 +1482,16 @@ class configurable_claude_model(Runnable):
                     record_backend_exhausted(bk)
                 elif kind == "model_fatal":
                     tracker.mark_down(model_string)
+                elif kind == "transient":
+                    # Circuit breaker: a model that keeps throttling/timing out within a run is
+                    # marked down once it hits the strike limit, so later calls skip it (and its
+                    # retry-before-failover cost) and go straight to the backup.
+                    strikes = tracker.record_transient(model_string)
+                    if strikes >= transient_strike_limit():
+                        tracker.mark_down(model_string)
+                        logger.warning(
+                            "circuit-break[%s]: %s hit %d consecutive transient failures -> "
+                            "marked down for this run", stage, model_string, strikes)
                 if idx >= len(available) - 1:
                     raise  # nothing left to fail over to
                 next_model = available[idx + 1]

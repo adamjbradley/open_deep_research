@@ -96,6 +96,25 @@ def test_tracker_records_failovers():
     }
 
 
+def test_transient_strikes_accumulate_per_model():
+    t = AvailabilityTracker()
+    assert t.record_transient("nvidia:m3") == 1
+    assert t.record_transient("nvidia:m3") == 2
+    assert t.record_transient("nvidia:glm") == 1  # tracked independently per model
+    t.clear_strikes("nvidia:m3")                   # a success resets the counter
+    assert t.record_transient("nvidia:m3") == 1
+
+
+def test_transient_strike_limit_env(monkeypatch):
+    from open_deep_research.failover import transient_strike_limit
+    monkeypatch.delenv("MODEL_FAILOVER_TRANSIENT_STRIKES", raising=False)
+    assert transient_strike_limit() == 3  # default
+    monkeypatch.setenv("MODEL_FAILOVER_TRANSIENT_STRIKES", "2")
+    assert transient_strike_limit() == 2
+    monkeypatch.setenv("MODEL_FAILOVER_TRANSIENT_STRIKES", "0")
+    assert transient_strike_limit() == 1  # floored at 1
+
+
 def test_new_run_tracker_resets_state(_disable_health_file):
     first = new_run_tracker()
     first.mark_down("gemini:gemini-2.5-flash")

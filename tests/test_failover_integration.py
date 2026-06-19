@@ -96,6 +96,80 @@ def test_transient_does_not_mark_down(monkeypatch):
     assert len(tracker.failovers) == 1  # a transient that survived backend retries is still recorded
 
 
+def test_circuit_breaker_marks_down_after_repeated_transient(monkeypatch):
+    # A model that throttles (429) repeatedly within a run is a circuit-breaker case: after
+    # MODEL_FAILOVER_TRANSIENT_STRIKES consecutive transient failures it is marked down for the
+    # run, so later calls skip it (and its retry-before-failover cost) and go straight to backup.
+    monkeypatch.setenv("MODEL_FAILOVER_TRANSIENT_STRIKES", "2")
+    tracker = new_run_tracker()
+    constructed = []
+    script = {
+        "nvidia:minimaxai/minimax-m3": Exception(
+            "Error code: 429 - {'status': 429, 'title': 'Too Many Requests'}"),
+        "gemini:gemini-2.5-pro": "OK",
+    }
+    _patch_build(monkeypatch, script, constructed)
+    cfg = {"model_chain": ["nvidia:minimaxai/minimax-m3", "gemini:gemini-2.5-pro"],
+           "stage": "extract_facts"}
+    model = configurable_claude_model().with_config(cfg)
+
+    # Call 1: 429 -> strike 1 (< limit) -> fail over to gemini; primary NOT yet down.
+    assert asyncio.run(model.ainvoke("a")) == "OK"
+    assert not tracker.is_down("nvidia:minimaxai/minimax-m3")
+    # Call 2: 429 -> strike 2 (== limit) -> circuit-break: primary marked down for the run.
+    assert asyncio.run(model.ainvoke("b")) == "OK"
+    assert tracker.is_down("nvidia:minimaxai/minimax-m3")
+    # Call 3: primary skipped entirely -> straight to backup, no wasted retry on the dead model.
+    constructed.clear()
+    assert asyncio.run(model.ainvoke("c")) == "OK"
+    assert constructed == ["gemini:gemini-2.5-pro"]
+
+
+def test_circuit_breaker_strikes_reset_on_success(monkeypatch):
+    # A success between blips resets the counter so transient noise never trips the breaker.
+    monkeypatch.setenv("MODEL_FAILOVER_TRANSIENT_STRIKES", "2")
+    tracker = new_run_tracker()
+    constructed = []
+    outcomes = {"n": 0}
+
+    def fake_build(model_string, max_tokens=None):
+        constructed.append(model_string)
+        return _FlakyModel(model_string, outcomes)
+    monkeypatch.setattr(cac, "build_chat_model", fake_build)
+
+    cfg = {"model_chain": ["nvidia:glm", "claude-haiku-4-5"], "stage": "summarization"}
+    model = configurable_claude_model().with_config(cfg)
+    # primary: 429, then OK (resets), then 429 again -> only 1 strike since the reset -> not down.
+    for _ in range(3):
+        asyncio.run(model.ainvoke("x"))
+    assert not tracker.is_down("nvidia:glm")
+
+
+class _FlakyModel:
+    """Primary throttles on odd calls, succeeds on even ones; backup always OK."""
+
+    def __init__(self, model_id, state):
+        self.model_id = model_id
+        self.state = state
+
+    def with_structured_output(self, *a, **k):
+        return self
+
+    def bind_tools(self, *a, **k):
+        return self
+
+    def with_retry(self, *a, **k):
+        return self
+
+    async def ainvoke(self, *a, **k):
+        if self.model_id != "nvidia:glm":
+            return "BACKUP-OK"
+        self.state["n"] += 1
+        if self.state["n"] % 2 == 1:  # 1st, 3rd call throttle; 2nd succeeds (resets strikes)
+            raise Exception("Error code: 429 - Too Many Requests")
+        return "PRIMARY-OK"
+
+
 def test_single_model_chain_has_no_failover_and_raises(monkeypatch):
     new_run_tracker()
     constructed = []
