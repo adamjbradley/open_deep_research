@@ -27,7 +27,7 @@ def test_agy_prefix_builds_agy_backend_with_display_name():
     assert m.model == "Gemini 3.1 Pro (High)"     # mapped to the display name
 
 
-def test_agy_command_has_no_o_json_and_skip_permissions(monkeypatch):
+def test_agy_command_has_no_o_json_and_no_skip_permissions_by_default(monkeypatch):
     m = build_chat_model("agy:gemini-3.5-flash-high")
     captured = {}
     async def fake_invoke(cmd, stdin=None):
@@ -36,6 +36,14 @@ def test_agy_command_has_no_o_json_and_skip_permissions(monkeypatch):
     monkeypatch.setattr(m, "_invoke", fake_invoke)
     asyncio.run(m._backend_generate("sys", "hello", None))
     assert captured["cmd"][:3] == ["agy", "--model", "Gemini 3.5 Flash (High)"]
-    assert "--dangerously-skip-permissions" in captured["cmd"]
+    assert "--dangerously-skip-permissions" not in captured["cmd"]  # secure default
     assert "-o" not in captured["cmd"] and "json" not in captured["cmd"]
     assert captured["stdin"] is not None      # prompt via stdin
+
+
+def test_agy_subprocess_env_scrubs_secrets(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-secret")
+    m = build_chat_model("agy:gemini-3.5-flash-high")
+    env = m._subprocess_env()
+    assert "ANTHROPIC_API_KEY" not in env and "TAVILY_API_KEY" not in env

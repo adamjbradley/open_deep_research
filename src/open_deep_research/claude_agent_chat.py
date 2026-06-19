@@ -1025,9 +1025,13 @@ class AgyCLIChat(_CLIJsonChat):
     _backend_name = "agy-cli"
 
     def _subprocess_env(self) -> dict:
-        # agy authenticates via the Antigravity login store, not GEMINI_API_KEY -- pass the
-        # environment through unchanged (do NOT blank credentials).
-        return dict(os.environ)
+        # agy authenticates via the Antigravity login store, not env vars. Scrub app secrets so a
+        # prompt-injected tool call can't exfiltrate them; pass everything else through.
+        env = dict(os.environ)
+        for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY",
+                    "GOOGLE_GENAI_API_KEY", "GEMINI_API_KEY", "TAVILY_API_KEY"):
+            env.pop(key, None)
+        return env
 
     async def _backend_generate(self, system_prompt, prompt, schema):
         if schema is not None:
@@ -1039,7 +1043,11 @@ class AgyCLIChat(_CLIJsonChat):
             )
         full = _combine_system_prompt(system_prompt, prompt)
         bin_ = os.getenv("AGY_CLI_BIN", "agy")
-        extra = os.getenv("AGY_CLI_ARGS", "--dangerously-skip-permissions").split()
+        # SECURITY: do NOT auto-approve tool execution by default. agy emits plain text / the
+        # JSON tool-selection envelope for our prompt-and-parse usage and does not need to run
+        # tools itself (the graph owns the agentic loop). Operators may opt into
+        # --dangerously-skip-permissions via AGY_CLI_ARGS ONLY inside a sandbox.
+        extra = os.getenv("AGY_CLI_ARGS", "").split()
         cmd = [bin_, "--model", self.model, *extra]   # NO -o json (agy rejects it)
         raw = await self._invoke(cmd, stdin=full)
         if "### Summary" in raw:                       # agy occasionally appends a Summary section
