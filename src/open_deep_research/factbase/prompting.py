@@ -7,7 +7,7 @@ guardrails. Kept out of deep_researcher.py so it can be unit-tested without the 
 """
 from __future__ import annotations
 
-_SOURCE_CAP = 8000
+_SOURCE_CAP = 24000
 
 
 def compile_property_catalog(prof, target_properties=None) -> str:

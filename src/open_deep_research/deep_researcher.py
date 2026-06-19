@@ -103,6 +103,31 @@ def _report_is_failed(report: Optional[str]) -> bool:
             or stripped == ALL_RESEARCH_FAILED_SENTINEL)
 
 
+def _is_empty_run(*, fact_count: int, raw_text_source_count: int) -> bool:
+    """A run that gathered nothing: 0 researched facts AND 0 raw_text sources captured.
+
+    Distinct from a 'thin' run (sources gathered, few facts) -- that may be a legitimately
+    sparse country and is surfaced, not failed.
+    """
+    return fact_count == 0 and raw_text_source_count == 0
+
+
+async def _run_fact_count(db_path: str, run_id) -> int:
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as conn:
+        cur = await conn.execute("SELECT COUNT(*) FROM fact WHERE run_id=?", (run_id,))
+        return int((await cur.fetchone())[0])
+
+
+async def _raw_text_source_count(db_path: str, thread_id: str) -> int:
+    import aiosqlite
+    async with aiosqlite.connect(db_path) as conn:
+        cur = await conn.execute(
+            "SELECT COUNT(*) FROM run_source WHERE thread_id=? AND capture_status='raw_text'",
+            (thread_id,))
+        return int((await cur.fetchone())[0])
+
+
 def recommended_recursion_limit(
     max_researcher_iterations: int, max_concurrent_research_units: int = 1
 ) -> int:
@@ -564,6 +589,19 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
         return Command(
             goto="supervisor",
             update={"supervisor_messages": corrective_messages},
+        )
+
+    # Guard against a blank turn (model returned text / no tool call) before any research ran.
+    # The CLI backends raise on a bad envelope, but an API model (e.g. NVIDIA) can return a
+    # text AIMessage with empty tool_calls -> the old no_tool_calls exit ended research empty
+    # (the Brazil failure). Nudge it to dispatch ConductResearch and loop, bounded by the cap.
+    if no_tool_calls and not conducted_research and not exceeded_allowed_iterations:
+        return Command(
+            goto="supervisor",
+            update={"supervisor_messages": [HumanMessage(content=(
+                "You did not call any tool. You MUST call ConductResearch with one or more "
+                "specific, standalone research_topic instructions before finishing. "
+                "Dispatch the necessary research now."))]},
         )
 
     # Exit if any termination condition is met
@@ -1346,7 +1384,28 @@ async def persist_research(state: AgentState, config: RunnableConfig):
                 "Run produced no usable report (%r...); logged as error, dossier left unchanged.",
                 (final_report or "")[:120],
             )
-            return {"report_id": run_id, "subject": subject_for_log}
+            return {"report_id": run_id, "subject": subject_for_log,
+                    "fact_count": 0, "status": "error"}
+
+        # Empty-run gate: a run that captured no raw_text sources AND extracted no facts is a
+        # failed research attempt (the Brazil class), not a real dossier. Log it as an error so
+        # the batch ledger retries it on resume -- never merge it into the subject dossier.
+        # Scoped to dossier/facts mode only: a normal report-mode run legitimately produces 0
+        # facts and must still be persisted.
+        thread_id = (config.get("configurable") or {}).get("thread_id")
+        prealloc = state.get("prealloc_run_id")
+        fact_count = await _run_fact_count(db_path, prealloc) if prealloc else 0
+        src_count = await _raw_text_source_count(db_path, thread_id) if thread_id else 0
+        dossier_mode = configurable.facts_first_mode or configurable.whole_profile_mode
+        if dossier_mode and _is_empty_run(fact_count=fact_count, raw_text_source_count=src_count):
+            run["status"] = "error"
+            run["error"] = "empty run: 0 facts, 0 raw_text sources"
+            subject_for_log = state.get("subject") or topic
+            run_id = await log_research_run(db_path, slugify(subject_for_log), run,
+                                            run_id=state.get("prealloc_run_id"))
+            logger.error("Empty run (0 facts/0 sources); logged as error for retry.")
+            return {"report_id": run_id, "subject": subject_for_log,
+                    "fact_count": 0, "status": "error"}
 
         if configurable.accumulate_by_subject and final_report:
             # 1) Use the subject already matched by assess_knowledge, else resolve now.
@@ -1413,7 +1472,8 @@ async def persist_research(state: AgentState, config: RunnableConfig):
             now=now,
             run_id=state.get("prealloc_run_id"),
         )
-        return {"report_id": run_id, "subject": subject_name}
+        return {"report_id": run_id, "subject": subject_name,
+                "fact_count": fact_count, "status": "completed"}
     except Exception as e:
         # Persistence is best-effort: never fail a completed run on a DB error. But for a
         # knowledge-base product a silent save failure breaks the whole value prop, so log
@@ -1676,20 +1736,33 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                 return {}
 
             logger.info("Extracting facts from %d sources in parallel...", len(valid_sources))
-            
+
+            sem = asyncio.Semaphore(int(os.getenv("EXTRACT_FACTS_CONCURRENCY",
+                                                   str(configurable.max_concurrent_research_units or 4))))
+            _extraction_errors = []
+
             async def _extract_one(s):
-                try:
-                    recs = await fbextractor.extract(s["text"], prof, model_call)
-                    for r in recs:
-                        r.setdefault("source_url", s["source_url"])
-                    return recs
-                except Exception as e:
-                    logger.warning("Extraction failed for %s: %s", s["source_url"], e)
-                    return []
+                async with sem:
+                    try:
+                        recs = await fbextractor.extract(s["text"], prof, model_call)
+                        for r in recs:
+                            r.setdefault("source_url", s["source_url"])
+                        return recs
+                    except Exception as e:
+                        logger.warning("Extraction failed for %s: %s", s["source_url"], e)
+                        _extraction_errors.append(s["source_url"])
+                        return []
 
             extraction_tasks = [_extract_one(s) for s in valid_sources]
             task_results = await asyncio.gather(*extraction_tasks)
-            
+
+            errs = len(_extraction_errors)
+            if errs:
+                logger.warning(
+                    "extract_facts: %d/%d sources failed extraction",
+                    errs, len(valid_sources),
+                )
+
             all_records = []
             for recs in task_results:
                 all_records.extend(recs)
@@ -1719,7 +1792,10 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                     logger.warning("profile-extension proposal failed (non-fatal): %s", e)
 
             # Record which sources we mined so a facts-first gap round skips them.
-            return {"extracted_source_urls": [s["source_url"] for s in valid_sources]}
+            result = {"extracted_source_urls": [s["source_url"] for s in valid_sources]}
+            if errs:
+                result["extraction_errors"] = errs
+            return result
     except Exception as e:
         logger.warning("extract_facts failed (non-fatal): %s", e)
         import traceback
@@ -1763,7 +1839,8 @@ async def assess_sufficiency(state: AgentState, config: RunnableConfig) -> Comma
                 present, _trusted = _target_property_coverage(grouped, targets)
                 missing = [p for p in targets if not present[p]]
         except Exception as e:
-            logger.warning("assess_sufficiency check failed (treating as sufficient): %s", e)
+            logger.warning("assess_sufficiency check failed (treating as still-missing): %s", e)
+            missing = list(targets)
 
     if missing and rounds_used + 1 < configurable.max_fact_rounds:
         logger.info("Facts insufficient (missing %s); gap round %d", missing, rounds_used + 1)
@@ -1773,7 +1850,8 @@ async def assess_sufficiency(state: AgentState, config: RunnableConfig) -> Comma
         )
         return Command(
             goto="write_research_brief",
-            update={"missing_information": gap, "fact_rounds_used": rounds_used + 1},
+            update={"missing_information": gap, "fact_rounds_used": rounds_used + 1,
+                    "target_properties": missing},
         )
     if missing:
         logger.info("Facts still missing %s but round budget exhausted; answering with what we have", missing)

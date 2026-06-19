@@ -1467,6 +1467,8 @@ class configurable_claude_model(Runnable):
         available = tracker.available_chain(chain) or chain[-1:]
         last_exc: Optional[BaseException] = None
         for idx, model_string in enumerate(available):
+            if tracker.is_down(model_string) and idx < len(available) - 1:
+                continue  # a peer marked this down after the chain was built; skip to backup
             try:
                 result = await self._materialize(config, model_override=model_string).ainvoke(
                     input, config, **kwargs)

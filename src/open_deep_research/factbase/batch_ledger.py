@@ -63,10 +63,11 @@ class BatchLedger:
 
     async def mark(self, instance_key: str, *, status: str, run_id: str | None = None,
                    error: str | None = None) -> None:
-        """Update an item's status (+ optional run_id/error)."""
+        """Update an item's status (+ optional run_id/error). 'failed' increments attempt_count."""
         _check_status(status)
+        inc = ", attempt_count = attempt_count + 1" if status == "failed" else ""
         await self._conn.execute(
-            "UPDATE batch_item SET status=?, run_id=?, error=?, updated_at=datetime('now') "
+            f"UPDATE batch_item SET status=?, run_id=?, error=?, updated_at=datetime('now'){inc} "
             "WHERE batch_id=? AND instance_key=?",
             (status, run_id, error, self.batch_id, instance_key))
         await self._conn.commit()

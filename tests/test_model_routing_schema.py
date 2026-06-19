@@ -52,3 +52,9 @@ def test_unknown_step_override_key_rejected():
 def test_load_routing_reads_bundled_default():
     r = load_routing()  # no file in cwd / no env -> bundled
     assert "gemini" in r.presets
+
+
+def test_nvidia_extract_facts_leads_with_strong_extractor():
+    from open_deep_research.model_routing import load_routing
+    chain = load_routing().presets["nvidia"].step_overrides["extract_facts"]
+    assert chain[0] == "agy:gemini-3.1-pro-high"   # strong recall, not the throttled minimax-m3

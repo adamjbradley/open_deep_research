@@ -65,9 +65,17 @@ class BatchRunner:
                 async with sem:
                     await led.mark(key, status="running")
                     try:
-                        run_id = await self._run_one(
+                        outcome = await self._run_one(
                             name, key, profile_name=self._profile, db_path=self._db)
-                        await led.mark(key, status="done", run_id=str(run_id))
+                        # Back-compat: a bare run id string counts as a non-empty success.
+                        if isinstance(outcome, dict):
+                            rid, status, fc = outcome["report_id"], outcome["status"], outcome["fact_count"]
+                        else:
+                            rid, status, fc = str(outcome), "completed", 1
+                        if status == "error" or fc == 0:
+                            await led.mark(key, status="failed", error="empty run (auto-retry)", run_id=rid)
+                        else:
+                            await led.mark(key, status="done", run_id=rid)
                     except Exception as e:  # noqa: BLE001 - isolate per-country failure
                         await led.mark(key, status="failed", error=str(e))
 
@@ -75,6 +83,29 @@ class BatchRunner:
             summary = await led.summary()
         return {"batch_id": batch_id, "summary": summary, "unresolved": unresolved,
                 "resolved": [k for _, k in resolved]}
+
+
+def _default_run_one_configurable(profile_name: str, db_path: str,
+                                   registry_name: str = "") -> dict:
+    """The per-country batch run config (excluding the per-run thread_id).
+
+    Single source of truth: ``default_run_one`` builds its configurable from this dict
+    so tests that import this helper guard the real production settings.
+    """
+    cfg = {
+        "profile_name": profile_name,
+        "database_path": db_path,
+        "use_knowledge_base": False,        # fresh research per country
+        "allow_clarification": False,
+        "persist_results": True,            # explicit: each country's dossier must be saved
+        "max_concurrent_research_units": 2,
+        "max_researcher_iterations": 2,
+        "whole_profile_mode": True,         # comprehensive per-profile dossier (targeted gap rounds)
+        "summarize_search_results": False,  # extraction reads raw text; per-source summaries are wasted
+    }
+    if registry_name:
+        cfg["registry_name"] = registry_name
+    return cfg
 
 
 async def default_run_one(country_name, instance_key, *, profile_name, db_path,
@@ -91,21 +122,15 @@ async def default_run_one(country_name, instance_key, *, profile_name, db_path,
     from open_deep_research.deep_researcher import deep_researcher, recommended_recursion_limit
 
     configurable = {
+        **_default_run_one_configurable(profile_name, db_path, registry_name),
         "thread_id": str(uuid.uuid4()),
-        "profile_name": profile_name,
-        "database_path": db_path,
-        "use_knowledge_base": False,        # fresh research per country
-        "allow_clarification": False,
-        "persist_results": True,            # explicit: each country's dossier must be saved
-        "max_concurrent_research_units": 2,
-        "max_researcher_iterations": 2,
     }
-    if registry_name:
-        configurable["registry_name"] = registry_name
     topic = (f"Research {country_name} for the '{profile_name}' profile: cover its properties "
              f"with sources and dates.")
     result = await deep_researcher.ainvoke(
         {"messages": [HumanMessage(content=topic)]},
         config={"configurable": configurable,
                 "recursion_limit": recommended_recursion_limit(2, 2)})
-    return str(result.get("report_id") or "")
+    return {"report_id": str(result.get("report_id") or ""),
+            "fact_count": int(result.get("fact_count") or 0),
+            "status": str(result.get("status") or "completed")}
