@@ -1834,7 +1834,8 @@ async def assess_sufficiency(state: AgentState, config: RunnableConfig) -> Comma
         )
         return Command(
             goto="write_research_brief",
-            update={"missing_information": gap, "fact_rounds_used": rounds_used + 1},
+            update={"missing_information": gap, "fact_rounds_used": rounds_used + 1,
+                    "target_properties": missing},
         )
     if missing:
         logger.info("Facts still missing %s but round budget exhausted; answering with what we have", missing)
