@@ -19,7 +19,7 @@ KNOWN_ROLES = {"supervisor", "researcher", "summarization", "compression",
 KNOWN_STEPS = {"extract_facts", "propose_extensions"}  # expand as more call sites adopt model_for()
 KNOWN_BACKENDS = {"claude", "gemini", "codex", "agy"}
 KNOWN_PREFIXES = {"claude", "gemini", "google", "codex", "openai", "anthropic", "nvidia", "agy"}
-KNOWN_SEARCH = {"claude", "gemini", "codex", "anthropic", "openai", "tavily", "none"}
+KNOWN_SEARCH = {"claude", "gemini", "codex", "anthropic", "openai", "tavily", "exa", "tavily_exa", "none"}
 
 
 def _check_model_string(value: str, where: str) -> None:

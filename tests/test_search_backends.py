@@ -235,3 +235,11 @@ def test_hybrid_degrades_when_exa_empty(monkeypatch):
     monkeypatch.setattr(utils, "_acquire_exa", AsyncMock(return_value={}))
     out = asyncio.run(utils._acquire_hybrid(["q"], 5, "general", None))
     assert list(out) == ["http://a"]                            # tavily-only
+
+
+# -- Get search tool dispatch (get_search_tool: EXA, TAVILY_EXA) ---------
+
+def test_get_search_tool_returns_exa_and_hybrid():
+    from open_deep_research.configuration import SearchAPI
+    assert asyncio.run(utils.get_search_tool(SearchAPI.EXA)) == [utils.exa_search]
+    assert asyncio.run(utils.get_search_tool(SearchAPI.TAVILY_EXA)) == [utils.tavily_exa_search]

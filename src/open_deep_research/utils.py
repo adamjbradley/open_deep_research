@@ -818,6 +818,26 @@ async def get_search_tool(search_api: SearchAPI):
         }
         return [search_tool]
 
+    elif search_api == SearchAPI.EXA:
+        # Exa neural search
+        search_tool = exa_search
+        search_tool.metadata = {
+            **(search_tool.metadata or {}),
+            "type": "search",
+            "name": "web_search"
+        }
+        return [search_tool]
+
+    elif search_api == SearchAPI.TAVILY_EXA:
+        # Hybrid Tavily + Exa search
+        search_tool = tavily_exa_search
+        search_tool.metadata = {
+            **(search_tool.metadata or {}),
+            "type": "search",
+            "name": "web_search"
+        }
+        return [search_tool]
+
     elif search_api == SearchAPI.ANTHROPIC:
         # Anthropic's native web search with usage limits
         return [{
@@ -825,17 +845,17 @@ async def get_search_tool(search_api: SearchAPI):
             "name": "web_search",
             "max_uses": 5
         }]
-        
+
     elif search_api == SearchAPI.OPENAI:
         # OpenAI's web search preview functionality
         return [{"type": "web_search_preview"}]
-        
+
     elif search_api == SearchAPI.TAVILY:
         # Configure Tavily search tool with metadata
         search_tool = tavily_search
         search_tool.metadata = {
-            **(search_tool.metadata or {}), 
-            "type": "search", 
+            **(search_tool.metadata or {}),
+            "type": "search",
             "name": "web_search"
         }
         return [search_tool]
