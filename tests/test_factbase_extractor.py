@@ -75,3 +75,18 @@ def test_norm_unicode_nbsp_and_quotes():
     src = "Coverage is “99%” as of 2023"   # NBSP + curly quotes
     span = 'Coverage is "99%" as of 2023'                 # plain space + straight quotes
     assert _norm(span) in _norm(src)
+
+
+# ---------------------------------------------------------------------------
+# C2: Fuzzy span fallback (_span_present for near-miss quotes)
+# ---------------------------------------------------------------------------
+
+from open_deep_research.factbase.extractor import _span_present
+
+
+def test_span_present_accepts_near_paraphrase():
+    src = _norm("aadhaar is brazil's foundational identity scheme operated by uidai")
+    near = _norm("aadhaar is brazil's foundational identity scheme operated by the uidai")  # tiny diff
+    far = _norm("the moon is made of cheese and has no relation to identity systems at all")
+    assert _span_present(near, src) is True
+    assert _span_present(far, src) is False
