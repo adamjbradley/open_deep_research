@@ -68,3 +68,42 @@ def test_failed_mark_increments_attempt_count(tmp_path):
             return (await cur.fetchone())[0]
 
     assert asyncio.run(go()) == 2
+
+
+# ---------------------------------------------------------------------------
+# Fix 1 regression: empty-run gate must NOT fire in report mode
+# ---------------------------------------------------------------------------
+
+def test_report_mode_with_zero_facts_is_not_flagged_empty(tmp_path):
+    """A plain report-mode run (facts_first_mode=False, whole_profile_mode=False) with a
+    valid final_report and 0 extracted facts/sources must be persisted as 'completed',
+    not rejected as an empty run (status='error').
+    """
+    db_path = str(tmp_path / "research.db")
+    state = {
+        "messages": [HumanMessage(content="Tell me about marsupials.")],
+        "research_brief": "Research marsupials",
+        "final_report": "# Marsupials\nThey carry young in pouches. Source: https://example.com/marsupials",
+        "raw_notes": ["a raw research note"],
+        "subject": "Marsupials",
+    }
+    config = {
+        "configurable": {
+            "persist_results": True,
+            "accumulate_by_subject": True,
+            "use_knowledge_base": True,
+            "database_path": db_path,
+            # Report mode: neither dossier flag set (both default False)
+            "facts_first_mode": False,
+            "whole_profile_mode": False,
+        }
+    }
+
+    result = asyncio.run(dr.persist_research(state, config))
+
+    # Must not be flagged as an error: the empty-run gate is dossier-mode only.
+    assert result.get("status") != "error", (
+        f"Report-mode persist_research returned status='error' (empty-run gate over-fired): {result}"
+    )
+    assert result.get("subject") == "Marsupials"
+    assert isinstance(result.get("report_id"), int)

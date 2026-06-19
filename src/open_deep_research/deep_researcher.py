@@ -1390,11 +1390,14 @@ async def persist_research(state: AgentState, config: RunnableConfig):
         # Empty-run gate: a run that captured no raw_text sources AND extracted no facts is a
         # failed research attempt (the Brazil class), not a real dossier. Log it as an error so
         # the batch ledger retries it on resume -- never merge it into the subject dossier.
+        # Scoped to dossier/facts mode only: a normal report-mode run legitimately produces 0
+        # facts and must still be persisted.
         thread_id = (config.get("configurable") or {}).get("thread_id")
         prealloc = state.get("prealloc_run_id")
         fact_count = await _run_fact_count(db_path, prealloc) if prealloc else 0
         src_count = await _raw_text_source_count(db_path, thread_id) if thread_id else 0
-        if _is_empty_run(fact_count=fact_count, raw_text_source_count=src_count):
+        dossier_mode = configurable.facts_first_mode or configurable.whole_profile_mode
+        if dossier_mode and _is_empty_run(fact_count=fact_count, raw_text_source_count=src_count):
             run["status"] = "error"
             run["error"] = "empty run: 0 facts, 0 raw_text sources"
             subject_for_log = state.get("subject") or topic
@@ -1736,6 +1739,7 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
 
             sem = asyncio.Semaphore(int(os.getenv("EXTRACT_FACTS_CONCURRENCY",
                                                    str(configurable.max_concurrent_research_units or 4))))
+            _extraction_errors = []
 
             async def _extract_one(s):
                 async with sem:
@@ -1746,11 +1750,19 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                         return recs
                     except Exception as e:
                         logger.warning("Extraction failed for %s: %s", s["source_url"], e)
+                        _extraction_errors.append(s["source_url"])
                         return []
 
             extraction_tasks = [_extract_one(s) for s in valid_sources]
             task_results = await asyncio.gather(*extraction_tasks)
-            
+
+            errs = len(_extraction_errors)
+            if errs:
+                logger.warning(
+                    "extract_facts: %d/%d sources failed extraction",
+                    errs, len(valid_sources),
+                )
+
             all_records = []
             for recs in task_results:
                 all_records.extend(recs)
@@ -1780,7 +1792,10 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
                     logger.warning("profile-extension proposal failed (non-fatal): %s", e)
 
             # Record which sources we mined so a facts-first gap round skips them.
-            return {"extracted_source_urls": [s["source_url"] for s in valid_sources]}
+            result = {"extracted_source_urls": [s["source_url"] for s in valid_sources]}
+            if errs:
+                result["extraction_errors"] = errs
+            return result
     except Exception as e:
         logger.warning("extract_facts failed (non-fatal): %s", e)
         import traceback
