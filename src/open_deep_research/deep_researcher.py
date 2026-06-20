@@ -1953,6 +1953,27 @@ async def assess_sufficiency(state: AgentState, config: RunnableConfig) -> Comma
     return Command(goto="answer_from_facts", update={"fact_rounds_used": rounds_used})
 
 
+def _gaploop_decision(incomplete, prev_incomplete, rounds_used, max_rounds):
+    """Pure whole-profile gap-loop routing decision (no I/O).
+
+    Returns ``(goto, no_progress)``:
+      - ``goto``: "write_research_brief" for another gap round, else "synthesize_narrative" (finalize).
+      - ``no_progress``: True when a gap round (rounds_used >= 1) closed ZERO gaps -- the
+        still-incomplete required-property set is unchanged from the prior round. ``incomplete``
+        only stays-same or shrinks across rounds, so set-equality is a valid no-progress test.
+
+    Bail-out: the first no-progress gap round finalizes instead of looping (aggressive threshold).
+    """
+    no_progress = (
+        rounds_used >= 1
+        and prev_incomplete is not None
+        and set(incomplete) == set(prev_incomplete)
+    )
+    if incomplete and not no_progress and rounds_used + 1 < max_rounds:
+        return "write_research_brief", no_progress
+    return "synthesize_narrative", no_progress
+
+
 async def assess_completeness(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "synthesize_narrative"]]:
     """Whole-profile: loop until every REQUIRED property is resolved-or-confirmed-absent or budget hit.
 
@@ -2014,7 +2035,10 @@ async def assess_completeness(state: AgentState, config: RunnableConfig) -> Comm
         pd.name for pd in prof.properties
         if pd.completeness == "required" and not fbc.is_complete(ledger.get(pd.name, "missing_value"), pd)
     ]
-    if incomplete and rounds_used + 1 < configurable.max_profile_rounds:
+    goto, no_progress = _gaploop_decision(
+        incomplete, state.get("prev_incomplete_props"), rounds_used, configurable.max_profile_rounds
+    )
+    if goto == "write_research_brief":
         logger.info("Whole-profile incomplete (%s); gap round %d", incomplete, rounds_used + 1)
         gap = (
             "These profile properties are still incomplete and MUST be resolved or, if no data "
@@ -2023,13 +2047,13 @@ async def assess_completeness(state: AgentState, config: RunnableConfig) -> Comm
         )
         return Command(
             goto="write_research_brief",
-            # Narrow the next round to ONLY the still-incomplete properties: steer the catalog
-            # and target extraction at the gaps, not the whole profile (target_properties has no
-            # reducer -> this replaces the round-1 all-properties list).
             update={"missing_information": gap, "target_properties": incomplete,
-                    "fact_rounds_used": rounds_used + 1},
+                    "fact_rounds_used": rounds_used + 1,
+                    "prev_incomplete_props": incomplete},
         )
-    if incomplete:
+    if no_progress:
+        logger.info("Gap round closed zero gaps (%s unchanged); bailing out to finalize", incomplete)
+    elif incomplete:
         logger.info("Whole-profile still incomplete %s but round budget exhausted; finishing", incomplete)
     return Command(goto="synthesize_narrative", update={"fact_rounds_used": rounds_used})
 
