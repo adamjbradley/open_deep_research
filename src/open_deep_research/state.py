@@ -129,6 +129,9 @@ class AgentState(MessagesState):
     # Facts-first mode
     target_properties: Optional[list[str]]
     fact_rounds_used: Optional[int]
+    # Whole-profile gap loop: the still-incomplete required-property set from the PREVIOUS round,
+    # used to detect a no-progress gap round (no reducer -> replaced each round, like target_properties).
+    prev_incomplete_props: Optional[list[str]]
     extracted_source_urls: Annotated[list[str], override_reducer] = []
     # Query-driven profile selection: the profile chosen for this question (falls back to
     # Configuration.profile_name). Set once in write_research_brief; read by extract_facts.
