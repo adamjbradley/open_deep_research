@@ -4,6 +4,7 @@ from langchain_core.messages import HumanMessage
 
 from open_deep_research import deep_researcher as dr
 from open_deep_research.deep_researcher import _gaploop_decision
+from open_deep_research.nodes import brief
 
 
 def test_no_progress_gap_round_bails():
@@ -47,7 +48,7 @@ def test_gap_round_brief_is_scoped_when_dossier_exists(monkeypatch):
         return {"name": "Estonia",
                 "current_report": "## Prior dossier\n- foundational_id_scheme: ID card",
                 "sources": []}
-    monkeypatch.setattr(dr, "get_subject_by_slug", fake_get_subject)
+    monkeypatch.setattr(brief, "get_subject_by_slug", fake_get_subject)
 
     state = {
         "messages": [HumanMessage(content="Research Estonia's digital identity")],
@@ -58,8 +59,8 @@ def test_gap_round_brief_is_scoped_when_dossier_exists(monkeypatch):
     cfg = {"configurable": {"whole_profile_mode": True, "database_path": "/tmp/gaploop_brief.db",
                             "profile_name": "country_digital_identity", "thread_id": "t"}}
     result = asyncio.run(dr.write_research_brief(state, cfg))
-    brief = result["research_brief"]
+    research_brief = result["research_brief"]
     # gap-scoped branch fired: focus on the missing info + cite the prior dossier
-    assert "currently missing" in brief.lower()
-    assert "data_protection_law" in brief
-    assert "Prior dossier" in brief
+    assert "currently missing" in research_brief.lower()
+    assert "data_protection_law" in research_brief
+    assert "Prior dossier" in research_brief

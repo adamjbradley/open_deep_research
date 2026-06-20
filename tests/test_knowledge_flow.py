@@ -18,8 +18,8 @@ from types import SimpleNamespace
 
 from langchain_core.messages import HumanMessage
 
-from open_deep_research import deep_researcher
 from open_deep_research.deep_researcher import assess_knowledge, persist_research
+from open_deep_research.nodes import brief
 from open_deep_research.nodes import persistence
 
 
@@ -58,9 +58,9 @@ def _patch_subject_resolution(monkeypatch, *, subject: str, dossier: dict | None
     async def fake_by_slug(db_path, slug):
         return dossier
 
-    monkeypatch.setattr(deep_researcher, "get_subject_names", fake_names)
-    monkeypatch.setattr(deep_researcher, "_resolve_subject", fake_resolve)
-    monkeypatch.setattr(deep_researcher, "get_subject_by_slug", fake_by_slug)
+    monkeypatch.setattr(brief, "get_subject_names", fake_names)
+    monkeypatch.setattr(brief, "_resolve_subject", fake_resolve)
+    monkeypatch.setattr(brief, "get_subject_by_slug", fake_by_slug)
 
 
 # 1. Know nothing -> fresh research.
@@ -85,7 +85,7 @@ def test_stored_answerable_routes_to_cache(monkeypatch):
         "updated_at": "2026-06-12",
     }
     _patch_subject_resolution(monkeypatch, subject="Quokka", dossier=dossier)
-    monkeypatch.setattr(deep_researcher, "configurable_model", _StubModel(_assessment(True)))
+    monkeypatch.setattr(brief, "configurable_model", _StubModel(_assessment(True)))
 
     state = {"messages": [HumanMessage(content="Where do quokkas live?")]}
     config = {"configurable": {"use_knowledge_base": True}}
@@ -106,7 +106,7 @@ def test_known_subject_gap_routes_to_research(monkeypatch):
     }
     _patch_subject_resolution(monkeypatch, subject="Quokka", dossier=dossier)
     monkeypatch.setattr(
-        deep_researcher,
+        brief,
         "configurable_model",
         _StubModel(_assessment(False, missing_information="lifespan and diet")),
     )

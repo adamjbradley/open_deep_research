@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from langchain_core.messages import AIMessage, HumanMessage
 
 import open_deep_research.deep_researcher as dr
+from open_deep_research.nodes import brief
 from open_deep_research.nodes import persistence
 from open_deep_research.nodes import profiles
 from open_deep_research.nodes import report
@@ -68,13 +69,13 @@ def test_codex_role_config_puts_codex_on_supervisor_and_final_report_only():
 
 def test_write_research_brief_uses_codex_supervisor_model(monkeypatch):
     model = _RecordingModel(ResearchQuestion(research_brief="Research India DPI."))
-    monkeypatch.setattr(dr, "configurable_model", model)
-    monkeypatch.setattr(dr, "get_subject_names", lambda *a, **k: [])
+    monkeypatch.setattr(brief, "configurable_model", model)
+    monkeypatch.setattr(brief, "get_subject_names", lambda *a, **k: [])
 
     async def no_existing(*args, **kwargs):
         return None
 
-    monkeypatch.setattr(dr, "get_subject_by_slug", no_existing)
+    monkeypatch.setattr(brief, "get_subject_by_slug", no_existing)
 
     state = {"messages": [HumanMessage(content="Review India DPI")]}
     result = asyncio.run(dr.write_research_brief(state, _config(use_knowledge_base=False)))
@@ -122,10 +123,10 @@ def test_assess_knowledge_uses_codex_for_answerability_decision(monkeypatch):
     async def by_slug(*args, **kwargs):
         return dossier
 
-    monkeypatch.setattr(dr, "configurable_model", model)
-    monkeypatch.setattr(dr, "get_subject_names", names)
-    monkeypatch.setattr(dr, "_resolve_subject", resolve)
-    monkeypatch.setattr(dr, "get_subject_by_slug", by_slug)
+    monkeypatch.setattr(brief, "configurable_model", model)
+    monkeypatch.setattr(brief, "get_subject_names", names)
+    monkeypatch.setattr(brief, "_resolve_subject", resolve)
+    monkeypatch.setattr(brief, "get_subject_by_slug", by_slug)
 
     state = {"messages": [HumanMessage(content="Does India have foundational ID?")]}
     cmd = asyncio.run(dr.assess_knowledge(state, _config()))
