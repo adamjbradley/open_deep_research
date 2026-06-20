@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from langchain_core.messages import AIMessage, HumanMessage
 
 import open_deep_research.deep_researcher as dr
+from open_deep_research.nodes import profiles
 from open_deep_research.configuration import Configuration
 from open_deep_research.state import KnowledgeAssessment, ResearchQuestion, TargetProperties
 
@@ -166,7 +167,7 @@ def test_merge_dossier_uses_codex_final_report_model(monkeypatch):
 def test_target_property_scoping_stays_on_fast_summarization_model(monkeypatch):
     """A deliberately non-Codex role: cheap structured scoping should stay fast."""
     model = _RecordingModel(TargetProperties(property_names=["id_coverage_pct"]))
-    monkeypatch.setattr(dr, "configurable_model", model)
+    monkeypatch.setattr(profiles, "configurable_model", model)
     prof = SimpleNamespace(properties=[
         SimpleNamespace(name="id_coverage_pct", value_kind="number"),
         SimpleNamespace(name="legal_basis", value_kind="enum"),

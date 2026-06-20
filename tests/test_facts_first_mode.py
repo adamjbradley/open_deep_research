@@ -9,6 +9,7 @@ import aiosqlite
 from langgraph.graph import END
 
 import open_deep_research.deep_researcher as dr
+from open_deep_research.nodes import profiles
 from open_deep_research.factbase import migrations, profile, schema
 from open_deep_research.state import TargetProperties
 
@@ -95,14 +96,14 @@ class _FakeChain:
 
 
 def test_resolve_target_properties_validates_and_drops_unknown(monkeypatch):
-    monkeypatch.setattr(dr, "configurable_model",
+    monkeypatch.setattr(profiles, "configurable_model",
                         _FakeChain(TargetProperties(property_names=["id_coverage_pct", "bogus_prop"])))
     out = asyncio.run(dr.resolve_target_properties("coverage?", DI, _CfgObj(), {}))
     assert out == ["id_coverage_pct"]  # bogus dropped
 
 
 def test_resolve_target_properties_falls_back_to_all_on_failure(monkeypatch):
-    monkeypatch.setattr(dr, "configurable_model", _FakeChain(raises=True))
+    monkeypatch.setattr(profiles, "configurable_model", _FakeChain(raises=True))
     out = asyncio.run(dr.resolve_target_properties("anything", DI, _CfgObj(), {}))
     assert set(out) == {pd.name for pd in DI.properties}  # all properties
 
