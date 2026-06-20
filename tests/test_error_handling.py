@@ -16,7 +16,7 @@ from open_deep_research.deep_researcher import (
     _report_is_failed,
 )
 from open_deep_research.factbase import migrations, schema
-
+from open_deep_research.nodes import researcher
 
 # -- X1 detector -----------------------------------------------------------
 
@@ -72,7 +72,7 @@ def test_researcher_tools_handles_unknown_tool_name(monkeypatch):
     async def fake_tools(config):
         return [utils.think_tool]  # only think_tool is available
 
-    monkeypatch.setattr(dr, "get_all_tools", fake_tools)
+    monkeypatch.setattr(researcher, "get_all_tools", fake_tools)
 
     bad_call = {"name": "NonexistentSearch", "args": {"q": "x"}, "id": "c1", "type": "tool_call"}
     state = {

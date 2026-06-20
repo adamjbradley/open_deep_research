@@ -17,6 +17,7 @@ from langgraph.graph import END
 import open_deep_research.claude_agent_chat as cac
 import open_deep_research.deep_researcher as dr
 from open_deep_research.deep_researcher import recommended_recursion_limit, supervisor_tools
+from open_deep_research.nodes import supervisor as supervisor_mod
 
 
 def _cr(topic: str, call_id: str) -> dict:
@@ -38,7 +39,7 @@ def test_one_failing_researcher_does_not_lose_the_others(monkeypatch):
             raise RuntimeError("researcher boom")
         return {"compressed_research": f"FINDINGS for {topic}", "raw_notes": [f"raw {topic}"]}
 
-    monkeypatch.setattr(dr.researcher_subgraph, "ainvoke", fake_ainvoke)
+    monkeypatch.setattr(supervisor_mod.researcher_subgraph, "ainvoke", fake_ainvoke)
 
     messages = [
         SystemMessage(content="supervisor"),
@@ -80,8 +81,8 @@ def test_unexpected_dispatch_error_is_raised_not_swallowed(monkeypatch):
     async def returns_bad(payload, config=None):
         return "not a dict"
 
-    monkeypatch.setattr(dr.researcher_subgraph, "ainvoke", returns_bad)
-    monkeypatch.setattr(dr, "is_token_limit_exceeded", lambda e, m: False)
+    monkeypatch.setattr(supervisor_mod.researcher_subgraph, "ainvoke", returns_bad)
+    monkeypatch.setattr(supervisor_mod, "is_token_limit_exceeded", lambda e, m: False)
 
     try:
         asyncio.run(supervisor_tools(_state_one_unit(), _config()))
@@ -95,8 +96,8 @@ def test_token_limit_ends_phase_gracefully(monkeypatch):
     async def returns_bad(payload, config=None):
         return "not a dict"  # triggers the except path via AttributeError on .get()
 
-    monkeypatch.setattr(dr.researcher_subgraph, "ainvoke", returns_bad)
-    monkeypatch.setattr(dr, "is_token_limit_exceeded", lambda e, m: True)
+    monkeypatch.setattr(supervisor_mod.researcher_subgraph, "ainvoke", returns_bad)
+    monkeypatch.setattr(supervisor_mod, "is_token_limit_exceeded", lambda e, m: True)
 
     cmd = asyncio.run(supervisor_tools(_state_one_unit(), _config()))
     assert cmd.goto == END

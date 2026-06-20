@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from open_deep_research import deep_researcher as dr
+from open_deep_research.nodes import researcher
 
 
 class _Tool:
@@ -28,8 +29,8 @@ def _patch_tools(monkeypatch):
     async def fake_exec(tool, args, config):
         return "ok"  # benign tool output (e.g. ResearchComplete/think executed)
 
-    monkeypatch.setattr(dr, "get_all_tools", fake_get_all_tools)
-    monkeypatch.setattr(dr, "execute_tool_safely", fake_exec)
+    monkeypatch.setattr(researcher, "get_all_tools", fake_get_all_tools)
+    monkeypatch.setattr(researcher, "execute_tool_safely", fake_exec)
 
 
 _CFG = {"configurable": {"search_api": "tavily", "max_react_tool_calls": 4, "thread_id": "t"}}

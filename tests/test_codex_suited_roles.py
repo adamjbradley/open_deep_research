@@ -10,7 +10,13 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 import open_deep_research.deep_researcher as dr
 from open_deep_research.configuration import Configuration
-from open_deep_research.state import KnowledgeAssessment, ResearchQuestion, TargetProperties
+from open_deep_research.nodes import brief, persistence, profiles, report
+from open_deep_research.nodes import supervisor as supervisor_mod
+from open_deep_research.state import (
+    KnowledgeAssessment,
+    ResearchQuestion,
+    TargetProperties,
+)
 
 
 class _RecordingModel:
@@ -64,13 +70,13 @@ def test_codex_role_config_puts_codex_on_supervisor_and_final_report_only():
 
 def test_write_research_brief_uses_codex_supervisor_model(monkeypatch):
     model = _RecordingModel(ResearchQuestion(research_brief="Research India DPI."))
-    monkeypatch.setattr(dr, "configurable_model", model)
-    monkeypatch.setattr(dr, "get_subject_names", lambda *a, **k: [])
+    monkeypatch.setattr(brief, "configurable_model", model)
+    monkeypatch.setattr(brief, "get_subject_names", lambda *a, **k: [])
 
     async def no_existing(*args, **kwargs):
         return None
 
-    monkeypatch.setattr(dr, "get_subject_by_slug", no_existing)
+    monkeypatch.setattr(brief, "get_subject_by_slug", no_existing)
 
     state = {"messages": [HumanMessage(content="Review India DPI")]}
     result = asyncio.run(dr.write_research_brief(state, _config(use_knowledge_base=False)))
@@ -92,6 +98,7 @@ def test_supervisor_uses_codex_supervisor_model(monkeypatch):
     )
     model = _RecordingModel(response)
     monkeypatch.setattr(dr, "configurable_model", model)
+    monkeypatch.setattr(supervisor_mod, "configurable_model", model)
 
     state = {
         "supervisor_messages": [HumanMessage(content="Research India DPI")],
@@ -117,10 +124,10 @@ def test_assess_knowledge_uses_codex_for_answerability_decision(monkeypatch):
     async def by_slug(*args, **kwargs):
         return dossier
 
-    monkeypatch.setattr(dr, "configurable_model", model)
-    monkeypatch.setattr(dr, "get_subject_names", names)
-    monkeypatch.setattr(dr, "_resolve_subject", resolve)
-    monkeypatch.setattr(dr, "get_subject_by_slug", by_slug)
+    monkeypatch.setattr(brief, "configurable_model", model)
+    monkeypatch.setattr(brief, "get_subject_names", names)
+    monkeypatch.setattr(brief, "_resolve_subject", resolve)
+    monkeypatch.setattr(brief, "get_subject_by_slug", by_slug)
 
     state = {"messages": [HumanMessage(content="Does India have foundational ID?")]}
     cmd = asyncio.run(dr.assess_knowledge(state, _config()))
@@ -132,7 +139,7 @@ def test_assess_knowledge_uses_codex_for_answerability_decision(monkeypatch):
 
 def test_final_report_generation_uses_codex_final_report_model(monkeypatch):
     model = _RecordingModel(AIMessage(content="Final synthesized report"))
-    monkeypatch.setattr(dr, "configurable_model", model)
+    monkeypatch.setattr(report, "configurable_model", model)
 
     state = {
         "messages": [HumanMessage(content="Review India DPI")],
@@ -147,7 +154,7 @@ def test_final_report_generation_uses_codex_final_report_model(monkeypatch):
 
 def test_merge_dossier_uses_codex_final_report_model(monkeypatch):
     model = _RecordingModel(AIMessage(content="Merged dossier"))
-    monkeypatch.setattr(dr, "configurable_model", model)
+    monkeypatch.setattr(persistence, "configurable_model", model)
 
     merged = asyncio.run(
         dr._merge_dossier(
@@ -166,7 +173,7 @@ def test_merge_dossier_uses_codex_final_report_model(monkeypatch):
 def test_target_property_scoping_stays_on_fast_summarization_model(monkeypatch):
     """A deliberately non-Codex role: cheap structured scoping should stay fast."""
     model = _RecordingModel(TargetProperties(property_names=["id_coverage_pct"]))
-    monkeypatch.setattr(dr, "configurable_model", model)
+    monkeypatch.setattr(profiles, "configurable_model", model)
     prof = SimpleNamespace(properties=[
         SimpleNamespace(name="id_coverage_pct", value_kind="number"),
         SimpleNamespace(name="legal_basis", value_kind="enum"),

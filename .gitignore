@@ -75,3 +75,6 @@ temp/
 
 # Claude Code worktrees (agent-created, ephemeral)
 .claude/worktrees/
+
+# SDD scratch (briefs/reports/ledger)
+.superpowers/
