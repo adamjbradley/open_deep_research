@@ -82,11 +82,12 @@ def main():
         f"rebase / pull / merge / stash / restore in any one of them will move "
         f"the branch and rewrite files under the others, corrupting in-flight "
         f"edits.\n"
-        f"Before any branch- or working-tree-mutating git work here, isolate this "
-        f"session in its own worktree, e.g.:\n"
-        f"  git worktree add ../<dir> -b <branch>   # then work there\n"
-        f"or use the `cw <branch>` shell launcher, or Claude Code's EnterWorktree. "
-        f"Read-only and additive ops (status, add, commit, push) are safe to share."
+        f"Just switch branches as usual: the git-worktree-redirect hook will "
+        f"auto-create an isolated worktree under .claude/worktrees/<branch> and "
+        f"point you to it. For other mutating ops, isolate first:\n"
+        f"  git worktree add .claude/worktrees/<name> -b <name>   # then cd there\n"
+        f"(or use Claude Code's EnterWorktree). Read-only and additive ops "
+        f"(status, add, commit, push) are safe to share."
     )
     print(json.dumps({
         "hookSpecificOutput": {
