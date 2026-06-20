@@ -9,13 +9,14 @@ from types import SimpleNamespace
 from langchain_core.messages import AIMessage, HumanMessage
 
 import open_deep_research.deep_researcher as dr
-from open_deep_research.nodes import brief
-from open_deep_research.nodes import persistence
-from open_deep_research.nodes import profiles
-from open_deep_research.nodes import report
-from open_deep_research.nodes import supervisor as supervisor_mod
 from open_deep_research.configuration import Configuration
-from open_deep_research.state import KnowledgeAssessment, ResearchQuestion, TargetProperties
+from open_deep_research.nodes import brief, persistence, profiles, report
+from open_deep_research.nodes import supervisor as supervisor_mod
+from open_deep_research.state import (
+    KnowledgeAssessment,
+    ResearchQuestion,
+    TargetProperties,
+)
 
 
 class _RecordingModel:

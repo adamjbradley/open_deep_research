@@ -1,133 +1,93 @@
 """Main LangGraph implementation for the Deep Research agent."""
 
-import asyncio
 import logging
-import os
-from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional
 
-from langchain_core.messages import (
-    AIMessage,
-    HumanMessage,
-    SystemMessage,
-    ToolMessage,
-    filter_messages,
-    get_buffer_string,
-)
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Command
-from pydantic import BaseModel, Field
 
 from open_deep_research.claude_agent_chat import configurable_claude_model
-from open_deep_research.configuration import (
-    Configuration,
+from open_deep_research.configuration import Configuration
+from open_deep_research.nodes.brief import (
+    _steer_brief_with_catalog,
+    answer_from_dossier,
+    assess_knowledge,
+    clarify_with_user,
+    write_research_brief,
 )
-from open_deep_research.failover import discard_tracker, get_tracker, new_run_tracker
-from open_deep_research.prompts import (
-    answer_from_dossier_prompt,
-    clarify_with_user_instructions,
-    compress_research_simple_human_message,
-    compress_research_system_prompt,
-    facts_answer_polish_prompt,
-    final_report_generation_prompt,
-    knowledge_assessment_prompt,
-    lead_researcher_prompt,
-    merge_reports_prompt,
-    profile_selection_prompt,
-    research_system_prompt,
-    subject_resolution_prompt,
-    target_properties_prompt,
-    transform_messages_into_research_topic_prompt,
+from open_deep_research.nodes.common import (
+    ALL_RESEARCH_FAILED_SENTINEL,
+    COMPRESSION_FAILED_SENTINEL,
+    REPORT_FAILED_PREFIX,
+    _fact_fetch_text,
+    _is_empty_run,
+    _raw_text_source_count,
+    _report_is_failed,
+    _run_fact_count,
+    recommended_recursion_limit,
+)
+from open_deep_research.nodes.completeness import (
+    AbsenceJudgement,
+    _gaploop_decision,
+    _make_absence_judge_call,
+    _target_property_coverage,
+    assess_completeness,
+    assess_sufficiency,
+    judge_absence,
+)
+from open_deep_research.nodes.extraction import (
+    ExtractionResult,
+    FactRecord,
+    _make_fact_model_call,
+    _maybe_propose_extensions,
+    extract_facts,
+    preallocate_run,
+)
+from open_deep_research.nodes.persistence import (
+    _checkpoint_dossier,
+    _facts_report_md,
+    _merge_dossier,
+    persist_research,
+)
+from open_deep_research.nodes.profiles import (
+    _effective_profile_name,
+    _resolve_subject,
+    resolve_target_properties,
+    select_profile,
+)
+from open_deep_research.nodes.report import final_report_generation
+from open_deep_research.nodes.researcher import (
+    compress_research,
+    execute_tool_safely,
+    researcher,
+    researcher_subgraph,
+    researcher_tools,
+)
+from open_deep_research.nodes.supervisor import (
+    _lead_researcher_tools,
+    supervisor,
+    supervisor_subgraph,
+    supervisor_tools,
+)
+from open_deep_research.nodes.synthesis import (
+    NameConsolidation,
+    _best_singular_row,
+    _consolidate_name_group,
+    _display_value,
+    _facts_answer_text,
+    _make_name_consolidation_call,
+    _synthesize_dossier,
+    answer_from_facts,
+    synthesize_narrative,
 )
 from open_deep_research.state import (
     AgentInputState,
     AgentState,
-    ClarifyWithUser,
     ConductResearch,
     ResearchComplete,
-    ResearcherOutputState,
-    ResearcherState,
-    KnowledgeAssessment,
-    ResearchQuestion,
-    SelectedProfile,
-    SubjectResolution,
-    SupervisorState,
-    TargetProperties,
 )
-from open_deep_research.storage import (
-    extract_sources,
-    get_db_path,
-    get_subject_by_slug,
-    get_subject_names,
-    log_research_run,
-    preallocate_run as preallocate_run_storage,
-    reap_stale_running,
-    save_run_and_upsert_subject,
-    slugify,
-)
-from open_deep_research.utils import (
-    anthropic_websearch_called,
-    get_all_tools,
-    get_api_key_for_model,
-    get_model_token_limit,
-    get_notes_from_tool_calls,
-    get_today_str,
-    is_token_limit_exceeded,
-    openai_websearch_called,
-    remove_up_to_last_ai_message,
-    think_tool,
-)
+from open_deep_research.utils import think_tool
 
 logger = logging.getLogger(__name__)
-
-from open_deep_research.nodes.common import (
-    _report_is_failed,
-    _is_empty_run,
-    _run_fact_count,
-    _raw_text_source_count,
-    _fact_fetch_text,
-    recommended_recursion_limit,
-    COMPRESSION_FAILED_SENTINEL,
-    ALL_RESEARCH_FAILED_SENTINEL,
-    REPORT_FAILED_PREFIX,
-)
-from open_deep_research.nodes.profiles import (
-    select_profile,
-    resolve_target_properties,
-    _effective_profile_name,
-    _resolve_subject,
-)
-from open_deep_research.nodes.report import final_report_generation
-from open_deep_research.nodes.extraction import (
-    FactRecord,
-    ExtractionResult,
-    _make_fact_model_call,
-    _maybe_propose_extensions,
-    preallocate_run,
-    extract_facts,
-)
-from open_deep_research.nodes.synthesis import (
-    synthesize_narrative,
-    answer_from_facts,
-    _facts_answer_text,
-    _synthesize_dossier,
-    _best_singular_row,
-    _display_value,
-    NameConsolidation,
-    _consolidate_name_group,
-    _make_name_consolidation_call,
-)
-from open_deep_research.nodes.completeness import (
-    assess_sufficiency,
-    assess_completeness,
-    _gaploop_decision,
-    _target_property_coverage,
-    AbsenceJudgement,
-    judge_absence,
-    _make_absence_judge_call,
-)
-
 
 # Initialize a configurable model that we will use throughout the agent.
 # Backed by CLI agents (Gemini, Claude/code, or Codex). Default = gemini:gemini-2.5-flash:
@@ -137,35 +97,74 @@ configurable_model = configurable_claude_model(
     default_config={"model": "gemini:gemini-2.5-flash"}
 )
 
-from open_deep_research.nodes.brief import (
-    clarify_with_user,
-    assess_knowledge,
-    answer_from_dossier,
-    write_research_brief,
-    _steer_brief_with_catalog,
-)
-
-from open_deep_research.nodes.supervisor import (
-    _lead_researcher_tools,
-    supervisor,
-    supervisor_tools,
-    supervisor_subgraph,
-)
-
-from open_deep_research.nodes.researcher import (
-    researcher,
-    researcher_tools,
-    compress_research,
-    execute_tool_safely,
-    researcher_subgraph,
-)
-
-from open_deep_research.nodes.persistence import (
-    persist_research,
-    _checkpoint_dossier,
-    _facts_report_md,
-    _merge_dossier,
-)
+# Public surface: this assembler re-exports every node + helper it imports so that
+# `langgraph.json`'s entry point and `from open_deep_research import deep_researcher as
+# dr; dr.X` keep resolving after the move into nodes/. A missing re-export surfaces
+# immediately as an AttributeError in the graph-identity / wiring tests.
+__all__ = [
+    "ALL_RESEARCH_FAILED_SENTINEL",
+    "AbsenceJudgement",
+    "COMPRESSION_FAILED_SENTINEL",
+    "ConductResearch",
+    "ExtractionResult",
+    "FactRecord",
+    "NameConsolidation",
+    "REPORT_FAILED_PREFIX",
+    "ResearchComplete",
+    "_best_singular_row",
+    "_checkpoint_dossier",
+    "_consolidate_name_group",
+    "_display_value",
+    "_effective_profile_name",
+    "_fact_fetch_text",
+    "_facts_answer_text",
+    "_facts_report_md",
+    "_gaploop_decision",
+    "_is_empty_run",
+    "_lead_researcher_tools",
+    "_make_absence_judge_call",
+    "_make_fact_model_call",
+    "_make_name_consolidation_call",
+    "_maybe_propose_extensions",
+    "_merge_dossier",
+    "_raw_text_source_count",
+    "_report_is_failed",
+    "_resolve_subject",
+    "_run_fact_count",
+    "_steer_brief_with_catalog",
+    "_synthesize_dossier",
+    "_target_property_coverage",
+    "answer_from_dossier",
+    "answer_from_facts",
+    "assess_completeness",
+    "assess_knowledge",
+    "assess_sufficiency",
+    "clarify_with_user",
+    "compress_research",
+    "configurable_model",
+    "deep_researcher",
+    "deep_researcher_builder",
+    "execute_tool_safely",
+    "extract_facts",
+    "final_report_generation",
+    "judge_absence",
+    "persist_research",
+    "preallocate_run",
+    "recommended_recursion_limit",
+    "researcher",
+    "researcher_subgraph",
+    "researcher_tools",
+    "resolve_target_properties",
+    "route_after_extract",
+    "route_after_research",
+    "select_profile",
+    "supervisor",
+    "supervisor_subgraph",
+    "supervisor_tools",
+    "synthesize_narrative",
+    "think_tool",
+    "write_research_brief",
+]
 
 
 # Main Deep Researcher Graph Construction

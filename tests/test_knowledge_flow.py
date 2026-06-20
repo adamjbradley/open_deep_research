@@ -19,8 +19,7 @@ from types import SimpleNamespace
 from langchain_core.messages import HumanMessage
 
 from open_deep_research.deep_researcher import assess_knowledge, persist_research
-from open_deep_research.nodes import brief
-from open_deep_research.nodes import persistence
+from open_deep_research.nodes import brief, persistence
 
 
 class _StubModel:
