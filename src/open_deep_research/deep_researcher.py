@@ -1349,6 +1349,60 @@ async def _merge_dossier(subject, existing_report, new_report, configurable, con
     return str(response.content)
 
 
+async def _facts_report_md(config, instance_key) -> str:
+    """Render the facts gathered for an instance as dossier show-style markdown (NO LLM)."""
+    import aiosqlite
+    from open_deep_research.factbase import (query as _fbq, render as _fbr,
+                                             schema as _fbschema, migrations as _fbmig)
+    from open_deep_research.storage import _ensure_schema as _ens
+    async with aiosqlite.connect(get_db_path(config)) as conn:
+        await _ens(conn)
+        await _fbmig.apply(conn, _fbschema.STEPS)
+        grouped = await _fbq.FactQuery(conn).show_grouped(instance_key)
+    return _fbr.render(grouped, fmt="md") if grouped else ""
+
+
+async def _checkpoint_dossier(state, config) -> None:
+    """Persist a PARTIAL subject dossier from the facts gathered so far (no LLM), so a
+    whole-profile run that aborts/times out mid-loop still saves a usable dossier rather than
+    nothing. Guards: requires an already-set subject (skip LLM resolution), fact_count>0, and a
+    brand-new subject (never overwrites an existing established dossier). Best-effort."""
+    try:
+        subject = state.get("subject")
+        if not subject:
+            return
+        db_path = get_db_path(config)
+        prealloc = state.get("prealloc_run_id")
+        fact_count = await _run_fact_count(db_path, prealloc) if prealloc else 0
+        if fact_count <= 0:                                   # Guard 1
+            return
+        slug = slugify(subject)
+        existing = await get_subject_by_slug(db_path, slug)
+        if existing and existing.get("current_report"):       # Guard 2: don't poison existing
+            return
+        from open_deep_research.factbase import entities as _fbe
+        ik = _fbe.CountryResolver().resolve_in_text(subject)
+        if not ik:
+            return
+        report = await _facts_report_md(config, ik)
+        if not report.strip():
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        sources = extract_sources(report)
+        run = {
+            "thread_id": (config.get("configurable") or {}).get("thread_id"),
+            "topic": subject, "research_brief": state.get("research_brief"),
+            "final_report": report, "sources": sources, "raw_notes": state.get("raw_notes", []),
+            "config": {}, "status": "partial", "error": None, "created_at": now,
+        }
+        await save_run_and_upsert_subject(
+            db_path, subject_name=subject, slug=slug, merged_report=report,
+            sources_union=sources, run=run, now=now, run_id=prealloc)
+        logger.info("Checkpointed partial dossier for %s (%d facts).", subject, fact_count)
+    except Exception as e:  # noqa: BLE001 - best-effort; never fail the run on a checkpoint
+        logger.warning("Partial-dossier checkpoint failed (non-fatal): %s", e)
+
+
 async def persist_research(state: AgentState, config: RunnableConfig):
     """Store the completed run and accumulate it into its subject's dossier.
 
