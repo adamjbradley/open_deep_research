@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 import open_deep_research.deep_researcher as dr
 from open_deep_research.nodes import profiles
+from open_deep_research.nodes import report
 from open_deep_research.configuration import Configuration
 from open_deep_research.state import KnowledgeAssessment, ResearchQuestion, TargetProperties
 
@@ -133,7 +134,7 @@ def test_assess_knowledge_uses_codex_for_answerability_decision(monkeypatch):
 
 def test_final_report_generation_uses_codex_final_report_model(monkeypatch):
     model = _RecordingModel(AIMessage(content="Final synthesized report"))
-    monkeypatch.setattr(dr, "configurable_model", model)
+    monkeypatch.setattr(report, "configurable_model", model)
 
     state = {
         "messages": [HumanMessage(content="Review India DPI")],
