@@ -1980,6 +1980,11 @@ async def assess_completeness(state: AgentState, config: RunnableConfig) -> Comm
         # Can't resolve subject to a country — go straight to terminal
         return Command(goto="synthesize_narrative", update={"fact_rounds_used": rounds_used})
 
+    # Persist a partial dossier from the facts gathered so far (cheap, no LLM) BEFORE the
+    # loop/finalize decision, so a run aborted/timed-out in a later gap round still saved a
+    # usable dossier (the empty-dossier-on-timeout failure). Best-effort.
+    await _checkpoint_dossier(state, config)
+
     notes_text = "\n".join(state.get("raw_notes", []) or [])[:8000]
 
     async with aiosqlite.connect(get_db_path(config)) as conn:

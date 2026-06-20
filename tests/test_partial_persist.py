@@ -42,3 +42,21 @@ def test_checkpoint_skips_when_no_subject(monkeypatch):
     calls = _setup(monkeypatch, fact_count=52, existing=None)
     asyncio.run(dr._checkpoint_dossier({"prealloc_run_id": 7}, _CFG))
     assert "save" not in calls            # no subject -> no LLM resolution
+
+def test_assess_completeness_invokes_checkpoint(monkeypatch):
+    seen = {}
+    async def spy(state, config): seen["called"] = state.get("subject")
+    monkeypatch.setattr(dr, "_checkpoint_dossier", spy)
+    # resolve_in_text -> a country so assess_completeness proceeds past the early return
+    import open_deep_research.factbase.entities as fbe
+    monkeypatch.setattr(fbe.CountryResolver, "resolve_in_text", lambda self, t: "EST")
+    # stub the DB-heavy completeness work so we only test the wiring: force the no-ik path off
+    # by giving a subject; then let assess_completeness reach the checkpoint call.
+    state = {"subject": "Estonia", "fact_rounds_used": 0, "raw_notes": [], "research_brief": "b"}
+    cfg = {"configurable": {"thread_id": "t", "database_path": "/tmp/ac.db",
+                            "whole_profile_mode": True, "profile_name": "country_digital_identity"}}
+    try:
+        asyncio.run(dr.assess_completeness(state, cfg))
+    except Exception:
+        pass  # downstream DB/profile work may error on an empty temp DB; we only assert the spy
+    assert seen.get("called") == "Estonia"
