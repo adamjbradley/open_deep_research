@@ -11,6 +11,11 @@
 ## Global Constraints
 
 - Tests run with `.venv/bin/python -m pytest` (the worktree's own venv via `uv sync`; bare `python` not on PATH).
+- **GUARD SET (the per-task gate).** The full 103-file suite contains live backend tests (agy/nvidia/search/e2e/failover-integration) that hang without credentials, so the refactor guard is the curated set of test files that import `deep_researcher` (baseline: 90 passed in ~3 min). Define once and reuse:
+  ```
+  GUARD="tests/test_assess_sufficiency.py tests/test_batch_cli_registry.py tests/test_codex_suited_roles.py tests/test_error_handling.py tests/test_extract_facts_backfill_wiring.py tests/test_facts_first_mode.py tests/test_failover_graph_integration.py tests/test_graph_extract_facts_wiring.py tests/test_gaploop_bailout.py tests/test_graph_robustness.py tests/test_knowledge_flow.py tests/test_partial_persist.py tests/test_reaper_wiring.py tests/test_reliability_gate.py tests/test_researcher_premature_guard.py tests/test_supervisor_guard.py tests/test_graph_identity.py"
+  ```
+  "Full suite green" throughout this plan means: `timeout 360 .venv/bin/python -m pytest $GUARD -p no:warnings -q -o addopts=""` → all pass (+ `tests/test_graph_identity.py` once Task 1 creates it).
 - On branch `feat/modularize-deep-researcher` in a worktree — do NOT branch again or touch `main`.
 - **ZERO behavior change.** Functions move byte-for-byte; do not edit any function body, signature, or logic. The only edits are: which file a function lives in, the new module's import lines, the assembler's re-export lines, and monkeypatch *targets* in tests.
 - New package dir: `src/open_deep_research/nodes/` with `__init__.py` (empty is fine).
