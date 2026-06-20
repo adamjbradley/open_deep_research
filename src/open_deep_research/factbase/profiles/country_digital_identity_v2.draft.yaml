@@ -4,16 +4,21 @@ notes: >
   Comprehensive Digital-Identity profile for the country entity type (v2 DRAFT, World Bank
   ID4D-aligned). Superset of v1: keeps the v1 foundational spine and adds governance,
   credentials/form-factor, digital authentication, lifecycle/CRVS linkage, usage & adoption,
-  interoperability, and privacy/rights dimensions.
+  interoperability, and privacy/rights dimensions. Uses the `text` kind, and every fact also
+  carries a per-fact `narrative` automatically.
+
+  SUB-NATIONAL CAPTURE: where a country is federal/devolved (states, provinces, territories,
+  emirates, autonomous regions, etc.), digital-ID arrangements often vary by unit. This is
+  modeled WITHOUT a separate entity type: facts stay on the country instance and are scoped
+  with two qualifiers present on the variable properties -- `jurisdiction_level`
+  (national|state|regional|local) and `subnational_unit` (the unit's name, free-text; OMIT for
+  country-wide facts). So e.g. id_coverage_pct can hold one national value plus one per state,
+  each a distinct fact rather than a conflict. `subnational_structure` + `constituent_units`
+  capture the structure itself and the list of units.
 
   REVIEW DRAFT -- not auto-loaded (.draft.yaml is skipped by available_profiles). To adopt:
   review/trim, then rename to country_digital_identity_v2.yaml (makes it selectable) or merge
   the new properties into country_digital_identity.yaml.
-
-  NOTE: a few dimensions (system architecture rationale, controversy/court-ruling summaries,
-  breach details) are best modeled as free-text 'text'/narrative properties, which require the
-  currently-reverted text-kind support. They are listed as comments at the end rather than
-  included, so this file validates against the current schema.
 properties:
   # ---------------------------------------------------------------------------
   # v1 foundational spine (carried over; biometric_capture widened + opened)
@@ -21,6 +26,9 @@ properties:
   - name: foundational_id_scheme
     kind: name
     description: "The country's primary national/foundational ID scheme."
+    identity_qualifiers: [jurisdiction_level, subnational_unit]
+    qualifier_enums:
+      jurisdiction_level: [national, state, regional, local]
     value_aliases:
       aadhaar:
         - uidai
@@ -31,20 +39,22 @@ properties:
   - name: scheme_status
     kind: enum
     description: "Operational maturity of the foundational ID scheme."
-    identity_qualifiers: [basis]
+    identity_qualifiers: [basis, jurisdiction_level, subnational_unit]
     required_qualifiers: [basis]
     qualifier_enums:
       basis: [de_jure, de_facto]
+      jurisdiction_level: [national, state, regional, local]
     value_enum: [announced, piloting, operational, mandatory]
   - name: id_coverage_pct
     kind: percentage
     description: "Share of the population holding the foundational ID."
-    identity_qualifiers: [population_basis, coverage_kind, measured_modeled]
+    identity_qualifiers: [population_basis, coverage_kind, measured_modeled, jurisdiction_level, subnational_unit]
     required_qualifiers: [population_basis]
     qualifier_enums:
       population_basis: [adults_15plus, total_pop, births, registered_holders]
       coverage_kind: [enrolled, issued, active]
       measured_modeled: [measured, modeled]
+      jurisdiction_level: [national, state, regional, local]
   - name: biometric_capture
     kind: enum
     multi: true
@@ -54,15 +64,18 @@ properties:
   - name: data_protection_law
     kind: boolean
     description: "Whether a data-protection law applies to the ID system."
-    identity_qualifiers: [jurisdiction, stage, scope]
+    identity_qualifiers: [jurisdiction_level, subnational_unit, stage, scope]
     required_qualifiers: [stage]
     qualifier_enums:
       stage: [enacted, in_force]
       scope: [comprehensive, sectoral]
+      jurisdiction_level: [national, state, regional, local]
   - name: legal_basis
     kind: name_year
     description: "Name + year of the statute/regulation establishing the scheme."
-    identity_qualifiers: [jurisdiction]
+    identity_qualifiers: [jurisdiction_level, subnational_unit]
+    qualifier_enums:
+      jurisdiction_level: [national, state, regional, local]
 
   # ---------------------------------------------------------------------------
   # Governance & architecture
@@ -81,6 +94,14 @@ properties:
   - name: unique_id_number
     kind: boolean
     description: "Whether the scheme assigns each person a unique national ID number."
+  - name: subnational_structure
+    kind: enum
+    open: true
+    description: "Whether the country is unitary or composed of constituent units (states/provinces/territories/emirates) that may run their own ID arrangements."
+    value_enum: [unitary, federal, devolved, confederal]
+  - name: constituent_units
+    kind: text
+    description: "The country's constituent units (states/provinces/territories/emirates) and their count; note any unit that operates its own digital-ID scheme or diverges from the national one."
 
   # ---------------------------------------------------------------------------
   # Credentials & form factor
@@ -141,6 +162,9 @@ properties:
   - name: mandatory_for_services
     kind: boolean
     description: "Whether the ID is mandatory to access key public services/benefits."
+    identity_qualifiers: [jurisdiction_level, subnational_unit]
+    qualifier_enums:
+      jurisdiction_level: [national, state, regional, local]
 
   # ---------------------------------------------------------------------------
   # Interoperability & standards
@@ -164,7 +188,9 @@ properties:
   - name: reported_data_breach
     kind: boolean
     description: "Whether a significant data breach/security incident has been reported."
-    identity_qualifiers: [jurisdiction]
+    identity_qualifiers: [jurisdiction_level, subnational_unit]
+    qualifier_enums:
+      jurisdiction_level: [national, state, regional, local]
   - name: constitutional_legal_challenge
     kind: boolean
     description: "Whether the scheme has faced a significant constitutional/legal challenge."
