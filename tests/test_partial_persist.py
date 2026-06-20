@@ -2,6 +2,7 @@
 import asyncio
 from open_deep_research import deep_researcher as dr
 from open_deep_research.nodes import persistence
+from open_deep_research.nodes import completeness
 
 
 def _setup(monkeypatch, *, fact_count, existing):
@@ -47,7 +48,7 @@ def test_checkpoint_skips_when_no_subject(monkeypatch):
 def test_assess_completeness_invokes_checkpoint(monkeypatch):
     seen = {}
     async def spy(state, config): seen["called"] = state.get("subject")
-    monkeypatch.setattr(dr, "_checkpoint_dossier", spy)
+    monkeypatch.setattr(completeness, "_checkpoint_dossier", spy)
     # resolve_in_text -> a country so assess_completeness proceeds past the early return
     import open_deep_research.factbase.entities as fbe
     monkeypatch.setattr(fbe.CountryResolver, "resolve_in_text", lambda self, t: "EST")
