@@ -12,6 +12,7 @@ import open_deep_research.deep_researcher as dr
 from open_deep_research.nodes import persistence
 from open_deep_research.nodes import profiles
 from open_deep_research.nodes import report
+from open_deep_research.nodes import supervisor as supervisor_mod
 from open_deep_research.configuration import Configuration
 from open_deep_research.state import KnowledgeAssessment, ResearchQuestion, TargetProperties
 
@@ -95,6 +96,7 @@ def test_supervisor_uses_codex_supervisor_model(monkeypatch):
     )
     model = _RecordingModel(response)
     monkeypatch.setattr(dr, "configurable_model", model)
+    monkeypatch.setattr(supervisor_mod, "configurable_model", model)
 
     state = {
         "supervisor_messages": [HumanMessage(content="Research India DPI")],
