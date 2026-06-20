@@ -1,6 +1,7 @@
 """Tests for _checkpoint_dossier and _facts_report_md (Task 1: partial-dossier-persist)."""
 import asyncio
 from open_deep_research import deep_researcher as dr
+from open_deep_research.nodes import persistence
 
 
 def _setup(monkeypatch, *, fact_count, existing):
@@ -11,10 +12,10 @@ def _setup(monkeypatch, *, fact_count, existing):
     async def fake_save(db_path, *, subject_name, slug, merged_report, sources_union, run, now, run_id):
         calls["save"] = {"subject": subject_name, "status": run.get("status"), "report": merged_report, "run_id": run_id}
         return (1, run_id or 7)
-    monkeypatch.setattr(dr, "_run_fact_count", fake_fact_count)
-    monkeypatch.setattr(dr, "get_subject_by_slug", fake_get_subject)
-    monkeypatch.setattr(dr, "_facts_report_md", fake_report)
-    monkeypatch.setattr(dr, "save_run_and_upsert_subject", fake_save)
+    monkeypatch.setattr(persistence, "_run_fact_count", fake_fact_count)
+    monkeypatch.setattr(persistence, "get_subject_by_slug", fake_get_subject)
+    monkeypatch.setattr(persistence, "_facts_report_md", fake_report)
+    monkeypatch.setattr(persistence, "save_run_and_upsert_subject", fake_save)
     return calls
 
 _STATE = {"subject": "Estonia", "prealloc_run_id": 7, "research_brief": "b", "raw_notes": []}

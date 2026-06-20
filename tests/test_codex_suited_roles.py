@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from langchain_core.messages import AIMessage, HumanMessage
 
 import open_deep_research.deep_researcher as dr
+from open_deep_research.nodes import persistence
 from open_deep_research.nodes import profiles
 from open_deep_research.nodes import report
 from open_deep_research.configuration import Configuration
@@ -149,7 +150,7 @@ def test_final_report_generation_uses_codex_final_report_model(monkeypatch):
 
 def test_merge_dossier_uses_codex_final_report_model(monkeypatch):
     model = _RecordingModel(AIMessage(content="Merged dossier"))
-    monkeypatch.setattr(dr, "configurable_model", model)
+    monkeypatch.setattr(persistence, "configurable_model", model)
 
     merged = asyncio.run(
         dr._merge_dossier(

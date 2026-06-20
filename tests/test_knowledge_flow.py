@@ -20,6 +20,7 @@ from langchain_core.messages import HumanMessage
 
 from open_deep_research import deep_researcher
 from open_deep_research.deep_researcher import assess_knowledge, persist_research
+from open_deep_research.nodes import persistence
 
 
 class _StubModel:
@@ -190,7 +191,7 @@ def test_persist_accumulates_additional_topic(tmp_path, monkeypatch):
     async def fake_merge(subject, existing_report, new_report, configurable, config):
         return f"{existing_report}\n\n## Additional research\n{new_report}"
 
-    monkeypatch.setattr(deep_researcher, "_merge_dossier", fake_merge)
+    monkeypatch.setattr(persistence, "_merge_dossier", fake_merge)
 
     second = {
         "messages": [HumanMessage(content="What do quokkas eat?")],
