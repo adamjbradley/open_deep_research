@@ -78,3 +78,8 @@ temp/
 
 # SDD scratch (briefs/reports/ledger)
 .superpowers/
+
+# Machine-generated profile extension proposals — regenerated on every
+# whole-profile run, so tracking them churns git status. Reviewed snapshots
+# are preserved under *.extension.run<N>.draft.yaml (which this does not match).
+*.extension.draft.yaml
