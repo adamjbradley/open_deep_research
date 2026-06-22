@@ -46,6 +46,12 @@ async def main(args: argparse.Namespace) -> None:
             max_researcher_iterations=args.iterations,
             max_react_tool_calls=4,
         )
+    if args.whole_profile:
+        configurable.update(whole_profile_mode=True)
+        if args.profile:
+            configurable["profile_name"] = args.profile
+        if args.profile_rounds is not None:
+            configurable["max_profile_rounds"] = args.profile_rounds
     if args.kb_off:
         configurable.update(use_knowledge_base=False, allow_clarification=False)
     if args.no_persist:
@@ -95,6 +101,9 @@ def parse_args(argv: list) -> argparse.Namespace:
     p.add_argument("--concurrency", type=int, default=4, help="max_concurrent_research_units: parallel researchers per supervisor turn (default 4; raises fan-out throughput).")
     p.add_argument("--no-summarize", action="store_true", help="Skip per-source LLM summarization; pass truncated raw content to compression (far fewer model calls).")
     p.add_argument("--max-results", type=int, default=None, help="Cap results summarized per search query (lowers summarize-call volume). Default: graph default (5).")
+    p.add_argument("--whole-profile", action="store_true", help="Whole-profile dossier mode: gather every profile property + write a profile-defined narrative (exercises completeness + synthesis nodes).")
+    p.add_argument("--profile", help="profile_name for --whole-profile (e.g. country_digital_identity). Default: graph default.")
+    p.add_argument("--profile-rounds", type=int, default=None, help="max_profile_rounds: cap on whole-profile gap rounds (default 6; lower for a quick smoke test).")
     p.add_argument("--db", help="SQLite DB path (default: isolated temp DB).")
     p.add_argument("--full", action="store_true", help="Use the graph's default (deeper) limits.")
     p.add_argument("--no-persist", action="store_true", help="Do not write to any SQLite DB.")
