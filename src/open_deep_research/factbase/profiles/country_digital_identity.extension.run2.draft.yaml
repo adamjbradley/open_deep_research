@@ -1,0 +1,3004 @@
+# === PROFILE EXTENSION DRAFT for country_digital_identity.yaml - machine-generated; NOT loaded ===
+# Properties below were observed during research as VALUABLE facts the production
+# profile 'country_digital_identity.yaml' does not yet capture. Review/edit and MANUALLY merge the
+# ones you want into the production profile. This file is never loaded at runtime.
+#
+# Newest proposals (rationale + confidence):
+#  - adult_coverage_pct (percentage): Coverage varies by year (time series tracking), age cohort (structural differences in enrollment), and counting basis (de facto residents vs. citizens vs. those theoretically eligible). India's 99% in 2024 is almost certainly 'adults_all' and 'de_facto'—must capture this variance. (confidence: high)
+#  - authentication_method_supported (enum): Authentication methods differ from biometric capture: a country may capture fingerprints but only support PIN auth (offline); or capture face but enable both biometric and QR auth via different channels. Sector context matters because capabilities often rolled out unevenly (e.g., government services first, then financial). Year_enabled tracks rollout sequence. This is globally critical: India uses OTP + biometric; Kenya uses USSD + biometric; Nigeria's NIN uses PIN primarily. (confidence: high)
+#  - kyc_linkage_financial (boolean): KYC linkage is a material fact for financial inclusion, surveillance risk, and anti-money-laundering compliance. It's distinct from whether the ID *can* be used (many IDs can be voluntarily provided); linkage means institutions require it or regulators mandate it. This varies by jurisdiction: India's Aadhaar is legally linked to financial KYC (mandatory by RBI); Kenya's ID is used but not legally mandated for all accounts. Mandate type captures nuance (law vs. industry practice). (confidence: high)
+#  - digital_wallet_integration (boolean): Digital wallets (e.g., mDL, digital driver licenses, credential wallets) are the frontier of digital ID deployment. True offline capability is distinct from claims—some wallets require a live check even at the point of use. This reflects global trends: India exploring DigiLocker; EU's eIDAS 2.0 mandates interoperable wallets; South Africa's mDL pilot. Year_launched and platform_name enable tracking evolution and interop. (confidence: low)
+#  - data_minimization_requirement (boolean): Data minimization is a privacy governance frontier distinct from consent/access policy. It captures whether a resident can prove 'I am over 18' without revealing birth date, or 'I am a citizen' without revealing address. This is foundational for digital equity (reducing re-identification risk for vulnerable populations). Most existing schemes (India, Kenya) lack this; it's emerging in EU frameworks. Enforcement type ranges from aspirational (policy document) to architectural (verifiable credentials). (confidence: low)
+#  - deduplication_linkage_scope (enum): Deduplication scope determines inclusivity (can one person game multiple IDs?) and surveillance reach (is one ID tracked across borders?). This is materially different from coverage or enrollment modality. India's Aadhaar has internal dedup + passport linkage but not international pools (as of 2024); many African schemes are exploring regional biometric sharing. Year matters because these linkages evolve. (confidence: medium)
+#  - revocation_suspension_mechanism (enum): Revocation is a trust-critical property. Schemes without formal revocation enable identity theft and abuse; schemes with only administrative revocation may lock out residents wrongly. India has administrative + judicial + voluntary; Estonia has strong revocation; many low-income schemes lack clear mechanisms. This is foundational for the living dossier's data integrity (can you trust a fact about a deceased person?). (confidence: medium)
+#  - financial_inclusion_lift_estimated (percentage): Financial inclusion impact is a key outcome claim but poorly measured globally. Most published estimates are self-reported by governments or industry (low confidence); RCTs are rare. This property separates evidence quality via study_type, enabling researchers to query high-confidence findings only. Needed to fact-check living-dossier claims about ID impact. (confidence: low)
+#
+entity_type: country
+properties:
+- name: id_coverage_by_demographic
+  kind: percentage
+  description: Percentage of a specified demographic group holding valid national
+    ID
+  identity_qualifiers:
+  - demographic_segment
+  - year
+  required_qualifiers:
+  - demographic_segment
+  qualifier_enums:
+    demographic_segment:
+    - adults_18_to_65
+    - children_under_18
+    - seniors_over_65
+    - urban_residents
+    - rural_residents
+    - indigenous_populations
+    - migrant_workers
+    - refugees_and_asylum_seekers
+    - economically_disadvantaged
+    - persons_with_disabilities
+    - religious_minorities
+    - linguistic_minorities
+    - stateless_or_undocumented
+    - nomadic_or_semi_nomadic_populations
+    year:
+    - '2020'
+    - '2021'
+    - '2022'
+    - '2023'
+    - '2024'
+    - '2025'
+- name: mandatory_enrollment_requirement
+  kind: enum
+  description: Whether and to what extent obtaining national ID is legally mandatory
+  identity_qualifiers:
+  - applicable_population
+  qualifier_enums:
+    applicable_population:
+    - all_citizens
+    - adults_only
+    - at_birth_registration
+    - for_government_services
+    - for_financial_services
+    - conditional_on_circumstance
+  value_enum:
+  - fully_voluntary
+  - mandatory_for_specific_government_services
+  - mandatory_for_financial_services_and_banking
+  - mandatory_for_all_citizens
+  - mandatory_at_birth_with_enforcement
+  - de_facto_mandatory_through_exclusion
+  value_aliases:
+    fully_voluntary:
+    - opt_in
+    - no_requirement
+    de_facto_mandatory_through_exclusion:
+    - coercive_through_service_denial
+    - economic_coercion
+- name: private_sector_id_access
+  kind: enum
+  description: Whether and how extensively private companies can access, use, or verify
+    national ID data
+  identity_qualifiers:
+  - access_purpose
+  - consent_requirement
+  required_qualifiers:
+  - access_purpose
+  qualifier_enums:
+    access_purpose:
+    - customer_identity_verification
+    - credit_and_financial_screening
+    - employment_verification
+    - marketing_and_targeting
+    - telecommunications_services
+    - general_commerce
+    - data_aggregation_and_brokers
+    consent_requirement:
+    - not_required
+    - opt_out_default
+    - opt_in_required
+  value_enum:
+  - no_private_sector_access
+  - restricted_access_with_explicit_consent
+  - regulated_access_opt_out_model
+  - widespread_regulated_access
+  - widespread_largely_unregulated_access
+  value_aliases:
+    no_private_sector_access:
+    - government_only
+    - restricted_to_public_agencies
+    restricted_access_with_explicit_consent:
+    - opt_in_commercial_use
+    widespread_unregulated_access:
+    - de_facto_public_infrastructure
+- name: id_linked_government_services
+  kind: enum
+  description: Government and public services that require or actively integrate national
+    ID as primary identifier
+  identity_qualifiers:
+  - service_domain
+  - integration_type
+  required_qualifiers:
+  - service_domain
+  qualifier_enums:
+    service_domain:
+    - voting_and_elections
+    - social_welfare_and_safety_net_benefits
+    - healthcare_and_medical_services
+    - education_and_schools
+    - law_enforcement_and_criminal_justice
+    - employment_and_labor_registration
+    - tax_filing_and_revenue
+    - travel_and_border_control
+    - property_and_land_rights
+    - utilities_and_services_access
+    - census_and_demographic_statistics
+    integration_type:
+    - required
+    - optional
+    - integrated_but_not_required
+  value_enum:
+  - integrated_across_multiple_services
+  - integrated_in_select_services
+  - available_for_use_but_not_integrated
+  - minimal_government_integration
+  - single_purpose_only
+  value_aliases:
+    integrated_across_multiple_services:
+    - ubiquitous_use
+    - unified_identifier_across_government
+    single_purpose_only:
+    - voting_only
+    - census_only
+- name: biometric_modality_types
+  kind: enum
+  description: Specific types of biometric data captured and how they are stored or
+    retained
+  identity_qualifiers:
+  - modality
+  - mandatoriness
+  required_qualifiers:
+  - modality
+  qualifier_enums:
+    modality:
+    - fingerprints
+    - iris_or_retinal_scan
+    - facial_photograph
+    - facial_biometric_template
+    - voice_sample
+    - palm_or_vein_recognition
+    - gait_or_behavioral_biometric
+    - dna_or_genetic_data
+    - none
+    mandatoriness:
+    - mandatory
+    - optional
+    - conditional
+  value_enum:
+  - collected_stored_centralized_database
+  - collected_stored_on_card_chip_only
+  - collected_for_verification_not_stored
+  - collected_stored_with_access_controls
+  - not_collected
+  value_aliases:
+    collected_stored_on_card_chip_only:
+    - chip_storage
+    - card_resident
+    - holder_controlled
+    collected_stored_centralized_database:
+    - centralized_biometric_repository
+    - government_possession
+- name: legal_recourse_for_id_errors
+  kind: enum
+  description: Mechanisms available for individuals to challenge, correct, or dispute
+    identity data held by the government
+  identity_qualifiers:
+  - recourse_mechanism
+  - resolution_speed
+  required_qualifiers:
+  - recourse_mechanism
+  qualifier_enums:
+    recourse_mechanism:
+    - administrative_appeal
+    - independent_data_protection_authority
+    - ombudsman_or_inspector_general
+    - civil_court
+    - constitutional_or_human_rights_court
+    - no_formal_mechanism
+    resolution_speed:
+    - days
+    - weeks
+    - months
+    - months_or_years
+    - years_or_indefinite
+    - unknown
+  value_enum:
+  - comprehensive_rapid_and_accessible
+  - formal_mechanisms_exist_but_slow
+  - limited_to_clerical_errors_only
+  - theoretically_available_but_rarely_used
+  - prohibitively_expensive_or_dangerous
+  - none_available
+  value_aliases:
+    comprehensive_rapid_and_accessible:
+    - robust_independent_oversight
+    - true_correction_process
+    theoretically_available_but_rarely_used:
+    - exists_on_paper_only
+    - no_meaningful_recourse
+- name: vulnerable_population_protections
+  kind: enum
+  description: Specific legal or programmatic protections for groups at risk of systematic
+    exclusion or discrimination
+  identity_qualifiers:
+  - population_group
+  required_qualifiers:
+  - population_group
+  qualifier_enums:
+    population_group:
+    - indigenous_and_aboriginal_peoples
+    - religious_minorities
+    - ethnic_minorities
+    - linguistic_minorities
+    - stateless_persons_and_undocumented_migrants
+    - refugees_and_asylum_seekers
+    - lgbtq_plus_persons
+    - persons_with_disabilities
+    - women_and_girls
+    - children_and_orphans
+    - nomadic_and_semi_nomadic_groups
+    - formerly_enslaved_or_descendant_communities
+  value_enum:
+  - comprehensive_legal_and_programmatic_protections
+  - community_consultation_and_consent_required
+  - exemptions_or_alternative_identification_available
+  - targeted_enrollment_and_support_programs
+  - acknowledged_in_policy_but_not_enforced
+  - no_specific_safeguards
+  - systematic_exclusion_or_documented_discrimination
+  value_aliases:
+    comprehensive_legal_and_programmatic_protections:
+    - strong_legal_framework
+    - independent_enforcement
+    systematic_exclusion_or_documented_discrimination:
+    - apartheid_framework
+    - caste_or_ethnic_discrimination
+- name: accessibility_and_enrollment_barriers
+  kind: enum
+  description: Mechanisms addressing geographic, physical, linguistic, economic, and
+    digital barriers to enrollment and ID use
+  identity_qualifiers:
+  - barrier_category
+  qualifier_enums:
+    barrier_category:
+    - geographic_remoteness
+    - physical_accessibility_for_disabilities
+    - language_support
+    - literacy_and_numeracy_support
+    - digital_divide_and_offline_access
+    - cost_and_fees
+    - documentation_requirements
+    - time_and_availability
+    - discrimination_and_trust
+  value_enum:
+  - comprehensively_addressed_with_alternatives
+  - partially_addressed_mixed_coverage
+  - identified_in_policy_but_not_addressed
+  - no_specific_accommodation_provided
+  - barriers_created_or_exacerbated_by_scheme
+  value_aliases:
+    comprehensively_addressed_with_alternatives:
+    - mobile_enrollment_units
+    - offline_enrollment_centers
+    - multilingual_support
+    - free_or_heavily_subsidized
+    - assistance_for_disabled_persons
+    barriers_created_or_exacerbated_by_scheme:
+    - digital_only_access_excludes_offline_populations
+    - expensive_fees_exclude_poor
+    - documentation_requirements_onerous_for_stateless
+- name: enrollment_modality
+  kind: enum
+  description: Primary method(s) by which eligible residents can enroll in the foundational
+    ID scheme. Reflects accessibility approach beyond digital-only systems.
+  value_enum:
+  - in_person_only
+  - mobile_units
+  - online_only
+  - hybrid_modalities
+  - postal
+  value_aliases:
+    in_person_only:
+    - office_based
+    - registration_center
+    mobile_units:
+    - mobile_camps
+    - field_enrollment
+    online_only:
+    - digital_only
+    - web_based
+    hybrid_modalities:
+    - multiple_methods
+    - mixed
+    postal:
+    - mail_based
+    - remote
+- name: scheme_operational_since
+  kind: name_year
+  description: Year the foundational digital ID scheme became operationally available
+    for enrollment and issuance
+- name: scheme_local_language_name
+  kind: name
+  description: Official name of the foundational ID scheme in primary local language(s),
+    not English translation (e.g., 'Aadhaar', 'e-ID', 'NRIC')
+- name: coverage_denominator_population_segment
+  kind: enum
+  description: The population segment to which the id_coverage_pct statistic applies;
+    clarifies what '99%' in the coverage figure means
+  value_enum:
+  - all_population
+  - adults_18_plus
+  - adult_citizens_only
+  - economically_active
+  - working_age_15_64
+  - government_employees
+  - registered_voters
+  - urban_residents
+  - mixed_or_unclear
+- name: enrollment_legally_mandatory
+  kind: boolean
+  description: Whether citizens or residents are legally required to obtain and maintain
+    active enrollment in the foundational ID scheme
+  identity_qualifiers:
+  - population_subject
+  required_qualifiers:
+  - population_subject
+  qualifier_enums:
+    population_subject:
+    - all_citizens
+    - adult_citizens_18_plus
+    - resident_workers
+    - government_employees
+    - citizens_and_residents
+- name: authentication_modalities_available
+  kind: enum
+  description: Authentication and verification methods technically supported and operationally
+    available for ID holders to use
+  value_enum:
+  - fingerprint_10_digit
+  - iris_biometric
+  - facial_recognition
+  - otp_sms
+  - otp_email
+  - pin_password
+  - digital_signature
+  - qr_code_scan
+  - nfc_contactless_card
+  - multi_biometric_fusion
+  - hybrid_biometric_otp
+  - password_less_device
+  - other
+- name: online_identity_verification_available
+  kind: boolean
+  description: Can identity be verified and authenticated remotely through digital
+    channels without in-person visit or physical document inspection
+  identity_qualifiers:
+  - verification_context
+  qualifier_enums:
+    verification_context:
+    - for_government_services
+    - for_financial_services
+    - for_digital_commerce
+    - cross_sector
+    - planned_only
+- name: uses_universal_unique_identifier
+  kind: boolean
+  description: Does the scheme assign a unique, non-reassigned identifier number to
+    each individual (e.g., Aadhaar model, Estonia e-Residency, Nigeria NIN)
+- name: documented_enrollment_access_barriers
+  kind: enum
+  description: Population groups with documented, publicly reported, or researched
+    barriers to enrollment or reduced access to the scheme
+  identity_qualifiers:
+  - documentation_year
+  qualifier_enums:
+    documentation_year: []
+  value_enum:
+  - none_documented
+  - elderly_and_aging
+  - persons_with_disabilities
+  - rural_or_geographically_remote
+  - linguistic_or_ethnic_minority
+  - homeless_or_no_fixed_address
+  - illiterate_or_non_literate
+  - undocumented_workers_or_migrants
+  - refugees_or_stateless
+  - gender_based_barriers
+  - socioeconomic_poverty
+  - caste_or_social_status_exclusion
+  - multiple_barriers_documented
+- name: interoperability_framework_exists
+  kind: boolean
+  description: Is there a formal, documented framework enabling the ID to be used
+    and verified across multiple government agencies and/or private sector services
+  identity_qualifiers:
+  - framework_scope
+  qualifier_enums:
+    framework_scope:
+    - government_agencies_only
+    - government_plus_financial_sector
+    - government_plus_telecom
+    - multi_sector_ecosystem
+    - planned_or_in_pilot
+- name: mobile_digital_wallet_integration
+  kind: boolean
+  description: Can the digital identity be stored in and presented through mobile
+    wallet applications (e.g., Apple Wallet, Google Pay, national CBDC or e-wallet)
+  identity_qualifiers:
+  - year
+- name: authentication_methods
+  kind: enum
+  description: Authentication mechanisms supported by the digital ID credential
+  identity_qualifiers:
+  - method_type
+  required_qualifiers:
+  - method_type
+  qualifier_enums:
+    method_type:
+    - biometric_only
+    - digital_signature
+    - pin_code
+    - multi_factor
+    - offline_verification
+    - hybrid
+  value_enum:
+  - biometric_only
+  - digital_signature
+  - pin_code
+  - multi_factor
+  - offline_verification
+  - hybrid
+- name: sector_integration
+  kind: enum
+  description: Public or commercial sectors where digital ID is operationally integrated
+    for authentication or transactions
+  identity_qualifiers:
+  - sector
+  required_qualifiers:
+  - sector
+  qualifier_enums:
+    sector:
+    - banking_financial
+    - healthcare
+    - voting_electoral
+    - education
+    - taxation
+    - social_protection
+    - telecommunications
+    - government_services
+    - none
+  value_enum:
+  - banking_financial
+  - healthcare
+  - voting_electoral
+  - education
+  - taxation
+  - social_protection
+  - telecommunications
+  - government_services
+  - none
+  value_aliases:
+    social_protection:
+    - welfare
+    - social_security
+    government_services:
+    - public_administration
+    - civil_services
+- name: offline_authentication
+  kind: boolean
+  description: Whether credentials can be cryptographically verified without active
+    network connectivity
+- name: digital_signature_enabled
+  kind: boolean
+  description: Whether the credential can create legally-binding digital signatures
+    under national e-signature law
+- name: revocation_capability
+  kind: boolean
+  description: Whether the issuing authority can revoke or suspend active credentials
+    mid-lifespan
+- name: consent_model
+  kind: enum
+  description: Legal and behavioral framework determining whether participation is
+    mandatory, voluntary, or presumed
+  value_enum:
+  - mandatory
+  - opt_in
+  - opt_out_with_automatic_enrollment
+  - voluntary
+  value_aliases:
+    opt_out_with_automatic_enrollment:
+    - presumed_consent
+    - automatic_enrollment
+- name: gender_recognition_options
+  kind: enum
+  description: How gender identity is represented on the credential (structural choice
+    that enables or restricts self-identification)
+  value_enum:
+  - binary_only
+  - non_binary_option
+  - customizable_text_field
+  - self_identified
+  - intersex_designation
+  value_aliases:
+    non_binary_option:
+    - third_gender_option
+    customizable_text_field:
+    - open_text_gender
+- name: vulnerable_group_inclusion
+  kind: enum
+  description: Whether the scheme explicitly accommodates or includes historically
+    marginalized populations
+  identity_qualifiers:
+  - vulnerable_group
+  required_qualifiers:
+  - vulnerable_group
+  qualifier_enums:
+    vulnerable_group:
+    - refugees
+    - stateless_persons
+    - homeless
+    - undocumented_migrants
+    - indigenous_peoples
+    - ethnic_minorities
+    - persons_with_disabilities
+  value_enum:
+  - included
+  - explicitly_excluded
+  - no_explicit_policy
+  - accommodations_provided
+- name: enrollment_accessibility
+  kind: enum
+  description: 'Primary modality for citizens to enroll: in-person, remote (video/selfie),
+    or hybrid'
+  value_enum:
+  - in_person_only
+  - remote_partial
+  - fully_remote
+  - hybrid_online_plus_offline
+  value_aliases:
+    remote_partial:
+    - video_identity_verification_with_backup
+    fully_remote:
+    - digital_first_enrollment
+- name: credential_format
+  kind: enum
+  description: Physical or digital media in which the credential is instantiated and
+    distributed to users
+  identity_qualifiers:
+  - format_type
+  required_qualifiers:
+  - format_type
+  qualifier_enums:
+    format_type:
+    - physical_card
+    - digital_certificate
+    - mobile_app
+    - qr_code
+    - none
+  value_enum:
+  - physical_card
+  - digital_certificate
+  - mobile_app
+  - qr_code
+  - none
+- name: biometric_modalities
+  kind: enum
+  description: Individual biometric characteristics captured and stored (only populate
+    if biometric_capture=true)
+  identity_qualifiers:
+  - modality_type
+  required_qualifiers:
+  - modality_type
+  qualifier_enums:
+    modality_type:
+    - fingerprint
+    - iris
+    - facial_image
+    - palm_vein
+    - voice
+    - none
+  value_enum:
+  - fingerprint
+  - iris
+  - facial_image
+  - palm_vein
+  - voice
+  - none
+  value_aliases:
+    iris:
+    - iris_scan
+    - retinal
+    palm_vein:
+    - vein_recognition
+    - palm_recognition
+- name: minimum_enrollment_age
+  kind: enum
+  description: Minimum age at which individuals can independently enroll or receive
+    a digital ID
+  value_enum:
+  - all_ages_at_birth
+  - age_5_plus
+  - age_12_plus
+  - age_16_plus
+  - age_18_plus
+- name: fraud_detection_mechanisms
+  kind: enum
+  description: Technical and procedural methods used to detect and prevent credential
+    forgery, duplication, or misuse
+  value_enum:
+  - none_detected
+  - basic_forensics
+  - advanced_pattern_analytics
+  - real_time_transaction_monitoring
+  - ai_anomaly_detection
+  - blockchain_immutability
+- name: interoperability_standard
+  kind: enum
+  description: Technical standard or specification governing integration with other
+    identity systems or relying parties
+  value_enum:
+  - iso_29115_level_1
+  - iso_29115_level_2
+  - iso_29115_level_3
+  - custom_framework
+  - proprietary_closed
+  - federated_oidc
+  value_aliases:
+    federated_oidc:
+    - openid_connect
+    - saml2
+- name: inclusion_accessibility_features
+  kind: enum
+  description: Technical accommodations for persons with disabilities (visual, hearing,
+    motor, cognitive)
+  identity_qualifiers:
+  - disability_type
+  required_qualifiers:
+  - disability_type
+  qualifier_enums:
+    disability_type:
+    - visual_impairment
+    - hearing_impairment
+    - motor_impairment
+    - cognitive_disability
+  value_enum:
+  - supported
+  - not_supported
+  - partial_accommodations
+  - unknown
+- name: coverage_by_demographic
+  kind: percentage
+  description: Percentage of population segment with active foundational ID, measured
+    by demographic cohort and year
+  identity_qualifiers:
+  - demographic_group
+  - year
+  required_qualifiers:
+  - demographic_group
+  qualifier_enums:
+    demographic_group:
+    - adult
+    - child_0_5
+    - child_6_17
+    - elderly_60plus
+    - urban
+    - rural
+    - gender_female
+    - gender_male
+    - gender_non_binary
+    - marginalized_ethnic
+    - refugee_displaced
+    - disability_any
+    - low_income
+    year: []
+- name: supported_authentication_modality
+  kind: boolean
+  description: Whether the foundational ID scheme accepts a specific authentication/verification
+    modality for identity proof or transaction signing
+  identity_qualifiers:
+  - modality
+  required_qualifiers:
+  - modality
+  qualifier_enums:
+    modality:
+    - fingerprint_10_digit
+    - iris_single
+    - iris_dual
+    - facial_recognition_2d
+    - facial_recognition_3d
+    - palm_vein
+    - voice_pattern
+    - behavioral_signature
+    - sim_card_binding
+    - nfc_enabled_card
+    - qr_code_static
+    - qr_code_dynamic
+    - otp_sms
+    - otp_app
+    - signature_digital
+    - hardware_security_token
+- name: scheme_launch_year
+  kind: name_year
+  description: Year the foundational ID scheme officially launched or became operational
+    for citizen enrollment
+- name: legal_recognition_status
+  kind: enum
+  description: 'Legal standing of the foundational ID within its jurisdiction: mandatory,
+    voluntary, or de facto required'
+  value_enum:
+  - legally_mandated_by_statute
+  - legally_voluntary
+  - optional_for_government_services_only
+  - de_facto_mandatory_private_sector
+  - emerging_no_legal_framework
+  value_aliases:
+    legally_mandated_by_statute:
+    - compulsory_by_law
+    - universal_enrollment_required
+    de_facto_mandatory_private_sector:
+    - required_for_banking_telecom
+    - required_for_employment
+- name: offline_verification_capable
+  kind: boolean
+  description: Whether citizens can be verified/authenticated without real-time internet
+    connection (e.g., via QR code, chip card, or offline-first architecture)
+- name: cross_border_reciprocal_agreement
+  kind: boolean
+  description: Whether the foundational ID is recognized as valid identity document
+    for travel, work, or services in one or more partner countries
+  identity_qualifiers:
+  - partner_country_or_region
+  required_qualifiers:
+  - partner_country_or_region
+- name: credential_validity_period
+  kind: enum
+  description: How long a credential remains valid before mandatory renewal or reissuance
+  value_enum:
+  - annual_renewal
+  - every_2_years
+  - every_5_years
+  - every_10_years
+  - lifetime_no_expiration
+  - conditional_on_data_update
+  - not_enforced
+- name: documented_inclusion_barrier
+  kind: boolean
+  description: A documented or reported barrier preventing one or more population
+    segments from obtaining, using, or verifying with the foundational ID
+  identity_qualifiers:
+  - barrier_category
+  required_qualifiers:
+  - barrier_category
+  qualifier_enums:
+    barrier_category:
+    - literacy_or_language_requirement
+    - cost_or_issuance_fee
+    - geographic_inaccessibility_enrollment
+    - disability_inaccessibility_biometric
+    - gender_documentation_requirement
+    - caste_or_ethnic_discrimination_reported
+    - fingerprint_quality_exclusion
+    - lack_of_birth_documentation
+    - age_restriction_below_threshold
+    - active_exclusion_by_authority
+- name: gender_marker_policy
+  kind: enum
+  description: How gender/sex is documented in the foundational ID, reflecting national
+    policy on inclusivity of transgender, non-binary, and intersex citizens
+  value_enum:
+  - binary_only_male_female
+  - binary_plus_third_option
+  - self_identification_permitted
+  - open_text_field
+  - no_gender_marker
+  - biology_documentation_required
+  - self_id_with_administrator_approval
+  - not_policy_defined
+  value_aliases:
+    binary_plus_third_option:
+    - male_female_other
+    - male_female_prefer_not_say
+    self_identification_permitted:
+    - self_declared_gender
+    - voluntary_transition_recognition
+- name: cost_to_citizen_issuance
+  kind: enum
+  description: Fee structure for citizens to obtain or renew their foundational ID
+  identity_qualifiers:
+  - citizen_category
+  qualifier_enums:
+    citizen_category:
+    - all_citizens
+    - all_adults_free
+    - minors_free_adults_charged
+    - elderly_free_others_paid
+    - low_income_free_sliding_scale
+    - rural_free_urban_paid
+  value_enum:
+  - free_no_exceptions
+  - free_with_specific_exemptions
+  - sliding_scale_income_based
+  - small_fixed_fee
+  - substantial_fixed_fee
+  - cost_varies_by_location
+  - cost_varies_by_service_partner
+  value_aliases:
+    free_no_exceptions:
+    - zero_cost
+    - government_funded
+    small_fixed_fee:
+    - nominal_fee
+    - symbolic_cost
+- name: mobile_digital_id_adoption_pct
+  kind: percentage
+  description: '% of adult population with access to mobile/app-based digital ID credentials
+    (distinct from physical possession)'
+  identity_qualifiers:
+  - year
+  - digital_format
+  required_qualifiers:
+  - year
+  qualifier_enums:
+    digital_format:
+    - mobile_app
+    - ussd
+    - sim_embedded
+    - any
+- name: foundational_id_attributes_captured
+  kind: enum
+  description: Core attributes collected/verified during foundational ID registration
+  identity_qualifiers:
+  - collection_phase
+  qualifier_enums:
+    collection_phase:
+    - initial_enrollment
+    - periodic_update
+    - sector_specific
+  value_enum:
+  - full_name
+  - date_of_birth
+  - gender
+  - address
+  - biometric_fingerprint
+  - biometric_iris
+  - biometric_face
+  - kinship_relations
+  - occupation
+  - religion
+  - caste_status
+  - tribe_affiliation
+  - disability_status
+  - marital_status
+  - nationality
+  value_aliases:
+    gender:
+    - sex
+    date_of_birth:
+    - dob
+    biometric_fingerprint:
+    - fingerprint
+    tribe_affiliation:
+    - ethnic_group
+- name: identity_data_localization_requirement
+  kind: enum
+  description: Legal/regulatory requirement for where foundational identity data must
+    be stored/processed
+  identity_qualifiers:
+  - data_category
+  qualifier_enums:
+    data_category:
+    - personally_identifiable_information
+    - biometric_data
+    - all_identity_data
+  value_enum:
+  - domestic_only
+  - domestic_primary_offshore_backup
+  - regional_saarc
+  - regional_au
+  - regional_asean
+  - no_requirement
+  - prohibited_outside_eu
+  value_aliases:
+    domestic_only:
+    - in_country_only
+    regional_au:
+    - african_union_member
+- name: sector_foundational_id_mandate
+  kind: enum
+  description: Which sectors/services legally require use of foundational ID for access
+  identity_qualifiers:
+  - year
+  value_enum:
+  - government_only
+  - government_banking
+  - government_banking_telecom
+  - financial_telecom_mandatory
+  - universal_mandate
+  - no_mandate
+  - informal_de_facto
+  value_aliases:
+    government_banking:
+    - goverment_and_banking
+    informal_de_facto:
+    - de_facto_required_but_not_law
+- name: identity_inclusion_documented_gaps
+  kind: enum
+  description: Known demographic/geographic exclusion or underrepresentation in foundational
+    ID coverage
+  identity_qualifiers:
+  - affected_population
+  - year
+  required_qualifiers:
+  - affected_population
+  qualifier_enums:
+    affected_population:
+    - elderly_60plus
+    - rural_remote
+    - ethnic_minority
+    - indigenous_peoples
+    - transgender_non_binary
+    - refugee_stateless
+    - persons_with_disability
+    - low_literacy
+    - undocumented_migrants
+    - pastoral_nomadic
+    - religious_minority
+    - lowest_income_quintile
+  value_enum:
+  - documented_significant_gap
+  - documented_minor_gap
+  - reported_but_unquantified
+  - claimed_universal_inclusion
+  value_aliases:
+    documented_significant_gap:
+    - substantial_gap
+- name: credential_validity_period_years
+  kind: name_year
+  description: How long a foundational ID credential remains valid before renewal
+    required
+  identity_qualifiers:
+  - credential_type
+  required_qualifiers:
+  - credential_type
+  qualifier_enums:
+    credential_type:
+    - physical_card
+    - digital_certificate
+    - biometric_template
+- name: offline_identity_verification_capability
+  kind: enum
+  description: Ability to verify foundational ID without real-time network connectivity
+  identity_qualifiers:
+  - year
+  value_enum:
+  - fully_offline_capable
+  - cached_offline_possible
+  - requires_real_time_online
+  - no_verification_mechanism
+- name: private_sector_foundational_id_access
+  kind: enum
+  description: Legal permission for private (non-government) entities to access/query
+    foundational ID
+  identity_qualifiers:
+  - entity_type
+  - year
+  required_qualifiers:
+  - entity_type
+  qualifier_enums:
+    entity_type:
+    - banking_financial
+    - telecom
+    - healthcare
+    - payment_networks
+    - retailers
+    - all_businesses
+  value_enum:
+  - prohibited
+  - restricted_with_consent
+  - restricted_regulated
+  - permitted_regulated
+  - unrestricted
+- name: identity_update_modality
+  kind: enum
+  description: Mechanisms available for individuals to update foundational ID information
+    (address, status, attributes)
+  identity_qualifiers:
+  - attribute_type
+  - year
+  required_qualifiers:
+  - attribute_type
+  qualifier_enums:
+    attribute_type:
+    - address
+    - name
+    - occupational_status
+    - marital_status
+    - biometric_update
+  value_enum:
+  - in_person_enrollment_center
+  - mobile_registration_unit
+  - online_self_service
+  - postal_mail
+  - no_update_allowed
+  - government_agency_initiated
+  value_aliases:
+    enrollment_center:
+    - registration_office
+- name: identity_verification_interoperability_standard
+  kind: enum
+  description: Technical standard(s) used for biometric/attribute verification across
+    providers and jurisdictions
+  identity_qualifiers:
+  - biometric_type
+  - context
+  required_qualifiers:
+  - biometric_type
+  qualifier_enums:
+    biometric_type:
+    - fingerprint
+    - iris
+    - face
+    - all_modalities
+    context:
+    - domestic_only
+    - regional
+    - international
+  value_enum:
+  - iso_29794_biometric
+  - iso_24794_security
+  - national_proprietary_standard
+  - unstandardized_multiple
+  - openly_documented_spec
+- name: identity_attribute_translation_support
+  kind: boolean
+  description: Whether foundational ID attributes (name, address) are stored/translatable
+    to non-primary national language(s)
+  identity_qualifiers:
+  - language_context
+  qualifier_enums:
+    language_context:
+    - minority_language
+    - diaspora_country
+    - official_non_primary
+- name: id_coverage_demographic
+  kind: percentage
+  description: Percentage of population with active enrollment in the foundational
+    ID system, broken down by demographic group. Complements overall id_coverage_pct
+    by revealing inclusion gaps.
+  identity_qualifiers:
+  - demographic_category
+  required_qualifiers:
+  - demographic_category
+  qualifier_enums:
+    demographic_category:
+    - adult_18_plus
+    - child_0_17
+    - elderly_60_plus
+    - urban
+    - rural
+    - female
+    - male
+    - other_gender
+    - indigenous
+    - refugee
+    - stateless
+    - informal_sector
+    - other
+- name: biometric_modality
+  kind: enum
+  description: Type(s) of biometric data captured and stored as part of the foundational
+    ID system.
+  value_enum:
+  - fingerprint
+  - iris
+  - facial_recognition
+  - voice
+  - palm_vein
+  - gait
+  - signature
+  - dna
+  - none_or_behavioral_only
+  - other
+  value_aliases:
+    iris:
+    - iris_scan
+    - iris_imaging
+    facial_recognition:
+    - face_recognition
+    - facial_scan
+    palm_vein:
+    - palm_print
+    - vein_pattern
+    fingerprint:
+    - finger_impression
+    - fingerprint_scan
+- name: digital_service_integration
+  kind: enum
+  description: Service sectors and use cases where the digital ID is actively used
+    or legally integrated.
+  identity_qualifiers:
+  - service_sector
+  qualifier_enums:
+    service_sector:
+    - banking_financial
+    - voting_electoral
+    - healthcare_medical
+    - education
+    - telecommunications
+    - social_welfare_benefits
+    - tax_administration
+    - law_enforcement
+    - travel_immigration
+    - public_transportation
+    - land_records
+    - government_employment
+    - other
+  value_enum:
+  - mandatory_for_access
+  - primary_authentication_method
+  - one_of_acceptable_methods
+  - optional_for_convenience
+  - legally_prohibited
+  - technically_capable_not_used
+  - in_pilot_limited_geography
+  - other
+- name: enrollment_channel_primary
+  kind: enum
+  description: Primary mechanism(s) through which citizens can enroll in or apply
+    for the foundational ID system.
+  identity_qualifiers:
+  - geographic_availability
+  qualifier_enums:
+    geographic_availability:
+    - nationwide_equal_access
+    - major_urban_centers_only
+    - specified_regions
+    - remote_areas_also_served
+    - unequal_access_documented
+    - other
+  value_enum:
+  - online_self_service
+  - dedicated_government_center
+  - mobile_enrollment_unit
+  - commercial_bank_branch
+  - post_office
+  - third_party_authorized_agent
+  - workplace_enrollment
+  - school_or_health_facility
+  - passport_or_consulate
+  - other
+- name: vulnerable_population_inclusion
+  kind: enum
+  description: Inclusion status and legal/practical access pathways for vulnerable,
+    marginalized, or displaced populations.
+  identity_qualifiers:
+  - population_type
+  required_qualifiers:
+  - population_type
+  qualifier_enums:
+    population_type:
+    - refugees
+    - stateless_persons
+    - internally_displaced
+    - undocumented_migrants
+    - indigenous_peoples
+    - ethnic_or_religious_minorities
+    - sexual_and_gender_minorities
+    - persons_with_disabilities
+    - informal_sector_workers
+    - homeless
+    - asylum_seekers
+    - other
+  value_enum:
+  - excluded_by_policy
+  - excluded_in_practice_barriers_exist
+  - partial_limited_pathways
+  - substantial_inclusion_with_documented_gaps
+  - full_inclusion_standard_pathway
+  - full_inclusion_with_special_protections_or_data_safeguards
+  - unknown_or_data_unavailable
+  value_aliases:
+    excluded_by_policy:
+    - legal_exclusion
+    excluded_in_practice_barriers_exist:
+    - de_facto_exclusion
+    - effective_exclusion
+    full_inclusion_with_special_protections_or_data_safeguards:
+    - protected_inclusion
+    - differential_privacy_safeguards
+- name: consent_and_data_control_model
+  kind: enum
+  description: Approach to citizen consent, data usage authorization, and individual
+    control over personal information collected and stored in the ID system.
+  identity_qualifiers:
+  - data_use_context
+  qualifier_enums:
+    data_use_context:
+    - any_government_service
+    - law_enforcement_security
+    - commercial_private_sector
+    - research_statistics
+    - cross_border_sharing
+    - other
+  value_enum:
+  - mandatory_implicit_no_choice
+  - mandatory_explicit_acknowledgment
+  - opt_in_required_for_each_use
+  - opt_out_available_after_use
+  - tiered_different_by_use_category
+  - granular_per_purpose_consent
+  - other
+  value_aliases:
+    mandatory_implicit_no_choice:
+    - compulsory_participation
+    granular_per_purpose_consent:
+    - purpose_limitation_consent
+- name: offline_verification_enabled
+  kind: boolean
+  description: "Whether the ID credential or biometric template can be cryptographically\
+    \ verified without real-time connection to a central government database\u2014\
+    e.g., via stored credential on phone or embedded in card."
+- name: id_renewal_period_years
+  kind: enum
+  description: Validity period before the ID must be renewed or reissued.
+  identity_qualifiers:
+  - demographic_group
+  qualifier_enums:
+    demographic_group:
+    - general_adult
+    - child_under_18
+    - elderly_over_60
+    - other
+  value_enum:
+  - 1_year
+  - 3_years
+  - 5_years
+  - 10_years
+  - 15_years
+  - 20_years
+  - lifetime_no_expiration
+  - variable_not_fixed
+  - other
+  value_aliases:
+    lifetime_no_expiration:
+    - never_expires
+    - indefinite
+    variable_not_fixed:
+    - flexible_based_on_circumstance
+- name: cost_to_citizens
+  kind: enum
+  description: Cost model for citizens to obtain or renew the foundational ID, including
+    whether costs vary by income or circumstances.
+  identity_qualifiers:
+  - income_or_circumstance
+  qualifier_enums:
+    income_or_circumstance:
+    - low_income_households
+    - middle_income
+    - high_income
+    - all_populations_charged_uniformly
+    - special_groups_eg_disabled
+    - other
+  value_enum:
+  - free_no_cost
+  - free_but_service_fees_apply
+  - subsidized_sliding_scale_or_low_income
+  - flat_paid_fee
+  - income_progressive_fee
+  - cost_borne_by_third_party_employer_school
+  - other
+- name: deduplication_method
+  kind: enum
+  description: "Mechanism used to prevent duplicate identities, fraud, or ghost enrollments\u2014\
+    i.e., how the system ensures one person = one ID."
+  value_enum:
+  - none_no_deduplication_process
+  - manual_review_only
+  - fingerprint_matching_database
+  - iris_matching_database
+  - facial_recognition_matching
+  - multi_biometric_fusion
+  - blockchain_or_distributed_ledger
+  - other
+- name: private_sector_involvement_degree
+  kind: enum
+  description: Extent and areas of private sector participation in the ID system (enrollment,
+    verification, infrastructure, data operations, or policy influence).
+  identity_qualifiers:
+  - function_area
+  qualifier_enums:
+    function_area:
+    - enrollment_and_registration
+    - identity_verification_services
+    - biometric_matching_infrastructure
+    - data_storage_and_operations
+    - policy_advisory_or_governance
+    - technology_infrastructure
+    - other
+  value_enum:
+  - none_government_only
+  - limited_contracted_services
+  - significant_operational_role
+  - core_platform_operated_by_private
+  - mixed_equal_public_private_partnership
+  - unknown_or_opaque
+  - other
+  value_aliases:
+    mixed_equal_public_private_partnership:
+    - hybrid_partnership
+    - public_private_partnership
+- name: coverage_by_demographic_segment
+  kind: percentage
+  description: ID coverage percentage within a specific demographic group (e.g., 'adults'
+    in India 2024 was 99%, but this may differ for children, elderly, or rural populations).
+    Captures digital divide and equity gaps.
+  identity_qualifiers:
+  - demographic_axis
+  - measurement_year
+  required_qualifiers:
+  - demographic_axis
+  - measurement_year
+  qualifier_enums:
+    demographic_axis:
+    - children_0_5
+    - youth_6_17
+    - working_age_18_64
+    - elderly_65plus
+    - urban
+    - rural
+    - female
+    - male
+    - income_lowest_quintile
+    - income_highest_quintile
+    - no_formal_education
+    - tertiary_education
+    - indigenous_population
+    - migrant_worker
+    - refugee
+    - nomadic
+    - regional_subpopulation
+    measurement_year:
+    - '2020'
+    - '2021'
+    - '2022'
+    - '2023'
+    - '2024'
+    - '2025'
+    - '2026'
+  value_aliases:
+    working_age_18_64:
+    - adults
+    - economically_active
+    elderly_65plus:
+    - senior
+    - age_65_and_over
+- name: supported_authentication_methods
+  kind: enum
+  description: Authentication modalities the ID scheme supports (e.g., fingerprint,
+    iris, face, PIN, OTP). May support multiple.
+  identity_qualifiers:
+  - authentication_modality
+  value_enum:
+  - biometric_fingerprint
+  - biometric_iris
+  - biometric_face
+  - biometric_voice
+  - biometric_behavioral
+  - biometric_vein
+  - pin_or_password
+  - otp_sms
+  - otp_app
+  - physical_token_card
+  - physical_token_device
+  - qr_code
+  - nfc_chip
+  - multi_factor
+  - no_digital_authentication_offline_only
+  value_aliases:
+    biometric_fingerprint:
+    - fingerprint_scan
+    - dactyloscopy
+    biometric_iris:
+    - iris_scan
+    - iris_recognition
+    biometric_face:
+    - facial_recognition
+    - face_scan
+    otp_sms:
+    - sms_one_time_password
+    - text_message_code
+    physical_token_card:
+    - smartcard
+    - id_card_chip
+- name: participation_status
+  kind: enum
+  description: Legal and de-facto status of participation in the foundational ID scheme
+    (voluntary vs. mandatory).
+  value_enum:
+  - fully_voluntary
+  - voluntary_with_incentives
+  - de_facto_mandatory_for_services
+  - mandatory_for_specific_services
+  - mandatory_with_exceptions
+  - fully_mandatory
+  value_aliases:
+    de_facto_mandatory_for_services:
+    - effectively_required
+    - practically_mandatory
+    mandatory_with_exceptions:
+    - mandatory_except_marginalized_groups
+- name: data_subject_rights_recognized
+  kind: enum
+  description: Privacy and data subject rights explicitly recognized in law or policy
+    for the ID scheme (access, correction, deletion, portability, etc.).
+  identity_qualifiers:
+  - right_type
+  value_enum:
+  - right_to_access
+  - right_to_correction_rectification
+  - right_to_deletion_erasure
+  - right_to_data_portability
+  - right_to_object
+  - right_to_withdraw_consent
+  - right_to_appeal_decision
+  - right_to_transparency_about_processing
+  - none_explicitly_recognized
+  value_aliases:
+    right_to_correction_rectification:
+    - right_to_update
+    - right_to_rectify
+    right_to_deletion_erasure:
+    - right_to_be_forgotten
+    right_to_data_portability:
+    - right_to_export_data
+- name: offline_verification_capability
+  kind: enum
+  description: How the ID can be verified when internet connectivity is unavailable
+    (matters greatly in low-connectivity regions).
+  value_enum:
+  - none_online_only
+  - visual_inspection_security_features
+  - qr_code_scannable_offline
+  - barcode_scannable_offline
+  - nfc_chip_local_read
+  - machine_readable_zone
+  - other
+  value_aliases:
+    qr_code_scannable_offline:
+    - offline_qr_verification
+    nfc_chip_local_read:
+    - chip_verification_without_internet
+- name: renewal_cost_structure
+  kind: name_year
+  description: 'Cost (if any) to renew the ID, and renewal frequency. Format: ''free''
+    or ''nominal_fee'' or ''variable_fee'' + renewal_frequency (e.g., ''free, biennial
+    renewal'' or ''paid_nominal_fee, ten_yearly'').'
+  identity_qualifiers:
+  - cost_category
+  - renewal_frequency
+  required_qualifiers:
+  - cost_category
+  - renewal_frequency
+  qualifier_enums:
+    cost_category:
+    - free
+    - nominal_fee
+    - variable_by_income
+    - paid
+    - not_applicable_lifetime
+    renewal_frequency:
+    - lifetime
+    - annual
+    - biennial
+    - triennial
+    - five_yearly
+    - ten_yearly
+    - on_demand_renewal_only
+    - status_dependent
+  value_aliases:
+    nominal_fee:
+    - minimal_cost
+    - token_fee
+    variable_by_income:
+    - progressive_fee
+    - income_adjusted
+    status_dependent:
+    - different_by_age_or_role
+- name: linguistic_accessibility
+  kind: enum
+  description: Language support in the ID enrollment, authentication, and support
+    systems.
+  identity_qualifiers:
+  - language_scope
+  value_enum:
+  - single_national_language
+  - single_colonial_or_global_language
+  - multiple_official_languages
+  - major_regional_languages
+  - all_recognized_minority_languages
+  - unknown_or_not_documented
+  value_aliases:
+    single_colonial_or_global_language:
+    - english_only
+    - french_only
+    - portuguese_only
+    major_regional_languages:
+    - 10_or_more_languages
+- name: coverage_by_population_segment
+  kind: percentage
+  description: ID coverage percentage for a specific population cohort. Reveals inclusion
+    gaps masked by aggregate coverage statistics.
+  identity_qualifiers:
+  - population_segment
+  - measurement_year
+  required_qualifiers:
+  - population_segment
+  - measurement_year
+  qualifier_enums:
+    population_segment:
+    - adults
+    - children_school_age
+    - elderly
+    - urban
+    - rural
+    - remote
+    - women
+    - men
+    - indigenous_aboriginal
+    - ethnic_minority
+    - migrant_worker
+    - refugee
+    - stateless
+    - low_income_quintile
+    - disabled_persons
+    measurement_year:
+    - '2020'
+    - '2021'
+    - '2022'
+    - '2023'
+    - '2024'
+    - '2025'
+    - '2026'
+- name: coverage_measurement_methodology
+  kind: enum
+  description: "How coverage statistics are derived\u2014affects comparability across\
+    \ countries."
+  value_enum:
+  - official_government_statistics
+  - independent_household_survey
+  - third_party_audit
+  - combined_multiple_sources
+  - self_reported_no_verification
+  - unknown_or_not_disclosed
+- name: biometric_modalities_collected
+  kind: enum
+  description: Types of biometric data the scheme captures. Multiple values possible.
+  value_enum:
+  - fingerprint_10
+  - iris_both_eyes
+  - facial_photograph
+  - voice_voiceprint
+  - palm_vein
+  - gait_walking_pattern
+  - dna_optional
+  - none_enrollment_documents_only
+- name: biometric_data_retention_years
+  kind: name_year
+  description: Maximum number of years biometric records retained post-enrollment.
+    Express as 'lifetime', 'indefinite', or number of years.
+  identity_qualifiers:
+  - retention_context
+  required_qualifiers:
+  - retention_context
+  qualifier_enums:
+    retention_context:
+    - template_for_verification_only
+    - full_biometric_sample
+    - all_personal_data_including_logs
+- name: digital_verification_online
+  kind: boolean
+  description: Can identity be verified remotely via digital channel (API, mobile
+    app, online portal) without in-person visit?
+- name: financial_services_integration
+  kind: enum
+  description: "Extent to which the scheme integrates with banking and financial services\u2014\
+    determines financial inclusion pathway."
+  value_enum:
+  - no_integration
+  - optional_for_account_opening_only
+  - required_for_bank_accounts
+  - required_for_all_formal_financial_services
+  - integrated_with_payment_networks_mandatory
+- name: scheme_governance_operator
+  kind: enum
+  description: "Type of entity governing the scheme\u2014affects accountability, oversight,\
+    \ and inclusivity."
+  value_enum:
+  - central_government_ministry
+  - state_owned_enterprise
+  - independent_government_authority
+  - multi_sector_board_government_majority
+  - public_private_partnership_equal
+  - private_sector_licensed
+  - international_development_organization
+  - state_government_federated
+- name: mandatory_reenrollment_frequency_years
+  kind: name_year
+  description: "How often (in years) citizens must update enrollment\u2014'no_reenrollment_required',\
+    \ 'only_biometric_update', or a year interval (e.g., '5')."
+  identity_qualifiers:
+  - reenrollment_type
+  required_qualifiers:
+  - reenrollment_type
+  qualifier_enums:
+    reenrollment_type:
+    - biometric_only
+    - demographic_data_only
+    - full_reenrollment
+    - no_mandatory_reenrollment
+- name: inclusion_of_noncitizen_populations
+  kind: enum
+  description: Policy for enrolling migrants, refugees, stateless persons, and other
+    non-citizen populations.
+  value_enum:
+  - citizens_only
+  - long_term_residents_allowed
+  - all_residents_regardless_status
+  - special_program_for_vulnerable
+  - no_explicit_policy
+  - explicitly_excluded
+- name: accessibility_accommodations
+  kind: enum
+  description: "Level of enrollment and verification accommodations for people with\
+    \ disabilities\u2014reflects genuine inclusion vs. legal compliance only."
+  value_enum:
+  - no_accommodations_documented
+  - alternative_biometrics_for_some_disabilities
+  - alternative_biometrics_for_most_disabilities
+  - sign_language_interpreters_braille_available
+  - wcag_compliant_digital_interfaces
+- name: operational_launch_year
+  kind: name_year
+  description: Year the scheme commenced general enrollment (not pilot phase).
+- name: accessibility_accommodations_for_disabilities
+  kind: enum
+  description: "Enrollment and verification accommodations for people with disabilities\
+    \ \u2014 reveals genuine inclusion vs. compliance theater."
+  identity_qualifiers:
+  - disability_category
+  required_qualifiers:
+  - disability_category
+  qualifier_enums:
+    disability_category:
+    - visual_impairment
+    - hearing_impairment
+    - motor_impairment
+    - cognitive_disability
+    - multiple_disabilities
+  value_enum:
+  - no_accommodations_documented
+  - alternative_biometrics_for_some_disabilities
+  - alternative_biometrics_for_most_disabilities
+  - sign_language_interpreters_and_braille_available
+  - wcag_compliant_digital_interfaces
+  - flexible_documentation_requirements
+  - not_applicable_analog_only_system
+  value_aliases:
+    alternative_biometrics_for_some_disabilities:
+    - partial_accommodations
+    - iris_for_blind
+    sign_language_interpreters_and_braille_available:
+    - language_access_services
+    - accessible_communications
+    wcag_compliant_digital_interfaces:
+    - digital_accessibility
+    - universal_design
+- name: offline_authentication_support
+  kind: boolean
+  description: System supports verifying identity and authenticating users without
+    active internet connectivity
+- name: cross_border_recognition_status
+  kind: enum
+  description: Formal international or regional recognition enabling use of digital
+    ID across borders
+  identity_qualifiers:
+  - partner_region
+  required_qualifiers:
+  - partner_region
+  qualifier_enums:
+    partner_region:
+    - regional_economic_bloc
+    - bilateral_partner
+    - schengen_like_travel_zone
+    - multilateral_development_bank
+    - international_org
+  value_enum:
+  - no_formal_recognition
+  - de_facto_acceptance
+  - bilateral_agreements
+  - regional_framework_active
+  - reciprocal_recognition_multilateral
+- name: data_minimization_enforcement
+  kind: enum
+  description: Degree to which system design and governance enforce data minimization
+    (collecting and retaining only necessary data)
+  identity_qualifiers:
+  - assessment_body
+  required_qualifiers:
+  - assessment_body
+  qualifier_enums:
+    assessment_body:
+    - government_audit_body
+    - independent_certified_auditor
+    - civil_society_organization
+    - academic_research
+    - vendor_claims
+  value_enum:
+  - not_enforced
+  - partially_implemented
+  - enforced_by_system_design
+  - enforced_by_policy_and_law
+- name: accessibility_for_disabilities
+  kind: enum
+  description: Level of accessible design and support enabling persons with disabilities
+    to obtain and use the identity credential
+  identity_qualifiers:
+  - disability_type
+  required_qualifiers:
+  - disability_type
+  qualifier_enums:
+    disability_type:
+    - vision_impairment
+    - hearing_impairment
+    - motor_impairment
+    - cognitive_impairment
+    - multiple_disabilities
+    - age_related_needs
+    - temporary_disabilities_mobility
+  value_enum:
+  - no_accessibility_features
+  - basic_ad_hoc_accommodations
+  - designed_accessibility_for_type
+  - universal_design_multiple_types
+- name: explicit_user_consent_required
+  kind: boolean
+  description: Whether explicit informed consent is required from individuals before
+    data collection, enrollment, or routine use
+- name: marginalized_population_outreach
+  kind: enum
+  description: Presence and formality of targeted outreach and support programs for
+    populations at risk of exclusion
+  identity_qualifiers:
+  - target_population
+  required_qualifiers:
+  - target_population
+  qualifier_enums:
+    target_population:
+    - migrants_displaced_persons
+    - homeless_inadequate_shelter
+    - extreme_poverty
+    - rural_geographically_remote
+    - ethnic_religious_minorities
+    - stateless_persons
+    - children_unregistered_at_birth
+    - undocumented_status
+    - lgbtq_persons
+    - indigenous_communities
+  value_enum:
+  - no_specific_programs
+  - informal_ad_hoc_outreach
+  - documented_targeted_programs
+  - resourced_funded_inclusion_strategy
+- name: biometric_data_retention_limit
+  kind: enum
+  description: Maximum duration biometric data (raw images, templates, or profiles)
+    is retained after collection or verification
+  identity_qualifiers:
+  - data_type
+  required_qualifiers:
+  - data_type
+  qualifier_enums:
+    data_type:
+    - fingerprint_template
+    - iris_template
+    - face_image_template
+    - raw_biometric_images
+    - behavioral_biometric_profiles
+    - multimodal_consolidated_biometric_record
+  value_enum:
+  - deleted_immediately_after_verification
+  - deleted_after_credential_issuance
+  - retained_during_credential_validity_period
+  - retained_indefinitely_with_access_controls
+  - retained_indefinitely_unrestricted
+- name: independent_human_rights_assessment
+  kind: name_year
+  description: Most recent independent human rights, privacy, or civil liberties assessment
+    (e.g., 'Human Rights Impact Assessment 2024' or 'Data Rights Audit 2023')
+  identity_qualifiers:
+  - assessment_type
+  required_qualifiers:
+  - assessment_type
+  qualifier_enums:
+    assessment_type:
+    - privacy_impact_assessment
+    - security_audit
+    - human_rights_assessment
+    - data_protection_compliance_review
+    - civil_society_accountability_audit
+    - discrimination_and_exclusion_study
+- name: individual_dispute_redress_mechanism
+  kind: enum
+  description: Formal mechanism enabling individuals to challenge, correct, or seek
+    remedy for identity data errors, misuse, or access denial
+  identity_qualifiers:
+  - dispute_type
+  required_qualifiers:
+  - dispute_type
+  qualifier_enums:
+    dispute_type:
+    - data_accuracy_correction
+    - unauthorized_access_or_disclosure
+    - wrongful_identity_denial_suspension
+    - discrimination_or_exclusion
+    - data_breach_or_loss
+    - false_biometric_mismatch
+  value_enum:
+  - no_formal_mechanism
+  - administrative_review_only
+  - limited_judicial_access
+  - ombudsman_independent_complaint_mechanism
+  - multi_tiered_appeals_cascade
+  - binding_independent_arbitration
+- name: private_sector_access_policy
+  kind: enum
+  description: Terms under which private companies can access or use the foundational
+    ID scheme data
+  identity_qualifiers:
+  - private_sector_type
+  - access_purpose
+  required_qualifiers:
+  - private_sector_type
+  qualifier_enums:
+    private_sector_type:
+    - financial_services
+    - telecommunications
+    - healthcare_providers
+    - insurance
+    - retail_ecommerce
+    - employment_agencies
+    - data_brokers
+    access_purpose:
+    - identity_verification
+    - fraud_prevention
+    - service_delivery
+    - marketing_targeting
+    - risk_assessment
+    - research
+  value_enum:
+  - no_private_access
+  - limited_explicitly_permitted_use_cases
+  - permitted_with_individual_consent_required
+  - permitted_with_minimal_restrictions
+- name: mobile_accessibility
+  kind: enum
+  description: Proportion of population able to complete enrollment via mobile or
+    remote methods (not in-person at government office), accounting for device access
+    and digital literacy barriers
+  identity_qualifiers:
+  - demographic_segment
+  required_qualifiers:
+  - demographic_segment
+  qualifier_enums:
+    demographic_segment:
+    - urban
+    - rural
+    - age_18_40
+    - age_41_60
+    - age_60_plus
+    - literate
+    - functionally_literate
+    - mobile_phone_users
+  value_enum:
+  - highly_accessible
+  - moderately_accessible
+  - limited_accessible
+  - not_supported
+- name: enrollment_method
+  kind: enum
+  description: Primary method(s) by which citizens are enrolled into the digital identity
+    scheme
+  value_enum:
+  - in_person_government_office
+  - mobile_enrollment_teams
+  - digital_self_service
+  - hybrid_in_person_and_digital
+  - postal_application
+  - mandatory_at_birth
+  value_aliases:
+    in_person_government_office:
+    - office_only
+    - centralized_government
+    mobile_enrollment_teams:
+    - field_teams
+    - mobile_vans
+    - itinerant_enrollment
+    digital_self_service:
+    - online_only
+    - app_based
+    hybrid_in_person_and_digital:
+    - mixed_method
+    - optional_digital
+- name: data_deletion_right
+  kind: enum
+  description: Legal right for individuals to request deletion or anonymization of
+    personal data in the digital identity system
+  value_enum:
+  - yes_full_deletion_allowed
+  - yes_limited_deletion
+  - no_deletion_allowed
+  - deletion_on_specific_grounds_only
+  value_aliases:
+    yes_full_deletion_allowed:
+    - right_to_be_forgotten
+    - full_erasure
+    deletion_on_specific_grounds_only:
+    - conditional_deletion
+    - grounds_based
+- name: private_sector_adoption_rate
+  kind: percentage
+  description: Percentage of relevant private sector institutions (by sector) that
+    accept and actively use the national digital identity for KYC, authentication,
+    or service delivery
+  identity_qualifiers:
+  - sector
+  required_qualifiers:
+  - sector
+  qualifier_enums:
+    sector:
+    - banking
+    - telecom
+    - e_commerce
+    - insurance
+    - healthcare
+    - transportation
+    - financial_services
+    - retail
+- name: stateless_refugee_inclusion
+  kind: enum
+  description: Provisions for stateless persons, refugees, undocumented migrants,
+    or other excluded populations to obtain or use the digital identity
+  value_enum:
+  - included_full_access
+  - included_limited_access
+  - excluded_by_policy
+  - de_facto_excluded
+  - not_addressed
+  value_aliases:
+    included_limited_access:
+    - partial_inclusion
+    - conditional_access
+    excluded_by_policy:
+    - officially_excluded
+    de_facto_excluded:
+    - excluded_in_practice
+- name: multi_language_support
+  kind: enum
+  description: Scope of language support in enrollment, authentication, and customer
+    service beyond the national or dominant official language(s)
+  value_enum:
+  - official_language_only
+  - 2_to_3_languages
+  - 4_to_10_languages
+  - 10_plus_languages
+  - all_recognized_regional_languages
+  value_aliases:
+    all_recognized_regional_languages:
+    - comprehensive_linguistic_coverage
+- name: scheme_inception_year
+  kind: name_year
+  description: Year the digital identity scheme was first launched or deployed nationally
+    (not pilot launch year)
+- name: dispute_resolution_mechanism
+  kind: enum
+  description: Formal mechanism available to citizens for resolving disputes, errors,
+    or appeals regarding identity denial, data inaccuracy, authentication failure,
+    or system exclusion
+  value_enum:
+  - dedicated_identity_authority
+  - independent_ombudsman
+  - court_system
+  - administrative_review_only
+  - no_formal_mechanism
+  value_aliases:
+    dedicated_identity_authority:
+    - dedicated_appeals_body
+    administrative_review_only:
+    - customer_service_only
+- name: biometric_reenrollment_frequency
+  kind: enum
+  description: Required frequency for re-verification or updating of biometric data
+    (fingerprints, iris, facial) in the identity scheme, if applicable
+  value_enum:
+  - annual
+  - every_3_years
+  - every_5_years
+  - every_10_years
+  - on_demand_only
+  - never_required
+  value_aliases:
+    on_demand_only:
+    - voluntary_reenrollment
+    never_required:
+    - one_time_enrollment
+- name: enrollment_mandatory
+  kind: boolean
+  description: Whether enrollment in the ID scheme is legally required or voluntary
+- name: issuing_authority_name
+  kind: name
+  description: Official name of the government agency, ministry, or institution responsible
+    for issuing the ID
+- name: primary_legal_use
+  kind: enum
+  description: Primary stated legal purpose for the ID scheme's creation and use
+  value_enum:
+  - citizen_identification
+  - voting_registration
+  - taxation
+  - travel_documentation
+  - social_welfare_access
+  - financial_inclusion
+  - law_enforcement
+  - public_health
+  - military_conscription
+  - multi_purpose
+  - unknown
+  value_aliases:
+    citizen_identification:
+    - national_id
+    - citizenship_verification
+    voting_registration:
+    - voter_id
+    - electoral_registration
+    taxation:
+    - tax_identification
+    - tax_number
+    travel_documentation:
+    - passport_id
+    - travel_permit
+    social_welfare_access:
+    - benefits_access
+    - welfare_id
+    financial_inclusion:
+    - banking_access
+    - financial_services_id
+    law_enforcement:
+    - police_database_id
+    - security_registration
+    public_health:
+    - health_id
+    - health_registry
+    military_conscription:
+    - military_registration
+    - conscription_id
+    multi_purpose:
+    - general_purpose_id
+    - national_identifier
+- name: de_duplication_method
+  kind: enum
+  description: Primary technical method used to prevent duplicate enrollments and
+    detect identity fraud during enrollment
+  value_enum:
+  - fingerprint_biometric_matching
+  - iris_biometric_matching
+  - facial_recognition_matching
+  - multi_factor_biometric
+  - demographic_data_comparison
+  - manual_adjudication
+  - blockchain_based_deduplication
+  - unknown
+  value_aliases:
+    fingerprint_biometric_matching:
+    - fingerprint_dedup
+    - fingerprint_matching
+    iris_biometric_matching:
+    - iris_dedup
+    - iris_matching
+    facial_recognition_matching:
+    - facial_dedup
+    - face_matching
+    multi_factor_biometric:
+    - hybrid_biometric
+    - multiple_modalities
+    demographic_data_comparison:
+    - demographic_matching
+    - data_comparison
+    manual_adjudication:
+    - manual_review
+    - human_verification
+    blockchain_based_deduplication:
+    - distributed_ledger_dedup
+    - blockchain_registry
+- name: online_authentication_supported
+  kind: boolean
+  description: Whether the ID can be used for remote digital authentication, such
+    as online login, digital signatures, or e-government services
+- name: sector_adoption_breadth
+  kind: enum
+  description: Breadth of institutional sectors accepting and requiring the ID for
+    service access or verification
+  identity_qualifiers:
+  - year
+  value_enum:
+  - government_agencies_only
+  - government_plus_banking
+  - government_banking_telecom
+  - multi_sector_wide
+  - near_universal
+  - unknown
+  value_aliases:
+    government_plus_banking:
+    - government_and_financial_sector
+    government_banking_telecom:
+    - government_banking_telco
+    - three_sector
+    multi_sector_wide:
+    - broad_sector_adoption
+    near_universal:
+    - universal_adoption
+- name: id_validity_period_years
+  kind: enum
+  description: Duration for which an issued ID remains valid before mandatory renewal
+  value_enum:
+  - lifetime
+  - 20_years
+  - 15_years
+  - 10_years
+  - 5_years
+  - 1_year
+  - on_demand_only
+  - unknown
+  value_aliases:
+    lifetime:
+    - life_time
+    - permanent
+    20_years:
+    - '20'
+    - 20yr
+    15_years:
+    - '15'
+    - 15yr
+    10_years:
+    - '10'
+    - 10yr
+    5_years:
+    - '5'
+    - 5yr
+    1_year:
+    - '1'
+    - 1yr
+    - annual
+    on_demand_only:
+    - no_renewal
+    - not_renewed
+- name: cross_border_accepted
+  kind: boolean
+  description: Whether the ID is recognized and accepted by other countries, such
+    as for travel, financial services, or legal proceedings
+- name: data_residency_location
+  kind: enum
+  description: Location and architecture where identity data is stored and processed
+  identity_qualifiers:
+  - year
+  value_enum:
+  - domestic_government_systems_only
+  - domestic_cloud_infrastructure
+  - regional_infrastructure
+  - global_cloud_system
+  - distributed_ledger_system
+  - hybrid_multi_jurisdiction
+  - unknown
+  value_aliases:
+    domestic_government_systems_only:
+    - on_premise_government
+    - centralized_domestic
+    domestic_cloud_infrastructure:
+    - private_cloud_domestic
+    - cloud_domestic
+    distributed_ledger_system:
+    - blockchain_based
+    - decentralized
+    hybrid_multi_jurisdiction:
+    - multi_location
+    - cross_border_storage
+- name: digital_signature_capable
+  kind: boolean
+  description: Whether the ID supports creation of legally recognized digital signatures
+    or digital certificates for e-commerce, contracts, and e-government
+- name: id_linkage_sectors
+  kind: enum
+  description: Government and private sectors integrated with or requiring the foundational
+    ID for access or service delivery.
+  identity_qualifiers:
+  - sector_category
+  qualifier_enums:
+    sector_category:
+    - government_services
+    - financial
+    - telecom
+    - social_programs
+    - taxation
+    - healthcare
+    - education
+    - voting
+    - employment
+    - travel
+  value_enum:
+  - banking_mandatory
+  - banking_encouraged
+  - voting_required
+  - welfare_required
+  - taxation_required
+  - telecom_required
+  - healthcare_integrated
+  - education_integrated
+  - no_mandatory_linkage
+  - multiple_mandatory
+  value_aliases:
+    banking_required:
+    - banking_mandatory
+    - financial_linked
+    - bank_account_requires_id
+    voting_tied:
+    - voting_required
+    - electoral_system_integrated
+    - voting_linked
+    welfare_linked:
+    - social_programs_integrated
+    - welfare_requires_id
+    - social_safety_net_linked
+- name: plural_foundational_schemes
+  kind: boolean
+  description: Whether multiple schemes function as foundational ID in practice, despite
+    a single de jure scheme.
+  identity_qualifiers:
+  - basis
+  required_qualifiers:
+  - basis
+  qualifier_enums:
+    basis:
+    - de_jure
+    - de_facto
+- name: enrollment_de_facto_compulsion
+  kind: enum
+  description: Practical (de facto) requirement to hold the foundational ID for basic
+    services, regardless of legal status.
+  identity_qualifiers:
+  - basis
+  - consequence
+  required_qualifiers:
+  - basis
+  qualifier_enums:
+    basis:
+    - de_jure_voluntary
+    - de_jure_mandatory
+    - undetermined
+    consequence:
+    - complete_exclusion
+    - service_access_denial
+    - economic_hardship
+    - none
+  value_enum:
+  - truly_voluntary
+  - effectively_mandatory_for_banking
+  - effectively_mandatory_for_government_services
+  - effectively_mandatory_for_employment
+  - effectively_mandatory_for_education
+  - layered_mandatory
+  value_aliases:
+    de_facto_mandatory:
+    - effectively_mandatory
+    - practical_requirement
+    - necessity_driven
+    conditional_mandatory:
+    - service_dependent
+    - layered_mandatory
+- name: gender_identity_handling
+  kind: enum
+  description: How the scheme records and handles gender markers and gender transitions.
+  identity_qualifiers:
+  - transition_type
+  qualifier_enums:
+    transition_type:
+    - marriage_name_change
+    - gender_transition
+    - religious_status_change
+    - none
+  value_enum:
+  - immutable_no_changes
+  - update_allowed_with_legal_evidence
+  - update_restricted_to_specific_events
+  - gender_not_recorded
+  - self_identification_allowed
+  value_aliases:
+    fixed_identity:
+    - immutable
+    - no_changes_permitted
+    - permanent_record
+    flexible_identity:
+    - update_allowed
+    - change_possible
+    - adaptive_records
+- name: stateless_refugee_policy
+  kind: enum
+  description: Official policy on whether refugees, stateless persons, or undocumented
+    migrants can enrol in the foundational ID scheme.
+  identity_qualifiers:
+  - group
+  required_qualifiers:
+  - group
+  qualifier_enums:
+    group:
+    - refugees
+    - stateless_persons
+    - undocumented_migrants
+    - temporary_visitors
+  value_enum:
+  - eligible_same_as_citizens
+  - eligible_with_restrictions
+  - ineligible_by_law
+  - case_by_case_discretion
+  - de_facto_accessible_informally
+  value_aliases:
+    refugee_eligible:
+    - refugees_can_enrol
+    - refugee_accessible
+    refugee_barred:
+    - refugees_excluded
+    - refugee_ineligible
+- name: authentication_modality
+  kind: enum
+  description: Modalities by which the ID can be verified and used for authentication
+    in real-world scenarios.
+  identity_qualifiers:
+  - usage_context
+  qualifier_enums:
+    usage_context:
+    - online_transaction
+    - physical_presence
+    - low_connectivity_offline
+  value_enum:
+  - physical_card_only
+  - digital_wallet_only
+  - biometric_online
+  - secure_code_based
+  - offline_verification_capable
+  - multi_modal
+  value_aliases:
+    card_based:
+    - physical_card_only
+    - card_centric
+    digital_native:
+    - digital_wallet
+    - app_based
+    offline_capable:
+    - works_without_internet
+    - code_based
+- name: error_correction_mechanism
+  kind: enum
+  description: How errors, life-event changes, or identity corrections can be processed
+    after initial enrolment.
+  identity_qualifiers:
+  - error_type
+  qualifier_enums:
+    error_type:
+    - biographical_error
+    - biometric_change
+    - legal_name_change
+    - address_change
+    - data_quality_issue
+  value_enum:
+  - digital_self_service
+  - in_person_required
+  - mail_based_offline
+  - agency_initiated_only
+  - not_possible_after_issuance
+  - case_by_case_discretion
+  value_aliases:
+    self_service_update:
+    - digital_self_service
+    - online_update
+    offline_only:
+    - in_person_required
+    - manual_process
+- name: cross_border_recognition
+  kind: enum
+  description: Whether the foundational ID is recognized or accepted by neighboring
+    countries or for diaspora purposes.
+  identity_qualifiers:
+  - context
+  qualifier_enums:
+    context:
+    - regional_bloc
+    - bilateral
+    - diaspora
+    - travel
+  value_enum:
+  - no_recognition
+  - recognized_within_regional_bloc
+  - bilateral_agreements_only
+  - diaspora_use_supported
+  - de_facto_accepted_regionally
+  value_aliases:
+    regional:
+    - recognized_within_regional_bloc
+    - bloc_wide
+    bilateral:
+    - bilateral_only
+    - agreed_pairs_only
+- name: coverage_by_age_group
+  kind: percentage
+  description: Percentage of population with foundational ID, segmented by age group.
+    Complements id_coverage_pct by revealing age-based inclusion gaps.
+  identity_qualifiers:
+  - age_group
+  - year
+  required_qualifiers:
+  - age_group
+  qualifier_enums:
+    age_group:
+    - age_0_to_17
+    - age_18_to_64
+    - age_65_plus
+    - school_age
+    - working_age
+    - retirement_age
+- name: coverage_by_geography
+  kind: percentage
+  description: Percentage of population with foundational ID, segmented by geographic
+    area type (urban vs. rural vs. remote). Reveals infrastructure and access disparities.
+  identity_qualifiers:
+  - geography_type
+  - year
+  required_qualifiers:
+  - geography_type
+  qualifier_enums:
+    geography_type:
+    - urban
+    - rural
+    - peri_urban
+    - remote
+- name: coverage_by_gender
+  kind: percentage
+  description: Percentage of population with foundational ID, segmented by gender.
+    Surfaces gender-based inclusion gaps that aggregate coverage conceals.
+  identity_qualifiers:
+  - gender
+  - year
+  required_qualifiers:
+  - gender
+  qualifier_enums:
+    gender:
+    - male
+    - female
+    - non_binary
+    - not_disclosed
+- name: cost_to_citizen
+  kind: enum
+  description: Cost model for obtaining foundational ID per transaction type. Free
+    access removes a critical barrier to inclusion.
+  identity_qualifiers:
+  - transaction_type
+  - year
+  required_qualifiers:
+  - transaction_type
+  qualifier_enums:
+    transaction_type:
+    - initial_issuance
+    - renewal
+    - replacement
+    - correction
+  value_enum:
+  - free
+  - subsidized
+  - paid
+  value_aliases:
+    free:
+    - no_charge
+    - at_no_cost
+    subsidized:
+    - reduced_cost
+    - partial_subsidy
+    - fee_waiver_available
+    paid:
+    - cost_to_applicant
+    - fee_based
+- name: civil_registry_linkage
+  kind: enum
+  description: Whether foundational ID is linked to or integrated with civil registration
+    systems (birth, death, marriage records). Linkage is critical for confirming vital
+    status and identity.
+  identity_qualifiers:
+  - registry_type
+  - year
+  required_qualifiers:
+  - registry_type
+  qualifier_enums:
+    registry_type:
+    - birth_registration
+    - death_registration
+    - marriage_registration
+  value_enum:
+  - fully_linked
+  - partially_linked
+  - not_linked
+  - linkage_planned
+  value_aliases:
+    fully_linked:
+    - fully_integrated
+    - bidirectional_sync
+    partially_linked:
+    - partial_integration
+    - some_linkage
+    - read_only_access
+    not_linked:
+    - separate_systems
+    - not_integrated
+    linkage_planned:
+    - future_linkage
+    - implementation_in_progress
+- name: digital_verification_online_available
+  kind: boolean
+  description: Whether the foundational ID can be verified programmatically online
+    by government agencies and approved third-party relying parties (banks, telcos,
+    e-services).
+  identity_qualifiers:
+  - year
+- name: accessible_issuance_for_disabled
+  kind: boolean
+  description: Whether the foundational ID issuance/registration process provides
+    accessibility accommodations for persons with disabilities (physical, sensory,
+    cognitive, mobility-based).
+  identity_qualifiers:
+  - year
+- name: mobile_issuance_available
+  kind: boolean
+  description: Whether foundational ID issuance or renewal can be performed at mobile/decentralized
+    registration points (e.g., temporary registration camps, district offices, biometric
+    vans), not only at central government offices.
+  identity_qualifiers:
+  - year
+- name: id_coverage_by_age_cohort
+  kind: percentage
+  description: Percentage of age cohort with active foundational ID. Captures demographic-specific
+    inclusion/exclusion patterns.
+  identity_qualifiers:
+  - age_cohort
+  - year
+  required_qualifiers:
+  - age_cohort
+  - year
+  qualifier_enums:
+    age_cohort:
+    - children_0_5
+    - children_6_17
+    - adults_18_59
+    - elderly_60plus
+- name: id_coverage_by_area_type
+  kind: percentage
+  description: Percentage of residents with active foundational ID by geographic location
+    type (rural/urban/peri-urban). Exposes digitalization bias.
+  identity_qualifiers:
+  - area_type
+  - year
+  required_qualifiers:
+  - area_type
+  - year
+  qualifier_enums:
+    area_type:
+    - rural
+    - urban
+    - peri_urban
+- name: foundational_id_enrollment_requirement
+  kind: enum
+  description: 'Legal or de facto status: is ID enrollment voluntary, conditional
+    (required for services), or mandatory?'
+  identity_qualifiers:
+  - year
+  - target_population
+  required_qualifiers:
+  - year
+  qualifier_enums:
+    target_population:
+    - all_citizens
+    - adult_citizens_18plus
+    - resident_workers
+    - selective_occupation
+  value_enum:
+  - voluntary
+  - conditional_for_government_services
+  - conditional_for_banking_telecom
+  - de_facto_mandatory
+  - legally_mandatory
+  value_aliases:
+    conditional_for_government_services:
+    - mandatory_for_welfare
+    - gated_by_services
+    de_facto_mandatory:
+    - operationally_mandatory
+    - socially_mandatory
+- name: digital_id_availability
+  kind: enum
+  description: Availability and primacy of digital (mobile/web) versions of foundational
+    ID alongside physical card.
+  identity_qualifiers:
+  - year
+  required_qualifiers:
+  - year
+  value_enum:
+  - physical_only
+  - physical_primary_digital_optional
+  - dual_equivalent
+  - digital_primary_physical_optional
+  - digital_only_no_physical
+- name: private_sector_id_access_policy
+  kind: enum
+  description: Permitted scope of private company access to foundational ID data and
+    verification services.
+  identity_qualifiers:
+  - year
+  - sector
+  required_qualifiers:
+  - year
+  qualifier_enums:
+    sector:
+    - telecom
+    - banking_financial
+    - commerce_ecommerce
+    - all_regulated_private
+    - all_private
+  value_enum:
+  - prohibited_government_only
+  - restricted_to_government_and_law_enforcement
+  - restricted_licensed_telecom
+  - restricted_regulated_finance
+  - broadly_permitted_with_explicit_consent
+  - broadly_permitted_implicit_consent
+  value_aliases:
+    restricted_licensed_telecom:
+    - telecom_gate_model
+    restricted_regulated_finance:
+    - financial_sector_gate
+    broadly_permitted_with_explicit_consent:
+    - opt_in_framework
+    broadly_permitted_implicit_consent:
+    - opt_out_framework
+- name: id_verification_cost_to_citizen
+  kind: enum
+  description: Direct cost borne by citizen for initial foundational ID issuance,
+    enrollment, and biometric capture.
+  identity_qualifiers:
+  - year
+  required_qualifiers:
+  - year
+  value_enum:
+  - free
+  - nominal_fee_subsidized
+  - standard_market_rate
+  - variable_by_modality_or_location
+  - cost_recovery_model
+  value_aliases:
+    nominal_fee_subsidized:
+    - symbolic_fee
+    - cost_absorbedby_state
+    variable_by_modality_or_location:
+    - differential_rural_urban_pricing
+- name: id_biometric_modalities_captured
+  kind: enum
+  description: Specific biometric authentication types captured in foundational ID
+    enrollment.
+  identity_qualifiers:
+  - year
+  required_qualifiers:
+  - year
+  value_enum:
+  - fingerprint_only
+  - fingerprint_and_iris
+  - fingerprint_and_face
+  - iris_only
+  - face_only
+  - multimodal_3plus_redundancy
+  - non_biometric_credentials_only
+- name: id_data_portability_right
+  kind: enum
+  description: Citizen right to request, receive, and reuse their own foundational
+    ID data; technical and legal support for data export.
+  identity_qualifiers:
+  - year
+  required_qualifiers:
+  - year
+  value_enum:
+  - not_supported_restricted_access
+  - on_request_significant_friction
+  - on_request_streamlined
+  - automatic_upon_enrollment
+  - automatic_with_api_for_third_parties
+- name: id_reissuance_requirement
+  kind: enum
+  description: Frequency and conditions for mandatory renewal or reissuance of foundational
+    ID document.
+  identity_qualifiers:
+  - year
+  required_qualifiers:
+  - year
+  value_enum:
+  - no_renewal_lifetime
+  - periodic_5_years
+  - periodic_10_years
+  - periodic_25_years
+  - conditional_biometric_refresh
+  - conditional_demographic_change
+- name: foundational_id_sector_integration
+  kind: enum
+  description: Breadth of institutional sectors in which foundational ID is accepted
+    or required for authentication and service access.
+  identity_qualifiers:
+  - year
+  required_qualifiers:
+  - year
+  value_enum:
+  - government_only
+  - government_plus_telecom
+  - government_telecom_banking
+  - government_banking_healthcare
+  - commerce_retail_added
+  - all_major_sectors
+- name: identity_verification_infrastructure
+  kind: enum
+  description: Technical systems available to relying parties (banks, telecom, health)
+    for validating citizen identity.
+  identity_qualifiers:
+  - year
+  required_qualifiers:
+  - year
+  value_enum:
+  - manual_document_inspection_only
+  - centralized_database_api_access
+  - distributed_ledger_model
+  - biometric_matcher_required_live_capture
+  - blockchain_or_decentralized_verification
+- name: enrollment_channel_accessibility
+  kind: enum
+  description: Physical and digital channels through which citizens can enroll in
+    or access foundational ID services.
+  identity_qualifiers:
+  - year
+  required_qualifiers:
+  - year
+  value_enum:
+  - centralized_capital_region_only
+  - multiple_fixed_regional_offices
+  - mobile_enrollment_units_periodic
+  - online_digital_enrollment
+  - multi_channel_integrated_redundancy
+- name: id_data_security_incident_public_disclosure
+  kind: enum
+  description: Publicly disclosed security incidents (breach, unauthorized access,
+    credential compromise) involving foundational ID data.
+  identity_qualifiers:
+  - year
+  - incident_type
+  required_qualifiers:
+  - year
+  qualifier_enums:
+    incident_type:
+    - data_breach
+    - unauthorized_access_by_staff
+    - credential_abuse
+    - api_exposure
+  value_enum:
+  - no_publicly_disclosed_incidents
+  - one_minor_contained_incident
+  - one_major_breach_partial_population
+  - major_breach_significant_population_exposure
+  - multiple_incidents_or_ongoing
+- name: adult_coverage_pct
+  kind: percentage
+  description: Percentage of adult population with an active, valid foundational ID
+    document or credential in the scheme.
+  identity_qualifiers:
+  - year
+  - age_bracket
+  - population_basis
+  required_qualifiers:
+  - year
+  qualifier_enums:
+    year: []
+    age_bracket:
+    - '18_24'
+    - '25_34'
+    - '35_49'
+    - '50_64'
+    - 65_plus
+    - adults_all
+    population_basis:
+    - de_facto
+    - de_jure
+    - estimated_eligible
+- name: authentication_method_supported
+  kind: enum
+  description: 'Methods by which a resident can authenticate or verify their identity
+    using the foundational ID: PIN/password, biometric (fingerprint, iris, face),
+    one-time code (SMS/app), QR code, NFC chip, or physical token.'
+  identity_qualifiers:
+  - year_enabled
+  - sector_context
+  qualifier_enums:
+    year_enabled: []
+    sector_context:
+    - government_service
+    - financial_service
+    - telecom
+    - healthcare
+    - cross_sector
+  value_enum:
+  - pin_password
+  - biometric_fingerprint
+  - biometric_iris
+  - biometric_face
+  - otp_sms
+  - otp_app
+  - qr_code_static
+  - qr_code_dynamic
+  - nfc_chip
+  - physical_token_smartcard
+  - multi_factor
+  value_aliases:
+    otp_sms:
+    - one_time_password_sms
+    - sms_code
+    otp_app:
+    - authenticator_app
+    - totp
+    qr_code_dynamic:
+    - time_limited_qr
+    - session_qr
+- name: kyc_linkage_financial
+  kind: boolean
+  description: Whether the foundational ID scheme is legally linked to or de facto
+    integrated with financial KYC (Know Your Customer) requirements for bank accounts,
+    mobile money, or financial services.
+  identity_qualifiers:
+  - year_linked
+  - mandate_type
+  qualifier_enums:
+    year_linked: []
+    mandate_type:
+    - mandatory_by_law
+    - mandatory_by_regulation
+    - de_facto_industry_standard
+    - optional
+    - prohibited
+- name: digital_wallet_integration
+  kind: boolean
+  description: Whether the foundational ID is integrated into or linked with a government-backed
+    digital wallet for storing offline copies, e-credentials, or enabling offline
+    authentication.
+  identity_qualifiers:
+  - year_launched
+  - wallet_platform_name
+  - offline_capability
+  qualifier_enums:
+    year_launched: []
+    wallet_platform_name: []
+    offline_capability:
+    - online_only
+    - offline_capable_signed
+    - offline_capable_plain
+    - offline_capable_qr
+- name: data_minimization_requirement
+  kind: boolean
+  description: Whether the scheme has a documented policy or technical enforcement
+    of data minimization (e.g., limiting what attributes are revealed per transaction,
+    selective disclosure, or zero-knowledge proofs).
+  identity_qualifiers:
+  - year_enforced
+  - enforcement_type
+  qualifier_enums:
+    year_enforced: []
+    enforcement_type:
+    - policy_documented
+    - regulatory_requirement
+    - technical_enforcement_api_level
+    - technical_enforcement_wallet_level
+    - self_sovereign_identity_architecture
+- name: deduplication_linkage_scope
+  kind: enum
+  description: 'Scope of identity deduplication across other government IDs or databases:
+    scheme-internal only, linked across government sectors, linked to international
+    travel docs, or federated across countries.'
+  identity_qualifiers:
+  - year_linked
+  - linkage_domain
+  qualifier_enums:
+    year_linked: []
+    linkage_domain:
+    - foundational_id_only
+    - other_govt_ids_domestic
+    - passport_travel
+    - biometric_international
+    - cross_border_visa
+  value_enum:
+  - scheme_internal_dedup
+  - linked_domestic_govt_ids
+  - linked_passport_biometric
+  - linked_international_biometric_pools
+  - federated_cross_border
+  - not_linked
+  - partially_linked
+  value_aliases:
+    linked_international_biometric_pools:
+    - interpol_pool
+    - regional_biometric_sharing
+- name: revocation_suspension_mechanism
+  kind: enum
+  description: 'Mechanism by which a foundational ID can be revoked, suspended, or
+    temporarily disabled: administrative revocation, judicial order, death notification,
+    voluntary surrender, or no formal mechanism.'
+  identity_qualifiers:
+  - as_of_year
+  - initiated_by
+  qualifier_enums:
+    as_of_year: []
+    initiated_by:
+    - government_administrative
+    - court_order
+    - civil_registration_death
+    - resident_voluntary
+    - multiple_mechanisms
+  value_enum:
+  - administrative_revocation
+  - judicial_suspension
+  - death_notification_auto_suspend
+  - voluntary_surrender
+  - no_formal_mechanism
+  - multiple_mechanisms
+  - not_disclosed
+  value_aliases:
+    death_notification_auto_suspend:
+    - auto_deactivation_on_death
+    - vital_registry_sync
+- name: financial_inclusion_lift_estimated
+  kind: percentage
+  description: Estimated percentage-point increase in financial account opening, credit
+    access, or digital payment adoption directly attributable to foundational ID roll-out
+    (if studied).
+  identity_qualifiers:
+  - year_measured
+  - study_type
+  - outcome_metric
+  required_qualifiers:
+  - outcome_metric
+  qualifier_enums:
+    year_measured: []
+    study_type:
+    - randomized_control_trial
+    - quasi_experimental
+    - observational_regression
+    - survey_self_reported
+    - industry_claim_unvalidated
+    outcome_metric:
+    - bank_account_opening
+    - credit_access_formal
+    - mobile_money_adoption
+    - digital_payment_volume
+    - composite_financial_inclusion
