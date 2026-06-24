@@ -90,3 +90,72 @@ def test_span_present_accepts_near_paraphrase():
     far = _norm("the moon is made of cheese and has no relation to identity systems at all")
     assert _span_present(near, src) is True
     assert _span_present(far, src) is False
+
+
+# ---------------------------------------------------------------------------
+# Follow-up 3: condensed long-quote span match (statute / legal sources)
+#
+# A model reading dense legal prose emits an evidence_span that lightly condenses a
+# long passage -- dropping mid-quote clauses/markers (e.g. "(1)", "of the European
+# Parliament and of the Council"). That span is a near-subsequence of a source region
+# LONGER than any equal-length window, so the char-window fuzzy misses it even though
+# it is genuinely grounded. It must be accepted, while fabricated/scattered spans
+# (which are NOT in-order subsequences of the source) stay rejected.
+# ---------------------------------------------------------------------------
+
+_STATUTE = _norm(
+    "§ 1. Scope of application of Act. (1) This Act lays down the conditions and procedure "
+    "for the protection of natural persons upon the processing of personal data, and the procedure "
+    "for the exercise of state supervision upon the processing of personal data, to the extent that "
+    "the processing of personal data is governed by Regulation (EU) 2016/679 of the European "
+    "Parliament and of the Council (General Data Protection Regulation)."
+)
+
+
+def test_span_present_accepts_condensed_long_statute_quote():
+    # model dropped the "(1)" marker and the "of the European Parliament and of the Council" clause
+    condensed = _norm(
+        "This Act lays down the conditions and procedure for the protection of natural persons "
+        "upon the processing of personal data, to the extent that the processing of personal data "
+        "is governed by Regulation (EU) 2016/679 (General Data Protection Regulation)."
+    )
+    assert condensed not in _STATUTE  # not an exact substring -> exercises the new fallback
+    assert _span_present(condensed, _STATUTE) is True
+
+
+def test_span_present_rejects_hallucinated_legal_span():
+    halluc = _norm(
+        "The Act mandates biometric fingerprint collection for all national identity cards and "
+        "requires annual security audits by the Data Protection Inspectorate."
+    )
+    assert _span_present(halluc, _STATUTE) is False
+
+
+def test_span_present_rejects_scattered_token_subsequence():
+    # every token appears somewhere in the source, but not as a contiguous in-order quote
+    scattered = _norm(
+        "application data Parliament identity trust Regulation supervision Council database protection"
+    )
+    assert _span_present(scattered, _STATUTE) is False
+
+
+def test_extract_keeps_data_protection_law_from_condensed_statute_quote():
+    # Regression for Follow-up 3: dense statute prose + a lightly-condensed evidence span
+    # previously landed 0 data_protection_law facts because span verification dropped them.
+    statute = (
+        "§ 2. The processing of personal data in the national identity documents database and in "
+        "connection with electronic identification and trust services is subject to this Act and to "
+        "the said Regulation (EU) 2016/679 (General Data Protection Regulation)."
+    )
+    rec = {
+        "property": "data_protection_law", "instance_name": "Estonia", "value": "true",
+        "evidence_span": (
+            "the processing of personal data in the national identity documents database in "
+            "connection with electronic identification is subject to this Act and to the said Regulation"
+        ),
+        "qualifiers": ["in_force"],
+    }
+    out = asyncio.run(extractor.extract(statute, DI, _raw([rec])))
+    assert len(out) == 1
+    assert out[0]["property"] == "data_protection_law"
+    assert out[0]["qualifiers"] == {"stage": "in_force"}
