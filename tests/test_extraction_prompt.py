@@ -1,6 +1,7 @@
 # tests/test_extraction_prompt.py
-from open_deep_research.factbase.prompting import build_extraction_prompt
+from open_deep_research.factbase.prompting import build_extraction_prompt, oversized_catalog_warning
 from open_deep_research.factbase import profile as fbprofile
+from open_deep_research.factbase.profile_schema import profile_from_dict
 
 def test_source_cap_includes_text_past_8000():
     prof = fbprofile.load("country_digital_identity")
@@ -8,3 +9,27 @@ def test_source_cap_includes_text_past_8000():
     src = ("x" * 12000) + " " + marker
     prompt = build_extraction_prompt(prof, None, src, compiled=False)
     assert marker in prompt   # text at ~char 12000 must reach the model
+
+
+def test_source_cap_admits_up_to_40000_chars():
+    # Long legislative/statute sources carry substantive provisions deep in the document;
+    # the cap was raised 24k -> 40k so more of them reaches extraction.
+    prof = fbprofile.load("country_digital_identity")
+    src = "Z" * 45000
+    prompt = build_extraction_prompt(prof, None, src, compiled=False)
+    assert prompt.count("Z") == 40000
+
+
+def test_no_catalog_warning_for_lean_production_profile():
+    # country_cbdc has the largest production catalog (~4.1k chars, 14 props) and is still lean.
+    assert oversized_catalog_warning(fbprofile.load("country_cbdc")) is None
+
+
+def test_catalog_warning_fires_for_oversized_profile():
+    big = profile_from_dict({"entity_type": "country", "version": "1", "properties": [
+        {"name": f"prop_{i}", "kind": "text", "description": "D" * 400} for i in range(40)
+    ]})
+    msg = oversized_catalog_warning(big)
+    assert msg is not None
+    assert "trimming the profile" in msg
+    assert "40 propert" in msg  # reports the property count, not the (source-driven) prompt size
