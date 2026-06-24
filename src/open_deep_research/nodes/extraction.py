@@ -72,10 +72,6 @@ def _make_fact_model_call(configurable, config, target_properties=None):
                 prof, target_properties, source_text,
                 compiled=configurable.compile_extraction_prompt,
             )
-            if configurable.compile_extraction_prompt and len(prompt) > 12000:
-                logger.warning(
-                    "Compiled extraction prompt is large (%d chars) for entity_type=%s; "
-                    "consider trimming the profile.", len(prompt), prof.entity_type)
             extraction_model = configurable.model_for("extract_facts", "researcher")
             model = (
                 configurable_model
@@ -205,6 +201,13 @@ async def extract_facts(state: AgentState, config: RunnableConfig) -> dict:
         )
         profile_name = _effective_profile_name(state, configurable)
         prof = fbprofile.load(profile_name)
+        # Warn ONCE per run if the profile's catalog is large (the per-source prompt size is
+        # source-text-driven and expected; only an oversized catalog is worth a trim).
+        if configurable.compile_extraction_prompt:
+            from open_deep_research.factbase.prompting import oversized_catalog_warning
+            _catalog_warn = oversized_catalog_warning(prof, state.get("target_properties"))
+            if _catalog_warn:
+                logger.warning("%s", _catalog_warn)
         reg = fbregistry.SourceRegistry.load(configurable.registry_name)
         model_call = _make_fact_model_call(
             configurable, config, target_properties=state.get("target_properties"))

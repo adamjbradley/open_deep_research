@@ -7,7 +7,35 @@ guardrails. Kept out of deep_researcher.py so it can be unit-tested without the 
 """
 from __future__ import annotations
 
-_SOURCE_CAP = 24000
+# Per-source text budget fed to extraction. Raised 24k -> 40k so long legislative/statute
+# sources (whose substantive provisions sit deep in the document) reach the extractor instead
+# of being head-truncated. Most sources are far smaller (median ~9k); this only affects the
+# long tail (~17% of sources exceeded 24k in practice).
+_SOURCE_CAP = 40000
+
+# A compiled property catalog above this many characters is worth flagging as a profile that
+# may bloat the extraction prompt / dilute extraction. Set above every shipped profile (the
+# largest, country_cbdc, is ~4.1k) so production profiles don't warn spuriously.
+_LARGE_CATALOG_CHARS = 6000
+
+
+def oversized_catalog_warning(prof, target_properties=None) -> str | None:
+    """Return an actionable warning if this profile's compiled catalog is large, else None.
+
+    The total extraction prompt is dominated by per-source text (capped at ``_SOURCE_CAP``),
+    which is expected and not a profile problem. Only the *catalog* (the profile's fixed
+    contribution) is worth advising a trim on -- so this keys off the catalog size, not the
+    whole prompt, and reports the property count rather than the source-driven prompt length.
+    """
+    catalog = compile_property_catalog(prof, target_properties)
+    if len(catalog) <= _LARGE_CATALOG_CHARS:
+        return None
+    n = len(target_properties or prof.properties)
+    return (
+        f"Extraction profile catalog is large ({len(catalog)} chars, {n} properties) for "
+        f"entity_type={prof.entity_type}; consider trimming the profile. (Per-source text, "
+        f"capped at {_SOURCE_CAP} chars, is a separate and expected part of total prompt size.)"
+    )
 
 
 def compile_property_catalog(prof, target_properties=None) -> str:
