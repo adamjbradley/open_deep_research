@@ -14,6 +14,11 @@ from .profile import Profile
 
 _WS = re.compile(r"\s+")
 _FUZZY_THRESHOLD = 0.9
+# Condensed long-quote fallback (statute / legal sources): the fraction of a span's tokens
+# that must appear as an in-order subsequence of the source for it to count as grounded.
+# Real lightly-condensed quotes score ~0.85-1.0; fabricated/scattered spans score <= 0.5.
+_SUBSEQ_THRESHOLD = 0.8
+_SUBSEQ_MIN_TOKENS = 8  # only long spans use this looser path; short spans need exact/window
 
 
 def _norm(s: str) -> str:
@@ -49,7 +54,27 @@ def _span_present(span_norm: str, source_norm: str) -> bool:
         window = source_norm[i:i + n]
         if difflib.SequenceMatcher(None, span_norm, window).ratio() >= _FUZZY_THRESHOLD:
             return True
-    return False
+    # Condensed long-quote fallback: the model lightly condensed a long source passage
+    # (dropping mid-quote clauses/markers), so its span is a near-subsequence of a source
+    # region longer than any equal-length window -- which the slide above can't align.
+    # Token-level in-order coverage admits the condensed quote; fabricated or scattered
+    # spans are not in-order subsequences of the source, so they score far lower.
+    return _token_subsequence_coverage(span_norm, source_norm) >= _SUBSEQ_THRESHOLD
+
+
+def _token_subsequence_coverage(span_norm: str, source_norm: str) -> float:
+    """Fraction of the span's tokens that match the source as an in-order subsequence.
+
+    Uses SequenceMatcher over token lists (an order-preserving longest-common-subsequence),
+    so common leading tokens can't be greedily mis-anchored. Returns 0.0 for spans below the
+    minimum token count (too short for this looser path -- they rely on exact/window matching).
+    """
+    span_tokens = span_norm.split()
+    if len(span_tokens) < _SUBSEQ_MIN_TOKENS:
+        return 0.0
+    sm = difflib.SequenceMatcher(None, span_tokens, source_norm.split(), autojunk=False)
+    matched = sum(block.size for block in sm.get_matching_blocks())
+    return matched / len(span_tokens)
 
 
 async def extract(source_text: str, prof: Profile, model_call) -> list[dict]:
