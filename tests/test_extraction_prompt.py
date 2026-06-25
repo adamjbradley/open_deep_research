@@ -33,3 +33,12 @@ def test_catalog_warning_fires_for_oversized_profile():
     assert msg is not None
     assert "trimming the profile" in msg
     assert "40 propert" in msg  # reports the property count, not the (source-driven) prompt size
+
+
+def test_compiled_prompt_instructs_boolean_value():
+    # boolean-kind properties (e.g. data_protection_law) need an explicit value rule: without it
+    # the model emits NO fact for them (confirmed against the live extraction model). The rule
+    # must tell the model to emit "true"/"false".
+    prof = fbprofile.load("country_digital_identity")  # has the boolean data_protection_law
+    prompt = build_extraction_prompt(prof, ["data_protection_law"], "src", compiled=True)
+    assert '"true"' in prompt and '"false"' in prompt

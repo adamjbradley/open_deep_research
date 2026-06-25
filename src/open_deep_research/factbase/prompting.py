@@ -95,6 +95,8 @@ def build_extraction_prompt(prof, target_properties, source_text, *, compiled: b
             "that apply', return every applicable value separated by commas; when it allows "
             "literals, you may give a value outside the list; for 'text' properties give the "
             "relevant prose verbatim or lightly condensed; "
+            "for 'boolean' properties emit value \"true\" when the source affirms the property "
+            "(e.g. a law exists or applies) and \"false\" when it denies it; "
             "evidence_span MUST be a verbatim substring of the source text supporting the value; "
             "narrative is a short (1-3 sentence) prose note of context the source gives around "
             "the value (caveats, scope, methodology) -- omit it if the source adds nothing; "
