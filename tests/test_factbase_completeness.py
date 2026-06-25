@@ -1,5 +1,20 @@
 from open_deep_research.factbase.profile_schema import profile_from_dict
-from open_deep_research.factbase.completeness import assess_property_status, is_complete
+from open_deep_research.factbase.completeness import (
+    assess_property_status,
+    is_complete,
+    order_incomplete_by_severity,
+)
+
+
+def test_order_incomplete_by_severity_biggest_gaps_first():
+    # missing_value (no value at all) > missing_qualifier > missing_narrative; stable within a tier.
+    ledger = {"a": "missing_narrative", "b": "missing_value", "c": "missing_qualifier", "d": "missing_value"}
+    assert order_incomplete_by_severity(["a", "b", "c", "d"], ledger) == ["b", "d", "c", "a"]
+
+
+def test_order_incomplete_by_severity_unknown_status_sorts_last_stably():
+    ledger = {"x": "missing_qualifier", "y": "weird", "z": "missing_value"}
+    assert order_incomplete_by_severity(["x", "y", "z"], ledger) == ["z", "x", "y"]
 
 PROF = profile_from_dict({"entity_type": "country", "version": "1", "properties": [
     {"name": "scheme", "kind": "name",

@@ -274,8 +274,22 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
         existing = await get_subject_by_slug(get_db_path(config), slugify(subject))
         dossier = (existing or {}).get("current_report") if existing else None
 
-    if dossier:
-        # Gap research: focus on what's missing, verify the rest, include the dossier.
+    if dossier and configurable.whole_profile_mode:
+        # Whole-profile gap round: the missing properties are the PRIMARY objective; the prior
+        # dossier is reference-only. Re-verifying the whole (often large) dossier would crowd out
+        # the actual gaps under a bounded research budget, so it is demoted to context.
+        research_brief = (
+            f"Research the subject \"{subject}\" to FILL SPECIFIC GAPS in an existing dossier.\n\n"
+            f"PRIMARY OBJECTIVE -- find cited values for the properties that are currently "
+            f"missing: {missing_information or '(complete or refresh any out-of-date facts)'}\n"
+            f"Go straight to sources that directly cover them (for a legal or regulatory "
+            f"property, the official statute, act, or regulator).\n\n"
+            f"The existing dossier below is REFERENCE ONLY -- consult it to avoid redundant work; "
+            f"do NOT spend research effort re-verifying or re-gathering what it already covers:\n{dossier}"
+        )
+    elif dossier:
+        # KB refresh of a known subject: verify the existing dossier against current sources
+        # and extend it (here re-verification IS the goal, unlike a whole-profile gap round).
         research_brief = (
             f"Research the subject \"{subject}\" to fully answer this question:\n{question}\n\n"
             f"Focus in particular on the information that is currently missing: "

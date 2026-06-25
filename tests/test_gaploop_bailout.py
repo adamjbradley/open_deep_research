@@ -64,3 +64,28 @@ def test_gap_round_brief_is_scoped_when_dossier_exists(monkeypatch):
     assert "currently missing" in research_brief.lower()
     assert "data_protection_law" in research_brief
     assert "Prior dossier" in research_brief
+
+
+def test_whole_profile_gap_brief_demotes_dossier_to_reference(monkeypatch):
+    # W2: in a whole-profile gap round the missing properties are the PRIMARY objective and the
+    # prior dossier is reference-only. The brief must not instruct re-verifying/re-gathering the
+    # whole dossier (which crowds out the actual gaps under a bounded research budget).
+    async def fake_get_subject(db_path, slug):
+        return {"name": "Estonia",
+                "current_report": "## Prior dossier\n- foundational_id_scheme: ID card",
+                "sources": []}
+    monkeypatch.setattr(brief, "get_subject_by_slug", fake_get_subject)
+    state = {
+        "messages": [HumanMessage(content="Research Estonia's digital identity")],
+        "subject": "Estonia",
+        "missing_information": "data_protection_law (missing_value)",
+        "target_properties": ["data_protection_law"],
+    }
+    cfg = {"configurable": {"whole_profile_mode": True, "database_path": "/tmp/gaploop_brief_w2.db",
+                            "profile_name": "country_digital_identity", "thread_id": "t"}}
+    brief_text = asyncio.run(dr.write_research_brief(state, cfg))["research_brief"]
+    low = brief_text.lower()
+    assert "data_protection_law" in brief_text          # the gap is the objective
+    assert "Prior dossier" in brief_text                # dossier still present, as context
+    assert "verify the existing facts" not in low       # NOT the re-verify-everything framing
+    assert "do not" in low and "reference" in low       # dossier demoted to reference-only

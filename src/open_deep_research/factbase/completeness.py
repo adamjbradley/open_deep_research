@@ -44,6 +44,21 @@ def assess_property_status(grouped_rows, absent, prof) -> dict:
     return out
 
 
+# Gap severity for per-round prioritization: a property with NO value is a bigger gap than one
+# that only lacks a required qualifier, which is bigger than one that only lacks a narrative.
+_SEVERITY_RANK = {"missing_value": 0, "missing_qualifier": 1, "missing_narrative": 2}
+
+
+def order_incomplete_by_severity(incomplete: list, ledger: dict) -> list:
+    """Order incomplete property names biggest-gap-first.
+
+    So a bounded gap round spends its research budget on the properties that need the most
+    (missing_value before missing_qualifier before missing_narrative). A stable sort preserves
+    profile order within a severity tier; unknown statuses sort last.
+    """
+    return sorted(incomplete, key=lambda p: _SEVERITY_RANK.get(ledger.get(p), 99))
+
+
 def is_complete(status: str, pd) -> bool:
     if status == "resolved":
         return True
