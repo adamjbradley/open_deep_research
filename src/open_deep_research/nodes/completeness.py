@@ -162,6 +162,9 @@ async def assess_completeness(state: AgentState, config: RunnableConfig) -> Comm
         pd.name for pd in prof.properties
         if pd.completeness == "required" and not fbc.is_complete(ledger.get(pd.name, "missing_value"), pd)
     ]
+    # Prioritize biggest gaps first so a bounded gap round (and its brief) leads with the
+    # properties that need the most -- missing_value before missing_qualifier/narrative.
+    incomplete = fbc.order_incomplete_by_severity(incomplete, ledger)
     goto, no_progress = _gaploop_decision(
         incomplete, state.get("prev_incomplete_props"), rounds_used, configurable.max_profile_rounds
     )
