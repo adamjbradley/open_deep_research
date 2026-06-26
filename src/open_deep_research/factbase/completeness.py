@@ -65,3 +65,30 @@ def is_complete(status: str, pd) -> bool:
     if status == "confirmed_absent":
         return bool(getattr(pd, "absence_allowed", True))
     return False
+
+
+def missing_required_qualifiers(grouped_rows, prof) -> dict:
+    """For each property whose status is `missing_qualifier`, list its absent required qualifiers.
+
+    Returns {property_name: [{"qualifier": str, "enum": list[str]}, ...]} with enum options.
+    Reuses `assess_property_status` for the status, then derives which required axes the
+    chosen value row lacks. Properties that are resolved/missing_value/absent are omitted.
+    """
+    status = assess_property_status(grouped_rows, set(), prof)
+    by_prop = {}
+    for r in grouped_rows:
+        by_prop.setdefault(r.get("property_name"), []).append(r)
+    out = {}
+    for pd in prof.properties:
+        if status.get(pd.name) != "missing_qualifier":
+            continue
+        req = list(getattr(pd, "required_qualifiers", []) or [])
+        enums = getattr(pd, "qualifier_enums", {}) or {}
+        rows = by_prop.get(pd.name) or []
+        present = set()
+        for r in rows:
+            present |= set((r.get("qualifiers") or {}).keys())
+        absent = [{"qualifier": q, "enum": list(enums.get(q, []))} for q in req if q not in present]
+        if absent:
+            out[pd.name] = absent
+    return out
