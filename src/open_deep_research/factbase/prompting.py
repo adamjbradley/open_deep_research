@@ -71,8 +71,12 @@ def compile_property_catalog(prof, target_properties=None) -> str:
             else:
                 line += f" | {label}: {pd.value_enum}"
         if pd.qualifier_enums:
-            quals = "; ".join(f"{k}={v}" for k, v in pd.qualifier_enums.items())
-            line += f" | qualifiers: {quals}"
+            req = set(getattr(pd, "required_qualifiers", []) or [])
+            qparts = []
+            for k, v in pd.qualifier_enums.items():
+                tag = " (REQUIRED)" if k in req else ""
+                qparts.append(f"{k}={v}{tag}")
+            line += f" | qualifiers: {'; '.join(qparts)}"
         elif pd.identity_qualifiers:
             line += f" | qualifiers: {pd.identity_qualifiers}"
         if getattr(pd, "narrative_required", False) and getattr(pd, "narrative_guidance", ""):
