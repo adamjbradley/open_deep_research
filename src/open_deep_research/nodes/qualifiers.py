@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 
 import aiosqlite
 from langchain_core.messages import HumanMessage
@@ -75,9 +76,9 @@ async def resolve_required_qualifiers(state: AgentState, config: RunnableConfig)
             "e.quoted_span FROM fact f LEFT JOIN evidence e ON e.fact_id = f.id "
             "WHERE f.run_id = ? AND f.soft_deleted_at IS NULL", (str(run_id),))
         rows = await cur.fetchall()
+        cap_hit = False
         for row in rows:
-            if calls >= cap:
-                logger.info("qualifier resolver hit cap (%d); remaining facts route to research", cap)
+            if cap_hit:
                 break
             try:
                 pd = prof.property(row["property_name"])
@@ -94,6 +95,10 @@ async def resolve_required_qualifiers(state: AgentState, config: RunnableConfig)
             for q in req:
                 if quals.get(q):
                     continue  # already present
+                if calls >= cap:
+                    logger.info("qualifier resolver hit cap (%d); remaining facts route to research", cap)
+                    cap_hit = True
+                    break
                 allow = f"{row['property_name']}::{q}" in attempted
                 calls += 1
                 try:
@@ -123,7 +128,8 @@ async def resolve_required_qualifiers(state: AgentState, config: RunnableConfig)
                     "INSERT INTO fact_revision (fact_id, change, cause, why, created_at) "
                     "VALUES (?,?,?,?,?)",
                     (row["id"], f"{q}={res['value']} ({res['basis']})",
-                     "qualifier_resolve", "required qualifier resolved", "2026-06-26"))
+                     "qualifier_resolve", "required qualifier resolved",
+                     datetime.now(timezone.utc).isoformat()))
         await conn.commit()
     logger.info("qualifier resolver: stated=%(stated)d inferred=%(inferred)d null=%(null)d", counts)
     return {}
