@@ -76,3 +76,12 @@ def test_no_missing_required_qualifiers_when_present():
     grouped = [{"property_name": "dpl", "value": "true", "admission": "trusted",
                 "source_count": 2, "qualifiers": {"stage": "in_force"}}]
     assert missing_required_qualifiers(grouped, PROF_RQ) == {}
+
+
+def test_axis_directive_text_built_from_missing():
+    from open_deep_research.nodes.completeness import _qualifier_gap_directive
+    mrq = {"data_protection_law": [{"qualifier": "stage", "enum": ["enacted", "in_force"]}]}
+    text, axes = _qualifier_gap_directive(mrq)
+    assert "data_protection_law" in text and "stage" in text and "in_force" in text
+    assert "primary" in text.lower()
+    assert axes == ["data_protection_law::stage"]

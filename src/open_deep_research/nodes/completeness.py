@@ -101,6 +101,20 @@ def _gaploop_decision(incomplete, prev_incomplete, rounds_used, max_rounds):
     return "synthesize_narrative", no_progress
 
 
+def _qualifier_gap_directive(missing_rq: dict) -> tuple[str, list[str]]:
+    """Build the axis-aware gap directive + the list of "<prop>::<qualifier>" axes it targets."""
+    lines, axes = [], []
+    for prop, items in missing_rq.items():
+        for it in items:
+            q, enum = it["qualifier"], it["enum"]
+            lines.append(
+                f"{prop}: the value is known, but its required '{q}' ({' vs '.join(enum)}) is "
+                f"unconfirmed -- find a PRIMARY/official source (statute, act, or regulator) "
+                f"stating it.")
+            axes.append(f"{prop}::{q}")
+    return ("\n".join(lines), axes)
+
+
 async def assess_completeness(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "synthesize_narrative"]]:
     """Whole-profile: loop until every REQUIRED property is resolved-or-confirmed-absent or budget hit.
 
@@ -175,11 +189,17 @@ async def assess_completeness(state: AgentState, config: RunnableConfig) -> Comm
             "exists, explicitly confirmed unavailable after searching: "
             + ", ".join(f"{p} ({ledger.get(p)})" for p in incomplete) + "."
         )
+        mrq = fbc.missing_required_qualifiers(grouped, prof)
+        qtext, qaxes = _qualifier_gap_directive(mrq)
+        if qtext:
+            gap = gap + "\n" + qtext
         return Command(
             goto="write_research_brief",
             update={"missing_information": gap, "target_properties": incomplete,
                     "fact_rounds_used": rounds_used + 1,
-                    "prev_incomplete_props": incomplete},
+                    "prev_incomplete_props": incomplete,
+                    "qualifier_research_attempted": sorted(
+                        set(state.get("qualifier_research_attempted") or []) | set(qaxes))},
         )
     if no_progress:
         logger.info("Gap round closed zero gaps (%s unchanged); bailing out to finalize", incomplete)
