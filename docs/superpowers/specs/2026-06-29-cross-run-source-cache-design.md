@@ -1,6 +1,6 @@
 # Design: cross-run source cache (Research Memory ②)
 
-**Status:** designed (brainstormed) — **revised after review round 1** (codex / agy).
+**Status:** designed (brainstormed) — **revised after review rounds 1–2** (codex / agy).
 **Sub-project ② of 4** in the "read before you write" program
 (① searchable substrate is merged, PR #53). ② makes source *content* deduped and its *summary*
 reused across runs. Built **on top of ①** — it re-points ①'s FTS index and subject-join onto a new
@@ -42,9 +42,11 @@ keyed by `content_hash`, so it is always correct (identical bytes → identical 
 - **One unified table** for dedup + summary cache. The summary lives on the content row, computed
   once per unique content.
 - **`content_hash` is the content-change signal (no time TTL); cache *identity* is
-  `(content_hash, summary_model)`** *(revised — codex Medium)*. A summary is reused only when the
-  content and the current summarizer model both match, so a model change re-summarizes rather than
-  serving a stale summary forever.
+  `(content_hash, summary_model, SUMMARY_PROMPT_VERSION)`** *(revised — codex rounds 1–2)*. A summary
+  is reused only when content, the current summarizer model, and a coarse prompt-version constant all
+  match. `SUMMARY_PROMPT_VERSION` is bumped only on *intentional* prompt changes; the current-date the
+  summarize prompt injects (`utils.py`/`prompts.py`) is **deliberately excluded** from the key —
+  including it would change daily and defeat reuse, and the date does not affect a content summary.
 - **Phased delivery (A→B).** Phase A ships the summary-cost win without touching ①'s index; Phase B
   re-points the index + subject join and reclaims duplicated text storage.
 - **Move `run_source.text` into `source_content`, behind a read-path migration** *(revised — codex
@@ -76,7 +78,8 @@ source_content  (NEW — deduped content + summary cache)
     title        TEXT             -- provider title (from ①)
     text         TEXT             -- raw page text (moved here from run_source)
     summary      TEXT             -- LLM summary; NULL until summarized (the cross-run cache)
-    summary_model TEXT            -- model that produced the summary (observability)
+    summary_model TEXT            -- model that produced the summary (part of cache identity)
+    summary_prompt_version TEXT   -- coarse prompt version (part of cache identity; excludes the date)
     first_seen_at TEXT
     soft_deleted_at TEXT
 
@@ -85,9 +88,10 @@ run_source  (repurposed → per-run capture / provenance; existing columns kept)
     retrieved_at, soft_deleted_at
     -- `text` and `title` no longer written on new captures (authoritative copy in source_content)
 ```
-Only `capture_status='raw_text'` captures (those with non-empty raw text) get a `source_content`
-row; summarized/skipped captures with no raw text do not (avoids collapsing all empty-text captures
-onto the sha256-of-empty hash).
+Only `capture_status='raw_text'` captures with **non-empty** raw text (`text IS NOT NULL AND
+text <> ''`) get a `source_content` row; summarized/skipped/empty captures do not — otherwise they
+would all collapse onto `sha256('')`. This filter is applied at **both** the capture-path upsert
+**and** the Phase B backfill (codex review round 2).
 
 ## Components
 
@@ -103,11 +107,13 @@ Two layers: keep the in-memory per-run `_SUMMARY_CACHE` (L1, thread-keyed, `util
 L2 = `source_content.summary` keyed by `content_hash` (cross-run, persistent). In `_summarize_one`,
 after computing `content_hash` of `raw_content`:
 1. L1 hit → reuse.
-2. Else L2: `SELECT summary, summary_model FROM source_content WHERE content_hash=?` — if `summary`
-   is non-null **and `summary_model` matches the current summarization model** → reuse, populate L1,
-   **skip the LLM call**. (A summary stored under a different model is ignored and re-computed.)
-3. Else summarize (`summarize_webpage`), then `UPDATE source_content SET summary=?, summary_model=?
-   WHERE content_hash=?`, populate L1.
+2. Else L2: `SELECT summary, summary_model, summary_prompt_version FROM source_content WHERE
+   content_hash=?` — reuse only if `summary` is non-null **and** `summary_model` and
+   `summary_prompt_version` both match the current model and `SUMMARY_PROMPT_VERSION` → populate L1,
+   **skip the LLM call**. (A summary from a different model or prompt version is ignored and
+   re-computed.)
+3. Else summarize (`summarize_webpage`), then `UPDATE source_content SET summary=?, summary_model=?,
+   summary_prompt_version=? WHERE content_hash=?`, populate L1.
 Because `record_search_sources` runs before summarization, the `source_content` row already exists
 when `_summarize_one` updates its summary. The summarize path is given the DB connection/store
 (currently `_finalize_search` already holds the `run_source_store`).
@@ -139,14 +145,17 @@ unaffected.
 ## Migration & phasing
 
 **Phase A — cost win + read-path (no ① index change).** Migration **v13**: create `source_content`.
-Capture path upserts it; summary cache (L2, keyed by `(content_hash, summary_model)`) wired in; and
+Capture path upserts it; summary cache (L2, keyed by
+`(content_hash, summary_model, SUMMARY_PROMPT_VERSION)`) wired in; and
 `RunSourceStore.read()` is migrated to source text from `source_content` (component 3), so fact
 extraction no longer depends on `run_source.text`. `fts_source`/subject-join still on `run_source`.
 Ships the re-summarization savings and deduped content storage on their own.
 
 **Phase B — dedup hits + storage reclaim.** Migration **v14** (+ a search-schema re-point):
-populate `source_content` from existing `run_source` (`GROUP BY content_hash`, taking a representative
-url/title/text and `MIN(retrieved_at)` as `first_seen_at`); re-point `fts_source` + triggers to
+populate `source_content` from existing `run_source` **filtered to non-empty raw-text rows**
+(`capture_status='raw_text' AND text IS NOT NULL AND text <> ''`, so the `sha256('')` empty captures
+can't collapse into one junk row), `GROUP BY content_hash`, taking a representative url/title/text
+and `MIN(retrieved_at)` as `first_seen_at`; re-point `fts_source` + triggers to
 `source_content` (drop the old run_source-based virtual table + triggers, create the new ones via
 `executescript`, then rebuild); null `run_source.text` (preserved in `source_content`; safe because
 Phase A already routes reads through `source_content`). Idempotent; `dossier reindex` rebuilds.
@@ -169,12 +178,14 @@ at v12).
 - **Summary reuse:** run 1 summarizes content C (model called once); run 2 sees the same
   `content_hash` → **model NOT called**, summary reused (assert via a counting/injected `model_call`).
 - **Changed content:** different `content_hash` → new `source_content` row, summary re-computed.
-- **Summary invalidation (model change):** a cached summary whose `summary_model` differs from the
-  current summarization model is **re-computed**, not reused.
+- **Summary invalidation:** a cached summary whose `summary_model` **or** `summary_prompt_version`
+  differs from the current model / `SUMMARY_PROMPT_VERSION` is **re-computed**, not reused; the
+  injected current-date is excluded from the key, so reuse holds across days.
 - **Read-path:** with `run_source.text` NULL, fact extraction still works — text is sourced from
   `source_content` by `content_hash` via `RunSourceStore.read()`.
-- **No row for empty captures:** a `summarized`/`skipped` capture with no raw text creates no
-  `source_content` row.
+- **No row for empty captures:** a `summarized`/`skipped`/empty capture creates no `source_content`
+  row — at the capture path **and** in the Phase B backfill (empty rows sharing `sha256('')` are
+  excluded, not collapsed into one).
 - **FTS dedup (Phase B):** content indexed once → `search_research` returns a single hit per content.
 - **Subject via captures (Phase B):** a content captured under subject EST is returned for
   `--subject Estonia`; a content captured under two subjects returns one hit matching either.
