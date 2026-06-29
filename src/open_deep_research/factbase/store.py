@@ -11,10 +11,18 @@ class RunSourceStore:
                      capture_status: str, reason: str | None = None,
                      title: str | None = None) -> None:
         ch = _hash(text)
+        # Dedup unique content into source_content (raw, non-empty only) so the
+        # text + its summary are stored once across runs. Idempotent.
+        if text:
+            await self._conn.execute(
+                "INSERT OR IGNORE INTO source_content "
+                "(content_hash, source_url, title, text, first_seen_at) VALUES (?,?,?,?,?)",
+                (ch, url, title, text, datetime.now(timezone.utc).isoformat()))
         cur = await self._conn.execute(
             "SELECT 1 FROM run_source WHERE thread_id=? AND source_url=? AND content_hash=?",
             (thread_id, url, ch))
         if await cur.fetchone():
+            await self._conn.commit()
             return
         await self._conn.execute(
             "INSERT INTO run_source (thread_id, source_url, capture_status, reason, text, title, content_hash, retrieved_at) "
