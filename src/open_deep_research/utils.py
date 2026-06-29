@@ -9,8 +9,10 @@ from typing import Annotated, Any, Dict, List, Literal, Optional
 from weakref import WeakKeyDictionary
 
 import aiohttp
+import aiosqlite as _aiosqlite
 from dotenv import load_dotenv
 from langchain_core.language_models import BaseChatModel
+from open_deep_research.factbase.store import _hash as _fb_hash
 
 # Load environment variables from .env file
 load_dotenv()
@@ -105,6 +107,30 @@ def _summary_cache(thread_id) -> dict:
     if not thread_id:
         return {}  # no run id -> a throwaway dict (degrades to no cross-search reuse)
     return _SUMMARY_CACHE.setdefault(str(thread_id), {})
+
+
+# Bump only when summarize_webpage_prompt is intentionally changed. Part of the
+# cross-run summary cache identity (content_hash, summary_model, this). The date
+# the prompt formats in is NOT a placeholder in the template, so it never varies
+# the output and is correctly excluded.
+SUMMARY_PROMPT_VERSION = "v1"
+
+
+async def _lookup_cached_summary(conn, content_hash: str, model: str) -> "str | None":
+    """Return a cross-run summary for this exact content+model+prompt, else None."""
+    cur = await conn.execute(
+        "SELECT summary FROM source_content "
+        "WHERE content_hash=? AND summary IS NOT NULL AND summary_model=? AND summary_prompt_version=?",
+        (content_hash, model, SUMMARY_PROMPT_VERSION))
+    row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def _store_cached_summary(conn, content_hash: str, summary: str, model: str) -> None:
+    await conn.execute(
+        "UPDATE source_content SET summary=?, summary_model=?, summary_prompt_version=? WHERE content_hash=?",
+        (summary, model, SUMMARY_PROMPT_VERSION, content_hash))
+    await conn.commit()
 
 
 async def _acquire_tavily(queries, n, topic, config) -> dict:
@@ -203,11 +229,18 @@ async def _finalize_search(unique_results: dict, config) -> str:
     # Step 4: Produce per-source content. Three call-reducing behaviours:
     #  - summarize_search_results=False -> skip the LLM pass, hand compression the
     #    truncated raw text (or Tavily's snippet); cuts ALL summarize calls.
-    #  - run-level cache -> a URL already summarized this run is reused, not re-called.
+    #  - run-level cache (L1) -> a URL already summarized this run is reused, not re-called.
+    #  - cross-run cache (L2) -> a prior run's summary for the same content+model+prompt
+    #    is reused, skipping the dominant per-source LLM cost on overlapping runs.
     #  - the _summarize_semaphore gate keeps in-flight calls matched to model slots.
     do_summarize = configurable.summarize_search_results
     thread_id = (config or {}).get("configurable", {}).get("thread_id") if config else None
     cache = _summary_cache(thread_id)
+
+    # resolve the db path once (None when persistence is off → cache disabled)
+    from open_deep_research.storage import get_db_path as _get_db_path
+    _model_id = configurable.summarization_model
+    _db = _get_db_path(config) if (configurable.persist_results and thread_id) else None
 
     async def _summarize_one(result):
         raw = result.get("raw_content")
@@ -220,8 +253,24 @@ async def _finalize_search(unique_results: dict, config) -> str:
             return cache[url]
         if not raw:
             return None
+        ch = _fb_hash(raw)
+        if _db:                                   # L2: cross-run cache
+            try:
+                async with _aiosqlite.connect(_db) as c2:
+                    hit = await _lookup_cached_summary(c2, ch, _model_id)
+                if hit is not None:
+                    if url: cache[url] = hit
+                    return hit
+            except Exception as _e:
+                logger.warning("summary-cache read failed (non-fatal): %s", _e)
         async with _summarize_semaphore():
             summary = await summarize_webpage(summarization_model, raw[:max_char_to_include])
+        if _db:
+            try:
+                async with _aiosqlite.connect(_db) as c2:
+                    await _store_cached_summary(c2, ch, summary, _model_id)
+            except Exception as _e:
+                logger.warning("summary-cache write failed (non-fatal): %s", _e)
         if url:
             cache[url] = summary
         return summary
