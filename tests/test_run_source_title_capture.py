@@ -38,3 +38,22 @@ def test_record_search_sources_threads_title():
             row = await cur.fetchone()
             assert row[0] == "T" and row[1] == "raw_text"
     asyncio.run(run())
+
+
+def test_record_search_sources_threads_title_summarized():
+    async def run():
+        async with aiosqlite.connect(":memory:") as conn:
+            await conn.executescript(
+                "CREATE TABLE research_runs (id INTEGER PRIMARY KEY, thread_id TEXT);"
+            )
+            await conn.commit()
+            await migrations.apply(conn, schema.STEPS)
+            rs = store.RunSourceStore(conn)
+            results = {"https://x.org/b": {"title": "Summary Title"}}  # no raw_content
+            await record_search_sources(rs, "t1", results)
+            cur = await conn.execute(
+                "SELECT title, capture_status FROM run_source WHERE source_url=?",
+                ("https://x.org/b",))
+            row = await cur.fetchone()
+            assert row[0] == "Summary Title" and row[1] == "summarized"
+    asyncio.run(run())
