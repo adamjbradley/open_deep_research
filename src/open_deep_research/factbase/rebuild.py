@@ -34,7 +34,8 @@ async def rebuild_structural(conn: aiosqlite.Connection, profile, registry, *,
 
     rows = await (await conn.execute(
         "SELECT id, instance_key, property_name, qualifiers_json, as_of, value, unit, "
-        "canonical_value, canonical_unit, source_id, admission, tuple_key "
+        "canonical_value, canonical_unit, source_id, admission, tuple_key, "
+        "qualifier_provenance_json "
         "FROM fact WHERE soft_deleted_at IS NULL")).fetchall()
 
     buckets: dict[tuple, list] = {}
@@ -65,7 +66,8 @@ async def rebuild_structural(conn: aiosqlite.Connection, profile, registry, *,
         f = _model.Fact(
             fact_id=r["id"], tuple_key=new_tk, as_of=r["as_of"], value=r["value"], unit=r["unit"],
             source_meets_bar=meets, has_unspecified_required=has_unspec, admission=r["admission"],
-            canonical_value=r["canonical_value"], canonical_unit=r["canonical_unit"])
+            canonical_value=r["canonical_value"], canonical_unit=r["canonical_unit"],
+            has_inferred_required=_promotion.has_inferred_required_qualifier(r["qualifier_provenance_json"]))
         buckets.setdefault((new_tk, r["as_of"]), []).append(f)
 
     await conn.execute(

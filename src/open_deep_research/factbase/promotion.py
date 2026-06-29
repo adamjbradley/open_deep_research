@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+import json
+
 from . import model
+
+
+def has_inferred_required_qualifier(qualifier_provenance_json: str | None) -> bool:
+    """Return True if any qualifier in the provenance JSON is marked `inferred`."""
+    prov = json.loads(qualifier_provenance_json or "{}")
+    return any(v == "inferred" for v in prov.values())
 
 
 def evaluate(fact: model.Fact, bucket: list[model.Fact], has_open_conflict: bool):
