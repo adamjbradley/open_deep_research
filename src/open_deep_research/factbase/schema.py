@@ -188,4 +188,18 @@ STEPS: list[tuple[int, str]] = [
     (12, """
     ALTER TABLE run_source ADD COLUMN title TEXT;
     """),
+    (13, """
+    CREATE TABLE IF NOT EXISTS source_content (
+        id INTEGER PRIMARY KEY,
+        content_hash TEXT UNIQUE,
+        source_url TEXT,
+        title TEXT,
+        text TEXT,
+        summary TEXT,
+        summary_model TEXT,
+        summary_prompt_version TEXT,
+        first_seen_at TEXT,
+        soft_deleted_at TEXT
+    );
+    """),
 ]
