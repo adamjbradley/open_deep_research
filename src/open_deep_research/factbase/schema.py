@@ -185,4 +185,7 @@ STEPS: list[tuple[int, str]] = [
     (11, """
     ALTER TABLE fact ADD COLUMN qualifier_provenance_json TEXT;
     """),
+    (12, """
+    ALTER TABLE run_source ADD COLUMN title TEXT;
+    """),
 ]

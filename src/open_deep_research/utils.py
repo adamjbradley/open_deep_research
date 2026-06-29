@@ -55,11 +55,13 @@ logger = logging.getLogger(__name__)
 async def record_search_sources(run_source_store, thread_id: str, unique_results: dict) -> None:
     """Persist each unique search result as a run_source row (raw_text if raw_content present)."""
     for url, result in unique_results.items():
-        raw = (result or {}).get("raw_content") or ""
+        result = result or {}
+        title = result.get("title") or None
+        raw = result.get("raw_content") or ""
         if raw:
-            await run_source_store.record(thread_id, url, raw, capture_status="raw_text")
+            await run_source_store.record(thread_id, url, raw, capture_status="raw_text", title=title)
         else:
-            await run_source_store.record(thread_id, url, None, capture_status="summarized")
+            await run_source_store.record(thread_id, url, None, capture_status="summarized", title=title)
 
 
 ##########################
