@@ -18,6 +18,7 @@ EXPECTED_NODES = {
     "persist_research",
     "preallocate_run",
     "research_supervisor",
+    "resolve_required_qualifiers",
     "synthesize_narrative",
     "write_research_brief",
 }
@@ -31,3 +32,8 @@ def test_graph_node_set_is_stable():
 def test_graph_compiles_and_has_entry():
     g = deep_researcher.get_graph()
     assert "__start__" in {str(n) for n in g.nodes}
+
+
+def test_resolve_required_qualifiers_node_present():
+    from open_deep_research.deep_researcher import deep_researcher as g
+    assert "resolve_required_qualifiers" in g.get_graph().nodes

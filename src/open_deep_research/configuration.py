@@ -382,6 +382,12 @@ class Configuration(BaseModel):
         metadata={"x_oap_ui_config": {"type": "number", "default": 6,
             "description": "Hard cap on whole-profile gap rounds (whole_profile_mode). Higher than max_fact_rounds since whole-profile gathering needs more passes."}}
     )
+    max_qualifier_resolutions: int = Field(
+        default=12,
+        metadata={"x_oap_ui_config": {"type": "number", "default": 12,
+            "description": "Hard cap on per-run required-qualifier resolver calls. Capped-out "
+            "facts stay missing_qualifier and route to targeted research."}}
+    )
     facts_answer_polish_model: Optional[str] = Field(
         default=None,
         metadata={
