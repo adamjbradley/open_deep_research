@@ -100,6 +100,14 @@ def _registry_scaffold_model_call():
     return call
 
 
+async def _run_search(conn, *, query, subject, kinds, limit, fmt) -> str:
+    from . import search, search_schema
+    await search_schema.ensure_search_schema(conn)
+    kinds = tuple(kinds) if kinds else ("source", "fact")
+    hits = await search.search_research(conn, query, subject=subject, kinds=kinds, limit=limit)
+    return search.format_hits(hits, fmt=fmt)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dossier", description="Inspect the living fact base.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -157,6 +165,16 @@ def _parser() -> argparse.ArgumentParser:
 
     sub.add_parser("population-load",
                    help="Load country population from vendored World Bank data into the fact base.")
+
+    srch = sub.add_parser("search", help="Keyword-search the research substrate (facts + raw sources).")
+    srch.add_argument("query")
+    srch.add_argument("--subject", default=None, help="Filter to one country (name or code).")
+    srch.add_argument("--kind", choices=["source", "fact"], action="append", dest="kinds",
+                      help="Restrict to a kind; repeatable. Default: both.")
+    srch.add_argument("--limit", type=int, default=20)
+    srch.add_argument("--format", choices=["text", "md", "csv"], default="text")
+
+    sub.add_parser("reindex", help="Rebuild the search index from stored sources and facts.")
 
     return parser
 
@@ -299,6 +317,7 @@ async def run(argv, db_path=None) -> str:
         registry_note = f" | registry: {registry_name}" if registry_name else ""
         return f"batch {res['batch_id']}: {summary}{unresolved}{registry_note}\n\n{matrix}"
     async with aiosqlite.connect(db_path) as conn:
+        from . import migrations, schema
         q = _query.FactQuery(conn)
         if args.command == "show":
             key = CountryResolver().resolve(args.country)
@@ -312,6 +331,15 @@ async def run(argv, db_path=None) -> str:
         if args.command == "stats":
             m = await _metrics.compute(conn)
             return "\n".join(f"{k}: {v}" for k, v in m.items())
+        if args.command == "search":
+            await migrations.apply(conn, schema.STEPS)
+            return await _run_search(conn, query=args.query, subject=args.subject,
+                                     kinds=args.kinds, limit=args.limit, fmt=args.format)
+        if args.command == "reindex":
+            await migrations.apply(conn, schema.STEPS)
+            from . import search_schema
+            await search_schema.reindex(conn)
+            return "Search index rebuilt."
     raise ValueError(f"unknown command: {args.command!r}")
 
 

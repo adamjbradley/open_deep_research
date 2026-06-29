@@ -6,6 +6,8 @@ fields ride along on every hit but are never used to filter here.
 """
 from __future__ import annotations
 
+import csv as _csv
+import io
 from dataclasses import dataclass
 
 import aiosqlite
@@ -121,9 +123,24 @@ async def search_research(conn, query, *, subject=None, kinds=("source", "fact")
 def format_hits(hits, fmt: str = "text") -> str:
     if not hits:
         return "(no results)"
+    def _detail(h):
+        return h.source_url if h.kind == "source" else f"{h.subject}/{h.property_name}"
+    def _fresh(h):
+        return f"[{h.lifecycle},{h.admission}]" if h.kind == "fact" else ""
+    if fmt == "csv":
+        buf = io.StringIO()
+        w = _csv.writer(buf)
+        w.writerow(["kind", "subject", "score", "detail", "snippet"])
+        for h in hits:
+            w.writerow([h.kind, h.subject or "", f"{h.score:.3f}", _detail(h), h.snippet])
+        return buf.getvalue().rstrip("\n")
+    if fmt == "md":
+        lines = ["| score | kind | subject | detail | snippet |", "|---|---|---|---|---|"]
+        for h in hits:
+            snip = (h.snippet or "").replace("|", "\\|").replace("\n", " ")
+            lines.append(f"| {h.score:+.3f} | {h.kind} | {h.subject or ''} | {_detail(h)} | {snip} |")
+        return "\n".join(lines)
     lines = []
     for h in hits:
-        meta = h.source_url if h.kind == "source" else f"{h.subject}/{h.property_name}"
-        fresh = f" [{h.lifecycle},{h.admission}]" if h.kind == "fact" else ""
-        lines.append(f"{h.score:+.3f}  {h.kind:<6} {meta}{fresh}\n        {h.snippet}")
+        lines.append(f"{h.score:+.3f}  {h.kind:<6} {_detail(h)} {_fresh(h)}\n        {h.snippet}")
     return "\n".join(lines)
