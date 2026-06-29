@@ -182,6 +182,9 @@ STEPS: list[tuple[int, str]] = [
     (10, """
     ALTER TABLE batch_item ADD COLUMN attempt_count INTEGER DEFAULT 0;
     """),
+    (11, """
+    ALTER TABLE fact ADD COLUMN qualifier_provenance_json TEXT;
+    """),
     (12, """
     ALTER TABLE run_source ADD COLUMN title TEXT;
     """),

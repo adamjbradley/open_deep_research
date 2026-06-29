@@ -21,6 +21,9 @@ class Fact:
     value_kind: str | None = None
     # Optional prose narrative attached to this fact (context/caveats around the value).
     narrative: str | None = None
+    # True when a REQUIRED qualifier on this fact was inferred (not stated) by the qualifier
+    # resolver. Blocks promotion to 'trusted' so an inferred fact never renders as trusted.
+    has_inferred_required: bool = False
 
 
 @dataclass

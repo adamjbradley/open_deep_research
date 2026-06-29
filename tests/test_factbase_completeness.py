@@ -54,3 +54,34 @@ def test_is_complete_honours_absence_allowed():
     assert is_complete("confirmed_absent", pd_scheme) is False   # absence forbidden
     assert is_complete("confirmed_absent", pd_cov) is True
     assert is_complete("missing_value", pd_cov) is False
+
+from open_deep_research.factbase.completeness import missing_required_qualifiers
+
+PROF_RQ = profile_from_dict({"entity_type": "country", "version": "1", "properties": [
+    {"name": "dpl", "kind": "boolean",
+     "identity_qualifiers": ["stage"], "required_qualifiers": ["stage"],
+     "qualifier_enums": {"stage": ["enacted", "in_force"]}},
+]})
+
+
+def test_missing_required_qualifiers_names_axis_and_enum():
+    # a value present but no `stage` qualifier -> missing_qualifier
+    grouped = [{"property_name": "dpl", "value": "true", "admission": "trusted",
+                "source_count": 2, "qualifiers": {}}]
+    out = missing_required_qualifiers(grouped, PROF_RQ)
+    assert out == {"dpl": [{"qualifier": "stage", "enum": ["enacted", "in_force"]}]}
+
+
+def test_no_missing_required_qualifiers_when_present():
+    grouped = [{"property_name": "dpl", "value": "true", "admission": "trusted",
+                "source_count": 2, "qualifiers": {"stage": "in_force"}}]
+    assert missing_required_qualifiers(grouped, PROF_RQ) == {}
+
+
+def test_axis_directive_text_built_from_missing():
+    from open_deep_research.nodes.completeness import _qualifier_gap_directive
+    mrq = {"data_protection_law": [{"qualifier": "stage", "enum": ["enacted", "in_force"]}]}
+    text, axes = _qualifier_gap_directive(mrq)
+    assert "data_protection_law" in text and "stage" in text and "in_force" in text
+    assert "primary" in text.lower()
+    assert axes == ["data_protection_law::stage"]

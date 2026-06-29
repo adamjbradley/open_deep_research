@@ -42,3 +42,13 @@ def test_compiled_prompt_instructs_boolean_value():
     prof = fbprofile.load("country_digital_identity")  # has the boolean data_protection_law
     prompt = build_extraction_prompt(prof, ["data_protection_law"], "src", compiled=True)
     assert '"true"' in prompt and '"false"' in prompt
+
+
+def test_catalog_marks_required_qualifiers():
+    from open_deep_research.factbase.prompting import compile_property_catalog
+    prof = fbprofile.load("country_digital_identity")  # data_protection_law requires `stage`
+    cat = compile_property_catalog(prof, ["data_protection_law"])
+    assert "stage=" in cat
+    assert "(REQUIRED)" in cat                      # stage is marked required
+    # a non-required qualifier on the same property is NOT marked
+    assert "scope=" in cat and "scope=['comprehensive', 'sectoral'] (REQUIRED)" not in cat

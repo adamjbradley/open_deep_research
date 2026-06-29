@@ -54,6 +54,7 @@ from open_deep_research.nodes.profiles import (
     resolve_target_properties,
     select_profile,
 )
+from open_deep_research.nodes.qualifiers import resolve_required_qualifiers
 from open_deep_research.nodes.report import final_report_generation
 from open_deep_research.nodes.researcher import (
     compress_research,
@@ -154,6 +155,7 @@ __all__ = [
     "researcher",
     "researcher_subgraph",
     "researcher_tools",
+    "resolve_required_qualifiers",
     "resolve_target_properties",
     "route_after_extract",
     "route_after_research",
@@ -184,6 +186,7 @@ deep_researcher_builder.add_node("write_research_brief", write_research_brief)  
 deep_researcher_builder.add_node("research_supervisor", supervisor_subgraph)       # Research execution phase
 deep_researcher_builder.add_node("final_report_generation", final_report_generation)  # Report generation phase
 deep_researcher_builder.add_node("extract_facts", extract_facts)                   # Per-source fact extraction (research path)
+deep_researcher_builder.add_node("resolve_required_qualifiers", resolve_required_qualifiers)  # Resolve inferred qualifiers for required fields
 deep_researcher_builder.add_node("assess_sufficiency", assess_sufficiency)         # Facts-first: enough to answer?
 deep_researcher_builder.add_node("assess_completeness", assess_completeness)       # Whole-profile: completeness loop
 deep_researcher_builder.add_node("answer_from_facts", answer_from_facts)           # Facts-first: answer from the fact base
@@ -220,8 +223,9 @@ deep_researcher_builder.add_conditional_edges(                                  
     "research_supervisor", route_after_research,
     {"final_report_generation": "final_report_generation", "extract_facts": "extract_facts"})
 deep_researcher_builder.add_edge("final_report_generation", "extract_facts")       # Report to fact extraction
-deep_researcher_builder.add_conditional_edges(                                      # Facts -> persist (default) | sufficiency (facts-first) | completeness (whole-profile)
-    "extract_facts", route_after_extract,
+deep_researcher_builder.add_edge("extract_facts", "resolve_required_qualifiers")   # Facts extracted -> resolve required qualifiers
+deep_researcher_builder.add_conditional_edges(                                      # Qualifiers resolved -> persist (default) | sufficiency (facts-first) | completeness (whole-profile)
+    "resolve_required_qualifiers", route_after_extract,
     {"persist_research": "persist_research", "assess_sufficiency": "assess_sufficiency",
      "assess_completeness": "assess_completeness"})
 deep_researcher_builder.add_edge("answer_from_facts", "persist_research")           # Facts answer -> persist
