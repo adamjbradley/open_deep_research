@@ -1,6 +1,7 @@
 # Design: searchable research substrate (Research Memory ①)
 
-**Status:** designed (brainstormed). **Sub-project ① of 4** in the "read before you write"
+**Status:** designed (brainstormed) — **revised after review round 1** (codex / agy).
+**Sub-project ① of 4** in the "read before you write"
 program — making the fact base a first-class memory every run consults before it goes back to the
 web. The four sub-projects and their dependency order:
 
@@ -34,8 +35,9 @@ ROCA / eIDAS / population basis?" Without that, ②/③/④ have nothing to quer
 ## Goal
 
 A **read-only FTS index over content the pipeline already persists**, plus a single **query API**
-(and a thin CLI over it), so prior research becomes findable by keyword. Purely additive: the
-research loop does not change. On its own this delivers facet **B** (the long-form raw research
+(and a thin CLI over it), so prior research becomes findable by keyword. Additive: no node, edge,
+or routing change. The one write-path touch is persisting a `title` the search provider already
+returns (see Decisions / §1). On its own this delivers facet **B** (the long-form raw research
 becomes retrievable instead of write-once) and provides the substrate ③ will query.
 
 ## Decisions (from brainstorming)
@@ -52,6 +54,13 @@ becomes retrievable instead of write-once) and provides the substrate ③ will q
 - **Index two content kinds in v1: `source` and `fact`.** Evidence spans are substrings of
   `run_source.text`, so searching `source` already covers them — separate evidence indexing is
   deferred (an easy later add).
+- **Source hits carry a real `title`** *(revised — review round 1, codex)*. `run_source` stores no
+  title today. Rather than drop title from the contract, v1 adds a **nullable `run_source.title`
+  column**, populated at capture from the title the search provider already returns (Tavily/Exa
+  include a `title` per result). This is ①'s only write-path touch; pre-existing rows keep
+  `title = NULL` (best-effort, not backfilled). If the capture path turns out not to carry a
+  provider title, the plan falls back to deriving it from the page `<title>` or leaving it null —
+  the column and contract are unaffected.
 - **Index maintenance by SQLite triggers + a one-time backfill migration** (correct-by-
   construction). Facts are written/updated from several paths (ingest, recompute, the
   qualifier-resolver, backfill); triggers keep the index in sync regardless of which path wrote the
@@ -70,8 +79,9 @@ write path (UNCHANGED):  fetch → run_source.text   ┐
 read path (NEW):  search_research(query, …) ──► ranked typed Hits ──► `dossier search` CLI
 ```
 
-A new query module (e.g. `factbase/search.py`), new FTS5 tables added by a migration, and a new CLI
-subcommand. No node, edge, or research-loop change.
+A new query module (e.g. `factbase/search.py`), new FTS5 tables + a nullable `run_source.title`
+column added by a migration, the CLI subcommand, and one small capture-path change to persist the
+provider `title`. No node, edge, or routing change.
 
 ## Components
 
@@ -80,13 +90,16 @@ subcommand. No node, edge, or research-loop change.
 External-content FTS5 tables linked to the base tables, so the raw text is **not duplicated** in
 the index:
 
-- `fts_source` over `run_source.text` (+ `source_url`, `title` as searchable/auxiliary columns).
+- `fts_source` over `run_source.text` + `source_url` + the new `run_source.title` column.
 - `fts_fact` over a composed document of `fact.narrative` + `fact.value` + `fact.property_name`.
 
-Added via the existing migration framework (`factbase/migrations.py`) as a **new schema version**.
-(Note: the parallel `required-qualifier-resolution` branch also adds a migration — **coordinate the
-version numbers at merge** so they don't collide.) The migration also **backfills** the index from
-existing `run_source`/`fact` rows; it is idempotent and re-runnable.
+Added via the existing migration framework (`factbase/migrations.py`) as **schema v12**. (The
+parallel `required-qualifier-resolution` branch takes **v11**; per agy review round 1, the two
+migration versions must be **explicitly aligned at merge** — if both land as the same number,
+renumber the later-merged one.) The v12 migration: (a) adds the nullable `run_source.title` column,
+(b) creates the FTS tables + sync triggers, and (c) **backfills** the FTS index from existing
+`run_source`/`fact` rows (existing rows index by text; their `title` is NULL). It is idempotent and
+re-runnable.
 
 ### 2. Synchronisation (triggers)
 
@@ -106,7 +119,8 @@ search_research(
 ) -> list[Hit]
 ```
 
-- `Hit` (typed): `kind` (`"source"|"fact"`), `ref_id` (base-row id), `subject` (instance_key),
+- `Hit` (typed): `kind` (`"source"|"fact"`), `ref_id` (base-row id), `subject` (canonical subject
+  key — derived per kind, see Subject resolution below),
   `snippet` (FTS5 `snippet()` highlighted passage — no manual chunking of large pages needed),
   `score` (FTS5 `bm25()`), plus kind-specific metadata:
   - `source`: `source_url`, `title`, `run_id`, `retrieved_at`.
@@ -115,9 +129,17 @@ search_research(
 - **Vector-ready:** the engine lives behind this signature; a later semantic adapter returns the
   same `Hit` shape, so callers (②/③) never change.
 
-*Exact base-table column names (e.g. `run_source` title/url/timestamp columns, the subject↔run join
-for a source's `instance_key`) are confirmed during plan/TDD against `schema.py`/`store.py`; the
-contract above is the design intent.*
+**Subject resolution (review round 1, codex).** The two kinds derive `subject` from different
+places, but both must resolve to the *same* key so a single `subject=` filter works across them:
+- `fact` hits: `subject = fact.instance_key` (facts already carry it).
+- `source` hits: `run_source` knows only `thread_id`; subject lives on `research_runs.subject_id →
+  subjects.slug`. The query **joins `run_source → research_runs → subjects` on the run/thread key**
+  and exposes `subjects.slug` as the hit's `subject`. No denormalization onto `run_source` (the join
+  can't drift).
+- Plan-level check: confirm `fact.instance_key` and `subjects.slug` are the same identifier
+  namespace. If they differ, the API normalizes to one canonical subject key so `subject="estonia"`
+  matches both kinds. A source from a run with no resolvable subject returns `subject=None` and is
+  excluded by a `subject=` filter (but still found in an unfiltered/global query).
 
 ### 4. CLI (`dossier search`)
 
@@ -138,8 +160,15 @@ wrapper over `search_research`; no logic of its own.
 - **Relevance:** seed two subjects' sources + facts → `search_research("ROCA")` returns the Estonia
   `source` hit with a highlighted snippet; `subject="germany"` excludes it; `kinds=["fact"]`
   returns only fact hits.
+- **Subject join:** a `source` row whose run is linked to subject `estonia` is returned under
+  `subject="estonia"` and excluded under `subject="germany"` (exercises the
+  `run_source → research_runs → subjects` join); a source with no resolvable subject is excluded by
+  any `subject=` filter but present in a global query.
 - **Metadata:** a `fact` hit carries `as_of` / `lifecycle` / `admission`; a `source` hit carries
-  `source_url` / `retrieved_at`.
+  `source_url` / `retrieved_at` / `title`.
+- **Title capture:** a source recorded with a provider `title` stores it in `run_source.title`, is
+  findable by a title term, and returns it on the hit; a pre-existing/null-title row still indexes
+  by text and returns `title=None`.
 - **Sync (the correctness core):** INSERT a fact → searchable; UPDATE its `narrative` (simulating
   the resolver/recompute) → new text searchable, old text gone; soft-delete → drops out; same for
   `run_source`.
