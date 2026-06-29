@@ -60,3 +60,23 @@ def test_backfill_indexes_preexisting_rows_and_reindex():
             cur = await conn.execute("SELECT count(*) FROM fts_source WHERE fts_source MATCH 'biometric'")
             assert (await cur.fetchone())[0] == 1
     asyncio.run(run())
+
+
+def test_fact_triggers_sync_insert_update():
+    async def run():
+        async with aiosqlite.connect(":memory:") as conn:
+            await _migrated_conn(conn)
+            await search_schema.ensure_search_schema(conn)
+            await conn.execute(
+                "INSERT INTO fact (id, instance_key, property_name, value, narrative) "
+                "VALUES (1,'EST','data_protection_law','true','Estonia enacted a comprehensive data protection statute')")
+            await conn.commit()
+            cur = await conn.execute("SELECT rowid FROM fts_fact WHERE fts_fact MATCH 'comprehensive'")
+            assert [r[0] for r in await cur.fetchall()] == [1]
+            await conn.execute("UPDATE fact SET narrative='now mentions biometric capture' WHERE id=1")
+            await conn.commit()
+            cur = await conn.execute("SELECT count(*) FROM fts_fact WHERE fts_fact MATCH 'comprehensive'")
+            assert (await cur.fetchone())[0] == 0
+            cur = await conn.execute("SELECT count(*) FROM fts_fact WHERE fts_fact MATCH 'biometric'")
+            assert (await cur.fetchone())[0] == 1
+    asyncio.run(run())

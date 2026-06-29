@@ -62,13 +62,20 @@ async def _needs_backfill(conn: aiosqlite.Connection, fts: str, content: str) ->
     # For external-content FTS5, count(*) on the virtual table reads the content
     # table — not the actual index. Use the _docsize shadow table to check how
     # many rows the FTS index has actually indexed.
+    # NOTE: counts the FTS5 `_docsize` shadow table — the number of INDEXED rows.
+    # `count(*) FROM {fts}` would wrongly route to the external content table and
+    # return the content-row count, defeating empty-index detection. `_docsize`
+    # exists for all FTS5 tables unless declared with `columnsize=0` — do NOT add
+    # `columnsize=0` to _SEARCH_SCHEMA without updating this check.
     cur = await conn.execute(f"SELECT count(*) FROM {fts}_docsize")
     fts_rows = (await cur.fetchone())[0]
     return content_rows > 0 and fts_rows == 0
 
 
 async def ensure_search_schema(conn: aiosqlite.Connection) -> None:
-    """Idempotently create FTS tables + triggers, backfilling empty indexes."""
+    """Idempotently create FTS tables + triggers, backfilling empty indexes.
+
+    Issues an implicit COMMIT (via executescript) before creating tables; call at init time, not mid-transaction."""
     await conn.executescript(_SEARCH_SCHEMA)
     for fts, content in (("fts_source", "run_source"), ("fts_fact", "fact")):
         if await _needs_backfill(conn, fts, content):
@@ -77,7 +84,9 @@ async def ensure_search_schema(conn: aiosqlite.Connection) -> None:
 
 
 async def reindex(conn: aiosqlite.Connection) -> None:
-    """Force a full rebuild of both FTS indexes from their content tables."""
+    """Force a full rebuild of both FTS indexes from their content tables.
+
+    Issues an implicit COMMIT (via executescript) before creating tables; call at init time, not mid-transaction."""
     await conn.executescript(_SEARCH_SCHEMA)  # ensure tables exist first
     await _rebuild(conn, "fts_source")
     await _rebuild(conn, "fts_fact")
