@@ -202,4 +202,12 @@ STEPS: list[tuple[int, str]] = [
         soft_deleted_at TEXT
     );
     """),
+    (14, """
+    INSERT OR IGNORE INTO source_content (content_hash, source_url, title, text, first_seen_at)
+        SELECT content_hash, MIN(source_url), MIN(title), MIN(text), MIN(retrieved_at)
+        FROM run_source
+        WHERE capture_status='raw_text' AND text IS NOT NULL AND text <> ''
+        GROUP BY content_hash;
+    UPDATE run_source SET text=NULL WHERE text IS NOT NULL;
+    """),
 ]

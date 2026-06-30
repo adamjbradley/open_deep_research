@@ -27,7 +27,7 @@ class RunSourceStore:
         await self._conn.execute(
             "INSERT INTO run_source (thread_id, source_url, capture_status, reason, text, title, content_hash, retrieved_at) "
             "VALUES (?,?,?,?,?,?,?,?)",
-            (thread_id, url, capture_status, reason, text, title, ch,
+            (thread_id, url, capture_status, reason, None, title, ch,
              datetime.now(timezone.utc).isoformat()))
         await self._conn.commit()
 
