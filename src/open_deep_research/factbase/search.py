@@ -49,7 +49,7 @@ async def _resolve_subject(name: str | None) -> str | None:
 
 async def _source_hits(conn, match, target, limit):
     sql = f"""
-        SELECT sc.id, sc.source_url, sc.title,
+        SELECT sc.id, sc.source_url, sc.title, sc.first_seen_at,
                bm25(fts_source) AS score, {_SNIPPET.format(tbl='fts_source')} AS snip
         FROM fts_source
         JOIN source_content sc ON sc.id = fts_source.rowid
@@ -75,7 +75,7 @@ async def _source_hits(conn, match, target, limit):
         subj = target if target is not None else (sorted(subjects)[0] if subjects else None)
         out.append(Hit(kind="source", ref_id=row["id"], subject=subj,
                        snippet=row["snip"], score=-row["score"],
-                       source_url=row["source_url"], title=row["title"], retrieved_at=None))
+                       source_url=row["source_url"], title=row["title"], retrieved_at=row["first_seen_at"]))
     return out
 
 

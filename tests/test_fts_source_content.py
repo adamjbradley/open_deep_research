@@ -14,8 +14,8 @@ async def _seed(conn):
     await conn.execute("INSERT INTO subjects (id, slug, name) VALUES (1,'estonia','Estonia')")
     await conn.execute("INSERT INTO research_runs (id, subject_id, thread_id) VALUES (1,1,'t-est')")
     # same content captured by two runs (would be 2 hits pre-dedup) -> one source_content row
-    await conn.execute("INSERT INTO source_content (id, content_hash, source_url, title, text) "
-                       "VALUES (1,'h1','http://roca','ROCA','The ROCA vulnerability in Estonian id-kaart')")
+    await conn.execute("INSERT INTO source_content (id, content_hash, source_url, title, text, first_seen_at) "
+                       "VALUES (1,'h1','http://roca','ROCA','The ROCA vulnerability in Estonian id-kaart','2026-01-01T00:00:00Z')")
     await conn.execute("INSERT INTO run_source (thread_id, source_url, capture_status, content_hash) "
                        "VALUES ('t-est','http://roca','raw_text','h1')")
     await conn.execute("INSERT INTO run_source (thread_id, source_url, capture_status, content_hash) "
@@ -30,6 +30,7 @@ def test_one_hit_per_content_and_subject_via_capture():
         hits = await search.search_research(conn, "ROCA", kinds=("source",))
         assert len(hits) == 1 and hits[0].ref_id == 1            # deduped
         assert hits[0].subject == "EST"                          # via the t-est capture
+        assert hits[0].retrieved_at == '2026-01-01T00:00:00Z'
         assert (await search.search_research(conn, "ROCA", subject="Estonia", kinds=("source",)))
         assert await search.search_research(conn, "ROCA", subject="Germany", kinds=("source",)) == []
         await conn.close()
