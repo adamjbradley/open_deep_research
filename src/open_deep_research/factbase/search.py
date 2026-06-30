@@ -49,27 +49,33 @@ async def _resolve_subject(name: str | None) -> str | None:
 
 async def _source_hits(conn, match, target, limit):
     sql = f"""
-        SELECT rs.id, rs.source_url, rs.title, rs.retrieved_at, rs.thread_id,
-               s.name AS subject_name,
+        SELECT sc.id, sc.source_url, sc.title, sc.first_seen_at,
                bm25(fts_source) AS score, {_SNIPPET.format(tbl='fts_source')} AS snip
         FROM fts_source
-        JOIN run_source rs ON rs.id = fts_source.rowid
-        LEFT JOIN research_runs r ON r.thread_id = rs.thread_id
-        LEFT JOIN subjects s ON s.id = r.subject_id
-        WHERE fts_source MATCH ? AND rs.soft_deleted_at IS NULL
+        JOIN source_content sc ON sc.id = fts_source.rowid
+        WHERE fts_source MATCH ? AND sc.soft_deleted_at IS NULL
         ORDER BY score LIMIT ?
     """
     conn.row_factory = aiosqlite.Row
     cur = await conn.execute(sql, (match, limit))
+    rows = await cur.fetchall()
     out = []
-    for row in await cur.fetchall():
-        subj = CountryResolver().resolve(row["subject_name"]) if row["subject_name"] else None
-        if target is not None and subj != target:
+    for row in rows:
+        # subjects that captured this content (via run_source -> research_runs -> subjects)
+        subj_cur = await conn.execute(
+            "SELECT DISTINCT s.name FROM run_source rs "
+            "JOIN research_runs r ON r.thread_id = rs.thread_id "
+            "JOIN subjects s ON s.id = r.subject_id "
+            "WHERE rs.content_hash = (SELECT content_hash FROM source_content WHERE id=?) AND rs.soft_deleted_at IS NULL",
+            (row["id"],))
+        subjects = {CountryResolver().resolve(n[0]) for n in await subj_cur.fetchall() if n[0]}
+        subjects.discard(None)
+        if target is not None and target not in subjects:
             continue
+        subj = target if target is not None else (sorted(subjects)[0] if subjects else None)
         out.append(Hit(kind="source", ref_id=row["id"], subject=subj,
                        snippet=row["snip"], score=-row["score"],
-                       source_url=row["source_url"], title=row["title"],
-                       retrieved_at=row["retrieved_at"]))
+                       source_url=row["source_url"], title=row["title"], retrieved_at=row["first_seen_at"]))
     return out
 
 

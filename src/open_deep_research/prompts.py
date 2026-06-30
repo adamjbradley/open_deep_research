@@ -308,6 +308,7 @@ Format the report in clear markdown with proper structure and include source ref
 """
 
 
+# NOTE: if you change this prompt, bump utils.SUMMARY_PROMPT_VERSION so the cross-run summary cache re-summarizes.
 summarize_webpage_prompt = """You are tasked with summarizing the raw content of a webpage retrieved from a web search. Your goal is to create a summary that preserves the most important information from the original web page. This summary will be used by a downstream research agent, so it's crucial to maintain the key details without losing essential information.
 
 Here is the raw content of the webpage:

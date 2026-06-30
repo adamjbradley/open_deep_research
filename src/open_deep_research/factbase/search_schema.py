@@ -13,22 +13,22 @@ import aiosqlite
 _SEARCH_SCHEMA = """
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_source USING fts5(
     text, source_url, title,
-    content='run_source', content_rowid='id'
+    content='source_content', content_rowid='id'
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_fact USING fts5(
     narrative, value, property_name,
     content='fact', content_rowid='id'
 );
 
-CREATE TRIGGER IF NOT EXISTS run_source_ai AFTER INSERT ON run_source BEGIN
+CREATE TRIGGER IF NOT EXISTS source_content_ai AFTER INSERT ON source_content BEGIN
     INSERT INTO fts_source(rowid, text, source_url, title)
         VALUES (new.id, new.text, new.source_url, new.title);
 END;
-CREATE TRIGGER IF NOT EXISTS run_source_ad AFTER DELETE ON run_source BEGIN
+CREATE TRIGGER IF NOT EXISTS source_content_ad AFTER DELETE ON source_content BEGIN
     INSERT INTO fts_source(fts_source, rowid, text, source_url, title)
         VALUES ('delete', old.id, old.text, old.source_url, old.title);
 END;
-CREATE TRIGGER IF NOT EXISTS run_source_au AFTER UPDATE ON run_source BEGIN
+CREATE TRIGGER IF NOT EXISTS source_content_au AFTER UPDATE ON source_content BEGIN
     INSERT INTO fts_source(fts_source, rowid, text, source_url, title)
         VALUES ('delete', old.id, old.text, old.source_url, old.title);
     INSERT INTO fts_source(rowid, text, source_url, title)
@@ -76,8 +76,17 @@ async def ensure_search_schema(conn: aiosqlite.Connection) -> None:
     """Idempotently create FTS tables + triggers, backfilling empty indexes.
 
     Issues an implicit COMMIT (via executescript) before creating tables; call at init time, not mid-transaction."""
+    # Self-heal: drop a stale run_source-based fts_source so it can be recreated
+    # over source_content. executescript commits implicitly, which is fine here.
+    cur = await conn.execute(
+        "SELECT sql FROM sqlite_master WHERE name='fts_source' AND type='table'")
+    row = await cur.fetchone()
+    if row and "content='run_source'" in (row[0] or ""):
+        await conn.executescript(
+            "DROP TRIGGER IF EXISTS run_source_ai; DROP TRIGGER IF EXISTS run_source_ad;"
+            " DROP TRIGGER IF EXISTS run_source_au; DROP TABLE IF EXISTS fts_source;")
     await conn.executescript(_SEARCH_SCHEMA)
-    for fts, content in (("fts_source", "run_source"), ("fts_fact", "fact")):
+    for fts, content in (("fts_source", "source_content"), ("fts_fact", "fact")):
         if await _needs_backfill(conn, fts, content):
             await _rebuild(conn, fts)
     await conn.commit()

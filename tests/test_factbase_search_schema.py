@@ -27,15 +27,15 @@ def test_triggers_sync_insert_update_softdelete():
         async with aiosqlite.connect(":memory:") as conn:
             await _migrated_conn(conn)
             await search_schema.ensure_search_schema(conn)
-            # INSERT a source -> indexed
+            # INSERT a source_content row -> fts_source indexed (triggers are on source_content)
             await conn.execute(
-                "INSERT INTO run_source (id, thread_id, source_url, capture_status, text, title) "
-                "VALUES (1,'t1','https://x.org/a','raw_text','ROCA vulnerability in Estonia','Title A')")
+                "INSERT INTO source_content (id, content_hash, source_url, title, text) "
+                "VALUES (1,'h1','https://x.org/a','Title A','ROCA vulnerability in Estonia')")
             await conn.commit()
             cur = await conn.execute("SELECT rowid FROM fts_source WHERE fts_source MATCH 'ROCA'")
             assert [r[0] for r in await cur.fetchall()] == [1]
             # UPDATE text -> new term matches, old gone
-            await conn.execute("UPDATE run_source SET text='completely different content' WHERE id=1")
+            await conn.execute("UPDATE source_content SET text='completely different content' WHERE id=1")
             await conn.commit()
             cur = await conn.execute("SELECT count(*) FROM fts_source WHERE fts_source MATCH 'ROCA'")
             assert (await cur.fetchone())[0] == 0
@@ -48,10 +48,10 @@ def test_backfill_indexes_preexisting_rows_and_reindex():
     async def run():
         async with aiosqlite.connect(":memory:") as conn:
             await _migrated_conn(conn)
-            # rows exist BEFORE the FTS schema is created
+            # rows exist BEFORE the FTS schema is created (in source_content, not run_source)
             await conn.execute(
-                "INSERT INTO run_source (id, thread_id, source_url, capture_status, text, title) "
-                "VALUES (1,'t1','https://x.org/a','raw_text','preexisting biometric text','T')")
+                "INSERT INTO source_content (id, content_hash, source_url, title, text) "
+                "VALUES (1,'h1','https://x.org/a','T','preexisting biometric text')")
             await conn.commit()
             await search_schema.ensure_search_schema(conn)  # should backfill
             cur = await conn.execute("SELECT count(*) FROM fts_source WHERE fts_source MATCH 'biometric'")

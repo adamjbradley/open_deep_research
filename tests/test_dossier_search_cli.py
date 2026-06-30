@@ -12,8 +12,10 @@ async def _seed(conn):
     await conn.commit()
     await migrations.apply(conn, schema.STEPS)
     await search_schema.ensure_search_schema(conn)
-    await conn.execute("INSERT INTO run_source (id, thread_id, source_url, capture_status, text, title) "
-                       "VALUES (1,'t1','https://ria.ee/roca','raw_text','ROCA vulnerability advisory','ROCA')")
+    await conn.execute("INSERT INTO source_content (id, content_hash, source_url, title, text, first_seen_at) "
+                       "VALUES (1,'h1','https://ria.ee/roca','ROCA','ROCA vulnerability advisory','2026-01-01T00:00:00Z')")
+    await conn.execute("INSERT INTO run_source (id, thread_id, source_url, capture_status, content_hash) "
+                       "VALUES (1,'t1','https://ria.ee/roca','raw_text','h1')")
     await conn.commit()
 
 
