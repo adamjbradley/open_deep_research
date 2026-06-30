@@ -34,6 +34,10 @@ class RunSourceStore:
     async def read(self, thread_id: str) -> list[dict]:
         self._conn.row_factory = aiosqlite.Row
         cur = await self._conn.execute(
-            "SELECT id, source_url, capture_status, reason, text FROM run_source WHERE thread_id=? AND soft_deleted_at IS NULL",
+            "SELECT rs.id, rs.source_url, rs.capture_status, rs.reason, rs.title, "
+            "       COALESCE(rs.text, sc.text) AS text "
+            "FROM run_source rs "
+            "LEFT JOIN source_content sc ON sc.content_hash = rs.content_hash "
+            "WHERE rs.thread_id=? AND rs.soft_deleted_at IS NULL",
             (thread_id,))
         return [dict(r) for r in await cur.fetchall()]
