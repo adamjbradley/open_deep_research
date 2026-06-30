@@ -10,7 +10,13 @@
 
 ## Global Constraints
 
-- **Conservative reuse predicate:** a property is reusable iff its grouped value is **not `in_conflict`** AND has a **`trusted_captured_at`** (newest `created_at` among the group's `admission='trusted'` rows) **within `kb_reuse_max_age_days`** (default 180). `trusted_captured_at` non-None already implies a trusted row exists. No trusted row / unparseable timestamp → not reusable (re-research).
+- **Conservative reuse predicate (property-level):** a property can have **several** grouped rows
+  (different qualifiers / `as_of`), so reuse is decided over ALL of them: reusable iff **no** row is
+  `in_conflict` AND **some** row has a **`trusted_captured_at`** (newest `created_at` among the
+  group's `admission='trusted'` rows) **within `kb_reuse_max_age_days`** (default 180) — and **not in
+  the future** (clock-skew lower bound). No trusted row / unparseable / future timestamp → not
+  reusable (re-research). (agy r12: a single-row `{property: row}` map would drop multi-row
+  properties; future-dated captures must not read as fresh.)
 - **Scope: facts-first + whole-profile modes only.** Prose mode keeps its existing LLM dossier cache-hit (the `else` path in `assess_knowledge`) untouched. Gated by `Configuration.kb_first_gate` (default `False` → today's behavior) AND `use_knowledge_base`.
 - **The gate-skip is a cache answer:** when all target props are reusable, route `Command(goto="answer_from_facts", update={"subject": subject, "answered_from_cache": True, "target_properties": <reusable>})`. `persist_research` ALREADY exempts a run with `answered_from_cache` + `subject` from the empty-run error gate (`persistence.py:168-174`, the first branch) — **do not modify persistence**.
 - **Narrowing needs no new flag:** `write_research_brief` round-1 already keeps a pre-set `target_properties` (`brief.py:320`, the `not target_properties` guard). The gate sets `target_properties = <to_research>`; do NOT add a `kb_prefiltered` field.
@@ -128,7 +134,8 @@ git commit -m "feat(factbase): surface trusted_captured_at on grouped facts"
 
 **Interfaces:**
 - Consumes: a grouped fact row (`trusted_captured_at`, `in_conflict`) from Task 1.
-- Produces: `is_reusable(group_row: dict, *, now: datetime, max_age_days: int) -> bool`.
+- Produces: `is_reusable(group_row, *, now, max_age_days) -> bool` (one grouped row) and
+  `is_property_reusable(rows, *, now, max_age_days) -> bool` (all grouped rows for one property).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -159,6 +166,25 @@ def test_in_conflict_not_reusable():
 
 def test_unparseable_timestamp_not_reusable():
     assert is_reusable(_row(trusted_captured_at="not-a-date"), now=NOW, max_age_days=180) is False
+
+def test_future_timestamp_not_reusable():   # clock-skew lower bound (agy r12 Medium)
+    assert is_reusable(_row(trusted_captured_at="2027-01-01T00:00:00Z"), now=NOW, max_age_days=180) is False
+
+
+def test_property_reusable_any_good_none_conflict():   # agy r12 High: property-level over a LIST
+    from open_deep_research.factbase.reuse import is_property_reusable
+    rows = [_row(trusted_captured_at="2026-06-01T00:00:00Z"), _row(trusted_captured_at=None)]
+    assert is_property_reusable(rows, now=NOW, max_age_days=180) is True
+
+def test_property_not_reusable_if_any_row_conflicts():
+    from open_deep_research.factbase.reuse import is_property_reusable
+    rows = [_row(trusted_captured_at="2026-06-01T00:00:00Z"), _row(in_conflict=True)]
+    assert is_property_reusable(rows, now=NOW, max_age_days=180) is False
+
+def test_property_not_reusable_when_no_row_good():
+    from open_deep_research.factbase.reuse import is_property_reusable
+    rows = [_row(trusted_captured_at=None), _row(trusted_captured_at="2024-01-01T00:00:00Z")]
+    assert is_property_reusable(rows, now=NOW, max_age_days=180) is False
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -193,13 +219,25 @@ def _parse(ts: str | None) -> datetime | None:
 
 
 def is_reusable(group_row: dict, *, now: datetime, max_age_days: int) -> bool:
-    """True iff the property's trusted value is unconflicted and captured within the window."""
+    """True iff this grouped row's trusted value is unconflicted and captured within the window."""
     if group_row.get("in_conflict"):
         return False
     captured = _parse(group_row.get("trusted_captured_at"))
     if captured is None:
         return False
-    return (now - captured).days <= max_age_days
+    age_days = (now - captured).days
+    return 0 <= age_days <= max_age_days   # lower bound: a future capture (clock skew) is NOT fresh
+
+
+def is_property_reusable(rows: list[dict], *, now: datetime, max_age_days: int) -> bool:
+    """Property-level reuse over ALL grouped rows for one property (a property can have several:
+    different qualifiers / as_of). Conservative: reusable iff SOME row is trusted+recent AND NO row
+    is in conflict."""
+    if not rows:
+        return False
+    if any(r.get("in_conflict") for r in rows):
+        return False
+    return any(is_reusable(r, now=now, max_age_days=max_age_days) for r in rows)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -458,8 +496,9 @@ Then insert the fact-gate branch **after** subject resolution and **before** the
     # KB-first gate (facts-first / whole-profile): skip already-good properties before round 1.
     if configurable.kb_first_gate and (configurable.facts_first_mode or configurable.whole_profile_mode):
         try:
-            from open_deep_research.factbase.reuse import is_reusable
+            from open_deep_research.factbase.reuse import is_property_reusable
             from open_deep_research.factbase.query import FactQuery
+            from collections import defaultdict
             from open_deep_research.factbase.entities import CountryResolver
             from open_deep_research.nodes.profiles import resolve_run_target_properties
             from datetime import datetime, timezone
@@ -471,10 +510,12 @@ Then insert the fact-gate branch **after** subject resolution and **before** the
             if ik:
                 async with aiosqlite.connect(db_path) as _conn:
                     grouped = await FactQuery(_conn).show_grouped(ik)
-                by_prop = {g.get("property_name"): g for g in grouped}
+                by_prop = defaultdict(list)   # a property can have several grouped rows
+                for g in grouped:
+                    by_prop[g.get("property_name")].append(g)
                 reusable = [p for p in targets
-                            if p in by_prop and is_reusable(by_prop[p], now=now,
-                                                            max_age_days=configurable.kb_reuse_max_age_days)]
+                            if by_prop.get(p) and is_property_reusable(
+                                by_prop[p], now=now, max_age_days=configurable.kb_reuse_max_age_days)]
             to_research = [p for p in targets if p not in reusable]
             if targets and not to_research:
                 return Command(goto="answer_from_facts",
