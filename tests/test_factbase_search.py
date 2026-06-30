@@ -17,11 +17,16 @@ async def _seed(conn):
     await conn.execute("INSERT INTO subjects (id, slug, name) VALUES (2,'germany','Germany')")
     await conn.execute("INSERT INTO research_runs (id, subject_id, thread_id) VALUES (1,1,'t-est')")
     await conn.execute("INSERT INTO research_runs (id, subject_id, thread_id) VALUES (2,2,'t-deu')")
-    # sources
-    await conn.execute("INSERT INTO run_source (id, thread_id, source_url, capture_status, text, title) "
-                       "VALUES (1,'t-est','https://ria.ee/roca','raw_text','The ROCA vulnerability affected Estonian id-kaart chips','ROCA advisory')")
-    await conn.execute("INSERT INTO run_source (id, thread_id, source_url, capture_status, text, title) "
-                       "VALUES (2,'t-deu','https://de.gov/eid','raw_text','German eID adoption statistics','German eID')")
+    # source_content rows are the FTS-indexed store (fts_source now indexes source_content)
+    await conn.execute("INSERT INTO source_content (id, content_hash, source_url, title, text) "
+                       "VALUES (1,'h-roca','https://ria.ee/roca','ROCA advisory','The ROCA vulnerability affected Estonian id-kaart chips')")
+    await conn.execute("INSERT INTO source_content (id, content_hash, source_url, title, text) "
+                       "VALUES (2,'h-eid','https://de.gov/eid','German eID','German eID adoption statistics')")
+    # run_source capture rows link thread -> content_hash (for subject resolution via capture chain)
+    await conn.execute("INSERT INTO run_source (id, thread_id, source_url, capture_status, content_hash) "
+                       "VALUES (1,'t-est','https://ria.ee/roca','raw_text','h-roca')")
+    await conn.execute("INSERT INTO run_source (id, thread_id, source_url, capture_status, content_hash) "
+                       "VALUES (2,'t-deu','https://de.gov/eid','raw_text','h-eid')")
     # facts (instance_key is alpha-3)
     await conn.execute("INSERT INTO fact (id, instance_key, property_name, value, narrative, as_of, lifecycle, admission, soft_deleted_at) "
                        "VALUES (1,'EST','id_coverage_pct','98','ROCA-era coverage among adults',2024,'current','trusted',NULL)")
