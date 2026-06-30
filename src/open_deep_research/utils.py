@@ -193,7 +193,6 @@ async def _finalize_search(unique_results: dict, config) -> str:
     try:
         from open_deep_research.factbase import store as _fb_store
         from open_deep_research.storage import get_db_path as _get_db_path
-        import aiosqlite as _aiosqlite
         _configurable = (config or {}).get("configurable", {}) if config else {}
         _thread_id = _configurable.get("thread_id")
         if _thread_id and Configuration.from_runnable_config(config).persist_results:

@@ -66,7 +66,7 @@ async def _source_hits(conn, match, target, limit):
             "SELECT DISTINCT s.name FROM run_source rs "
             "JOIN research_runs r ON r.thread_id = rs.thread_id "
             "JOIN subjects s ON s.id = r.subject_id "
-            "WHERE rs.content_hash = (SELECT content_hash FROM source_content WHERE id=?)",
+            "WHERE rs.content_hash = (SELECT content_hash FROM source_content WHERE id=?) AND rs.soft_deleted_at IS NULL",
             (row["id"],))
         subjects = {CountryResolver().resolve(n[0]) for n in await subj_cur.fetchall() if n[0]}
         subjects.discard(None)
