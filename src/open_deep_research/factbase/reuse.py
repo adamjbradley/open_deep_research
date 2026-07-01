@@ -21,7 +21,7 @@ def _parse(ts: str | None) -> datetime | None:
 
 
 def is_reusable(group_row: dict, *, now: datetime, max_age_days: int) -> bool:
-    """True iff this grouped row's trusted value is unconflicted and captured within the window."""
+    """Return True iff this grouped row's trusted value is unconflicted and within the freshness window."""
     if group_row.get("in_conflict"):
         return False
     captured = _parse(group_row.get("trusted_captured_at"))
@@ -32,9 +32,12 @@ def is_reusable(group_row: dict, *, now: datetime, max_age_days: int) -> bool:
 
 
 def is_property_reusable(rows: list[dict], *, now: datetime, max_age_days: int) -> bool:
-    """Property-level reuse over ALL grouped rows for one property (a property can have several:
-    different qualifiers / as_of). Conservative: reusable iff SOME row is trusted+recent AND NO row
-    is in conflict."""
+    """Return True iff this property's grouped rows are reusable.
+
+    Property-level reuse over ALL grouped rows for one property (a property can have several
+    grouped rows for different qualifiers / as_of). Conservative: reusable iff SOME row is
+    trusted+recent AND NO row is in conflict.
+    """
     if not rows:
         return False
     if any(r.get("in_conflict") for r in rows):

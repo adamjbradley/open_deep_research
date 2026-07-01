@@ -81,5 +81,6 @@ def group_by_canonical(rows: list[dict]) -> list[dict]:
         g["narrative"] = " / ".join(g.pop("_narratives"))
         tc = g.pop("_trusted_created")
         g["trusted_captured_at"] = max(tc) if tc else None
+        g.pop("created_at", None)
         out.append(g)
     return out

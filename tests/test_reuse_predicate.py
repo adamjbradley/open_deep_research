@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+
 from open_deep_research.factbase.reuse import is_reusable
 
 NOW = datetime(2026, 6, 30, tzinfo=timezone.utc)
@@ -6,7 +7,8 @@ NOW = datetime(2026, 6, 30, tzinfo=timezone.utc)
 
 def _row(**kw):
     base = {"in_conflict": False, "trusted_captured_at": "2026-06-01T00:00:00Z"}
-    base.update(kw); return base
+    base.update(kw)
+    return base
 
 
 def test_trusted_recent_unconflicted_is_reusable():

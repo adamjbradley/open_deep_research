@@ -35,7 +35,6 @@ from open_deep_research.utils import get_api_key_for_model, get_today_str
 from open_deep_research.nodes.profiles import (
     _resolve_subject,
     select_profile,
-    resolve_target_properties,
     resolve_run_target_properties,
 )
 
@@ -164,9 +163,26 @@ async def assess_knowledge(state: AgentState, config: RunnableConfig) -> Command
                 by_prop = defaultdict(list)   # a property can have several grouped rows
                 for g in grouped:
                     by_prop[g.get("property_name")].append(g)
-                reusable = [p for p in targets
-                            if by_prop.get(p) and is_property_reusable(
-                                by_prop[p], now=now, max_age_days=configurable.kb_reuse_max_age_days)]
+                if configurable.whole_profile_mode:
+                    # Whole-profile reuse also requires qualifier-completeness: a property
+                    # whose value is trusted+recent but whose required qualifier is missing
+                    # must be researched, not skipped.
+                    from open_deep_research.factbase import profile as _fbprofile
+                    from open_deep_research.factbase import completeness as fbc
+                    _prof = _fbprofile.load(profile_name)
+                    _ledger = fbc.assess_property_status(grouped, set(), _prof)
+                    reusable = [p for p in targets
+                                if by_prop.get(p)
+                                and is_property_reusable(
+                                    by_prop[p], now=now,
+                                    max_age_days=configurable.kb_reuse_max_age_days)
+                                and fbc.is_complete(_ledger.get(p), next(
+                                    (pd for pd in _prof.properties if pd.name == p), None))]
+                else:
+                    # Facts-first: trust+freshness only (sufficiency loop handles qualifiers).
+                    reusable = [p for p in targets
+                                if by_prop.get(p) and is_property_reusable(
+                                    by_prop[p], now=now, max_age_days=configurable.kb_reuse_max_age_days)]
             to_research = [p for p in targets if p not in reusable]
             if targets and not to_research:
                 return Command(goto="answer_from_facts",

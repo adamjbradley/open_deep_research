@@ -1,5 +1,8 @@
-import asyncio, aiosqlite
-from open_deep_research.factbase import schema, migrations, query
+import asyncio
+
+import aiosqlite
+
+from open_deep_research.factbase import migrations, query, schema
 
 
 async def _seed(conn):
