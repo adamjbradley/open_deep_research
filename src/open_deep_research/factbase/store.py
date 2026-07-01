@@ -32,12 +32,16 @@ class RunSourceStore:
         await self._conn.commit()
 
     async def read(self, thread_id: str) -> list[dict]:
+        _prev = self._conn.row_factory
         self._conn.row_factory = aiosqlite.Row
-        cur = await self._conn.execute(
-            "SELECT rs.id, rs.source_url, rs.capture_status, rs.reason, rs.title, "
-            "       COALESCE(rs.text, sc.text) AS text "
-            "FROM run_source rs "
-            "LEFT JOIN source_content sc ON sc.content_hash = rs.content_hash "
-            "WHERE rs.thread_id=? AND rs.soft_deleted_at IS NULL",
-            (thread_id,))
-        return [dict(r) for r in await cur.fetchall()]
+        try:
+            cur = await self._conn.execute(
+                "SELECT rs.id, rs.source_url, rs.capture_status, rs.reason, rs.title, "
+                "       COALESCE(rs.text, sc.text) AS text "
+                "FROM run_source rs "
+                "LEFT JOIN source_content sc ON sc.content_hash = rs.content_hash "
+                "WHERE rs.thread_id=? AND rs.soft_deleted_at IS NULL",
+                (thread_id,))
+            return [dict(r) for r in await cur.fetchall()]
+        finally:
+            self._conn.row_factory = _prev

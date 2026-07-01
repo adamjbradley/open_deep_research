@@ -67,27 +67,31 @@ async def _source_hits(conn, match, target, limit):
         WHERE fts_source MATCH ? AND sc.soft_deleted_at IS NULL
         ORDER BY score LIMIT ?
     """
+    _prev = conn.row_factory
     conn.row_factory = aiosqlite.Row
-    cur = await conn.execute(sql, (match, limit))
-    rows = await cur.fetchall()
-    out = []
-    for row in rows:
-        # subjects that captured this content (via run_source -> research_runs -> subjects)
-        subj_cur = await conn.execute(
-            "SELECT DISTINCT s.name FROM run_source rs "
-            "JOIN research_runs r ON r.thread_id = rs.thread_id "
-            "JOIN subjects s ON s.id = r.subject_id "
-            "WHERE rs.content_hash = (SELECT content_hash FROM source_content WHERE id=?) AND rs.soft_deleted_at IS NULL",
-            (row["id"],))
-        subjects = {CountryResolver().resolve_in_text(n[0]) for n in await subj_cur.fetchall() if n[0]}
-        subjects.discard(None)
-        if target is not None and target not in subjects:
-            continue
-        subj = target if target is not None else (sorted(subjects)[0] if subjects else None)
-        out.append(Hit(kind="source", ref_id=row["id"], subject=subj,
-                       snippet=row["snip"], score=-row["score"],
-                       source_url=row["source_url"], title=row["title"], retrieved_at=row["first_seen_at"]))
-    return out
+    try:
+        cur = await conn.execute(sql, (match, limit))
+        rows = await cur.fetchall()
+        out = []
+        for row in rows:
+            # subjects that captured this content (via run_source -> research_runs -> subjects)
+            subj_cur = await conn.execute(
+                "SELECT DISTINCT s.name FROM run_source rs "
+                "JOIN research_runs r ON r.thread_id = rs.thread_id "
+                "JOIN subjects s ON s.id = r.subject_id "
+                "WHERE rs.content_hash = (SELECT content_hash FROM source_content WHERE id=?) AND rs.soft_deleted_at IS NULL",
+                (row["id"],))
+            subjects = {CountryResolver().resolve_in_text(n[0]) for n in await subj_cur.fetchall() if n[0]}
+            subjects.discard(None)
+            if target is not None and target not in subjects:
+                continue
+            subj = target if target is not None else (sorted(subjects)[0] if subjects else None)
+            out.append(Hit(kind="source", ref_id=row["id"], subject=subj,
+                           snippet=row["snip"], score=-row["score"],
+                           source_url=row["source_url"], title=row["title"], retrieved_at=row["first_seen_at"]))
+        return out
+    finally:
+        conn.row_factory = _prev
 
 
 async def _fact_hits(conn, match, target, limit):
@@ -106,13 +110,17 @@ async def _fact_hits(conn, match, target, limit):
         subject_clause = "AND f.instance_key = ?"
         params.append(target)
     params.append(limit)
+    _prev = conn.row_factory
     conn.row_factory = aiosqlite.Row
-    cur = await conn.execute(sql.format(subject=subject_clause), tuple(params))
-    return [Hit(kind="fact", ref_id=row["id"], subject=row["instance_key"],
-                snippet=row["snip"], score=-row["score"], value=row["value"],
-                property_name=row["property_name"], as_of=row["as_of"],
-                lifecycle=row["lifecycle"], admission=row["admission"])
-            for row in await cur.fetchall()]
+    try:
+        cur = await conn.execute(sql.format(subject=subject_clause), tuple(params))
+        return [Hit(kind="fact", ref_id=row["id"], subject=row["instance_key"],
+                    snippet=row["snip"], score=-row["score"], value=row["value"],
+                    property_name=row["property_name"], as_of=row["as_of"],
+                    lifecycle=row["lifecycle"], admission=row["admission"])
+                for row in await cur.fetchall()]
+    finally:
+        conn.row_factory = _prev
 
 
 async def search_research(conn, query, *, subject=None, kinds=("source", "fact"), limit=20):
