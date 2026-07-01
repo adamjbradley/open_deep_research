@@ -3,6 +3,8 @@
 import logging
 from typing import Literal
 
+import aiosqlite
+
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, get_buffer_string
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END
@@ -34,6 +36,7 @@ from open_deep_research.nodes.profiles import (
     _resolve_subject,
     select_profile,
     resolve_target_properties,
+    resolve_run_target_properties,
 )
 
 logger = logging.getLogger(__name__)
@@ -108,7 +111,7 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
         )
 
 
-async def assess_knowledge(state: AgentState, config: RunnableConfig) -> Command[Literal["answer_from_dossier", "write_research_brief", "clarify_with_user"]]:
+async def assess_knowledge(state: AgentState, config: RunnableConfig) -> Command[Literal["answer_from_dossier", "write_research_brief", "clarify_with_user", "answer_from_facts"]]:
     """Entry node: match the question to a stored subject and decide how to handle it.
 
     - The dossier already answers the question  -> answer straight from the cache.
@@ -141,6 +144,43 @@ async def assess_knowledge(state: AgentState, config: RunnableConfig) -> Command
 
     existing = await get_subject_by_slug(db_path, slugify(subject))
     dossier = (existing or {}).get("current_report") if existing else None
+
+    # KB-first gate (facts-first / whole-profile): skip already-good properties before round 1.
+    if configurable.kb_first_gate and (configurable.facts_first_mode or configurable.whole_profile_mode):
+        try:
+            from open_deep_research.factbase.reuse import is_property_reusable
+            from open_deep_research.factbase.query import FactQuery
+            from collections import defaultdict
+            from open_deep_research.factbase.entities import CountryResolver
+            from datetime import datetime, timezone
+            profile_name = configurable.profile_name  # selected profile (config default)
+            targets = await resolve_run_target_properties(question, profile_name, configurable, config)
+            ik = CountryResolver().resolve_in_text(subject) or CountryResolver().resolve(subject)
+            now = datetime.now(timezone.utc)
+            reusable = []
+            if ik:
+                async with aiosqlite.connect(db_path) as _conn:
+                    grouped = await FactQuery(_conn).show_grouped(ik)
+                by_prop = defaultdict(list)   # a property can have several grouped rows
+                for g in grouped:
+                    by_prop[g.get("property_name")].append(g)
+                reusable = [p for p in targets
+                            if by_prop.get(p) and is_property_reusable(
+                                by_prop[p], now=now, max_age_days=configurable.kb_reuse_max_age_days)]
+            to_research = [p for p in targets if p not in reusable]
+            if targets and not to_research:
+                return Command(goto="answer_from_facts",
+                               update={"subject": subject, "answered_from_cache": True,
+                                       "target_properties": reusable})
+            if reusable:  # partial: research only the delta
+                gap = ("These properties are already known and trusted (skipped): "
+                       + ", ".join(reusable) + ". Research only: " + ", ".join(to_research) + ".")
+                return Command(goto="write_research_brief",
+                               update={"subject": subject, "target_properties": to_research,
+                                       "missing_information": gap})
+        except Exception as e:
+            logger.warning("KB-first gate failed; researching normally: %s", e)
+        # nothing reusable (or error) -> fall through to the normal flow below
 
     # Step 2: New subject -> clarify scope (if enabled) then research.
     if not dossier:
