@@ -13,6 +13,7 @@ class FactQuery:
         sql = (
             "SELECT f.id, f.instance_key, f.property_name, f.qualifiers_json, f.as_of, f.value, "
             "f.unit, f.canonical_value, f.canonical_unit, f.narrative, f.admission, f.lifecycle, "
+            "f.created_at, "
             "s.url_or_domain AS source_url, s.tier AS source_tier, "
             "EXISTS (SELECT 1 FROM conflict_member cm JOIN conflict c ON c.id=cm.conflict_id "
             "        WHERE cm.fact_id=f.id AND c.status='open') AS in_conflict "
@@ -54,10 +55,12 @@ def group_by_canonical(rows: list[dict]) -> list[dict]:
         g = groups.get(key)
         if g is None:
             g = {**r, "value": cval, "admission": "provisional",
-                 "in_conflict": False, "source_count": 0, "variants": [], "narrative": ""}
+                 "in_conflict": False, "source_count": 0, "variants": [], "narrative": "",
+                 "trusted_captured_at": None}
             g["_sources"] = set()
             g["_variants"] = set()
             g["_narratives"] = []
+            g["_trusted_created"] = []
             groups[key] = g
         if r.get("source_url"):
             g["_sources"].add(r["source_url"])
@@ -67,6 +70,8 @@ def group_by_canonical(rows: list[dict]) -> list[dict]:
             g["_narratives"].append(n)
         if r.get("admission") == "trusted":
             g["admission"] = "trusted"
+        if r.get("admission") == "trusted" and r.get("created_at"):
+            g["_trusted_created"].append(r["created_at"])
         if r.get("in_conflict"):
             g["in_conflict"] = True
     out = []
@@ -74,5 +79,8 @@ def group_by_canonical(rows: list[dict]) -> list[dict]:
         g["source_count"] = len(g.pop("_sources"))
         g["variants"] = sorted(g.pop("_variants"))
         g["narrative"] = " / ".join(g.pop("_narratives"))
+        tc = g.pop("_trusted_created")
+        g["trusted_captured_at"] = max(tc) if tc else None
+        g.pop("created_at", None)
         out.append(g)
     return out
