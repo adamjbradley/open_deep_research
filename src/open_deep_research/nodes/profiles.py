@@ -108,6 +108,15 @@ async def select_profile(question, configurable, config) -> str:
         return configurable.profile_name
 
 
+async def resolve_run_target_properties(question, profile_name, configurable, config) -> list[str]:
+    """The run's target properties: whole-profile = all props; facts-first = question-scoped."""
+    from open_deep_research.factbase import profile as _fbprofile
+    prof = _fbprofile.load(profile_name)
+    if configurable.whole_profile_mode:
+        return [pd.name for pd in prof.properties]
+    return await resolve_target_properties(question, prof, configurable, config)
+
+
 async def resolve_target_properties(question, prof, configurable, config) -> list[str]:
     """Map a question to the subset of profile properties needed to answer it (facts-first).
 

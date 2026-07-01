@@ -321,16 +321,11 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> dic
     target_properties = state.get("target_properties")
     if configurable.facts_first_mode or configurable.whole_profile_mode:
         from open_deep_research.factbase import profile as _fbprofile
+        from open_deep_research.nodes.profiles import resolve_run_target_properties
         _prof = _fbprofile.load(profile_name)
-        if configurable.whole_profile_mode and not target_properties:
-            # Round 1 covers the whole profile. On gap rounds, assess_completeness has narrowed
-            # target_properties to the still-incomplete set -- keep it (don't re-target resolved
-            # properties), so steering + extraction focus on what's actually missing.
-            target_properties = [pd.name for pd in _prof.properties]
-        elif not configurable.whole_profile_mode and not target_properties:
-            target_properties = await resolve_target_properties(
-                question, _prof, configurable, config
-            )
+        if not target_properties:
+            target_properties = await resolve_run_target_properties(
+                question, profile_name, configurable, config)
         if target_properties:
             # Steer research with the property catalog (definitions, allowed values,
             # qualifiers) -- not just bare names -- so facts are gathered with their qualifiers.
