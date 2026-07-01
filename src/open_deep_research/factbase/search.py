@@ -69,7 +69,7 @@ async def _source_hits(conn, match, target, limit):
             "JOIN subjects s ON s.id = r.subject_id "
             "WHERE rs.content_hash = (SELECT content_hash FROM source_content WHERE id=?) AND rs.soft_deleted_at IS NULL",
             (row["id"],))
-        subjects = {CountryResolver().resolve(n[0]) for n in await subj_cur.fetchall() if n[0]}
+        subjects = {CountryResolver().resolve_in_text(n[0]) for n in await subj_cur.fetchall() if n[0]}
         subjects.discard(None)
         if target is not None and target not in subjects:
             continue
