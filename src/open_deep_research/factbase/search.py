@@ -24,7 +24,7 @@ class Hit:
     ref_id: int                     # base-table row id
     subject: str | None             # canonical alpha-3 country key
     snippet: str
-    score: float                    # higher = more relevant (−bm25)
+    score: float                    # normalized [0,1] per-kind rank (higher = better)
     source_url: str | None = None
     title: str | None = None
     property_name: str | None = None
@@ -33,6 +33,16 @@ class Hit:
     admission: str | None = None
     value: str | None = None
     retrieved_at: str | None = None
+
+
+def _normalize(hits: list) -> None:
+    """Min-max scale hits' .score to [0,1] in place (all-equal / single -> 1.0)."""
+    if not hits:
+        return
+    scores = [h.score for h in hits]
+    lo, hi = min(scores), max(scores)
+    for h in hits:
+        h.score = 1.0 if hi == lo else (h.score - lo) / (hi - lo)
 
 
 def _to_match(query: str) -> str | None:
@@ -108,21 +118,21 @@ async def _fact_hits(conn, match, target, limit):
 async def search_research(conn, query, *, subject=None, kinds=("source", "fact"), limit=20):
     """Keyword-search the substrate. Returns ranked Hits (higher score = better).
 
-    Cross-kind scores are both −bm25 and only approximately comparable in v1.
+    Scores are normalized per-kind to [0,1] before the merge.
     """
     await search_schema.ensure_search_schema(conn)
     match = _to_match(query)
     if match is None:
         return []
     target = await _resolve_subject(subject)
-    hits: list[Hit] = []
     try:
-        if "source" in kinds:
-            hits += await _source_hits(conn, match, target, limit)
-        if "fact" in kinds:
-            hits += await _fact_hits(conn, match, target, limit)
+        src = await _source_hits(conn, match, target, limit) if "source" in kinds else []
+        fct = await _fact_hits(conn, match, target, limit) if "fact" in kinds else []
     except aiosqlite.OperationalError:
         return []  # FTS syntax edge cases degrade to "no results", never raise
+    _normalize(src)
+    _normalize(fct)
+    hits = src + fct
     hits.sort(key=lambda h: h.score, reverse=True)
     return hits[:limit]
 
