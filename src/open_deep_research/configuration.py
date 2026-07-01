@@ -408,6 +408,16 @@ class Configuration(BaseModel):
             }
         }
     )
+    kb_first_gate: bool = Field(
+        default=False,
+        metadata={"x_oap_ui_config": {"type": "boolean", "default": False,
+            "description": "Facts-first / whole-profile only: before round-1 research, skip properties whose stored value is already trusted, unconflicted, and captured within kb_reuse_max_age_days. If all target properties are good, answer from the fact base without researching."}}
+    )
+    kb_reuse_max_age_days: int = Field(
+        default=180,
+        metadata={"x_oap_ui_config": {"type": "number", "default": 180, "min": 1, "max": 3650,
+            "description": "KB-first gate: a trusted fact captured within this many days is reused (research skipped); older than this it is re-verified."}}
+    )
     # MCP server configuration
     mcp_config: Optional[MCPConfig] = Field(
         default=None,
